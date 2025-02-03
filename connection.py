@@ -28,6 +28,7 @@ class Sequence:
 
 
 class FirstFrag(ctypes.Structure):
+    _pack_ = 1
     _fields_ = [("protocol_opcode", ctypes.c_ushort),
                 ("sequence", ctypes.c_ushort),
                 ("total_len", ctypes.c_uint),
@@ -35,6 +36,7 @@ class FirstFrag(ctypes.Structure):
 
 
 class Frag(ctypes.Structure):
+    _pack_ = 1
     _fields_ = [("protocol_opcode", ctypes.c_short),
                 ("sequence", ctypes.c_short)]
 
@@ -104,9 +106,16 @@ class Connection:
             print(f"LOGIN to CLIENT (len {length}):")
         else:
             print(f"CLIENT to LOGIN (len {length}):")
-        for i in range(start_index, start_index + length, 16):
-            print(" ".join(f"{x:02x}" for x in buf[i:i + 16]), end="  ")
-            print("".join(chr(x) if 32 <= x < 127 else '.' for x in buf[i:i + 16]))
+
+        remaining = length
+        print_chars = 64
+        for i in range(start_index, start_index + length, 64):
+            if remaining > 64:
+                remaining -= 64
+            else:
+                print_chars = remaining
+            print(" ".join(f"{x:02x}".upper() for x in buf[i:i + print_chars]), end="  ")
+            print("".join(chr(x) if 32 <= x < 127 else '.' for x in buf[i:i + print_chars]))
 
     def connection_send(self, data, start_index, length, to_remote):
         addr = self.remote_addr if to_remote else self.local_addr
@@ -153,20 +162,17 @@ class Connection:
         self.last_recv_time = recv_time
         return True
 
-    # def connection_reset(self, addr):
-    #     # Totally AI, does this work?
-    #     # self.remote_addr = addr
-    #     self.local_addr = addr
-    #     self.in_session = False
-    #     self.sequence_free()
-
     @staticmethod
     def get_protocol_opcode(data, start_index):
-        return struct.unpack('!H', data[start_index:start_index + 2])[0]
+        opcode = struct.unpack('!H', data[start_index:start_index + 2])[0]
+        print(f"get_protocol_opcode: {opcode}")
+        return opcode
 
     @staticmethod
     def get_sequence(data, start_index):
-        return struct.unpack('!H', data[start_index + 2:start_index + 4])[0]
+        seq = struct.unpack('!H', data[start_index + 2:start_index + 4])[0]
+        print(f"{seq}")
+        return seq
 
     @staticmethod
     def copy_fragment(packet, data, start_index, length):
@@ -295,9 +301,9 @@ class Connection:
             i = pos
             pos += self.strlen(server_list, pos) + 1  # /* IP address */
             pos += struct.calcsize('i') * 2  # /* ListId, runtimeId */
-            namesize = self.strlen(server_list, pos)
+            namesize = self.strlen(server_list, pos)  # Calculate the length of the next whole string from this point
             name = server_list[pos:pos + namesize]
-            pos += len(name) + 1
+            pos += len(name) + 1  # Move forward past the name we just pulled out
             language = server_list[pos:pos + self.strlen(server_list, pos)]
             pos += self.strlen(server_list, pos) + 1  # /* language */
             region = server_list[pos:pos + self.strlen(server_list, pos)]
@@ -311,7 +317,7 @@ class Connection:
                 out_len += pos - i
 
         # /* Write our outgoing server count */
-        struct.pack_into('!I', out_buffer, 22, out_count)
+        struct.pack_into('<I', out_buffer, 22, out_count)
 
         self.sequence.seq_from_remote = new_index + 1
         self.sequence.seq_from_remote_offset = self.sequence.seq_from_remote
@@ -319,7 +325,7 @@ class Connection:
         self.sequence.frag_start = 0
         for packet in self.sequence.packets:
             packet.data = None
-            # packet.length = 0
+            packet.length = 0
         self.connection_send(out_buffer, 0, out_len, False)
 
     def sequence_recv_packet(self, buffer, start_index, length) -> None:
