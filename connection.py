@@ -5,6 +5,8 @@ import os
 import time
 import logging
 
+from Crypto.Cipher import DES
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -39,6 +41,14 @@ class Frag(ctypes.Structure):
     _pack_ = 1
     _fields_ = [("protocol_opcode", ctypes.c_short),
                 ("sequence", ctypes.c_short)]
+
+
+class LoginBaseMessage(ctypes.Structure):
+    _pack_ = 1
+    _fields_ = [("sequence", ctypes.c_int32),
+                ("compressed", ctypes.c_bool),
+                ("encrypt_type", ctypes.c_int8),
+                ("unk3", ctypes.c_int32)]
 
 
 class Connection:
@@ -99,14 +109,14 @@ class Connection:
             if pos >= length:
                 return
 
-    @staticmethod
-    def debug_write_packet(buf, start_index, length, login_to_client):
+    def debug_write_packet(self, buf, start_index, length, login_to_client):
         print(f"{time.time()} ", end="")
         if login_to_client:
             print(f"LOGIN to CLIENT (len {length}):")
         else:
             print(f"CLIENT to LOGIN (len {length}):")
 
+        # self.check_rewrite_auth(buf, start_index, length, login_to_client)
         remaining = length
         print_chars = 64
         for i in range(start_index, start_index + length, 64):
@@ -117,9 +127,63 @@ class Connection:
             print(" ".join(f"{x:02x}".upper() for x in buf[i:i + print_chars]), end="  ")
             print("".join(chr(x) if 32 <= x < 127 else '.' for x in buf[i:i + print_chars]))
 
+    def check_rewrite_auth(self, buf, start_index, length, login_to_client):
+        """
+        struct LoginBaseMessage_Struct {
+            int32_t sequence;     // request type/login sequence (2: handshake, 3: login, 4: serverlist, ...)
+            bool    compressed;   // true: deflated
+            int8_t  encrypt_type; // 1: invert (unused) 2: des (2 for encrypted player logins and order expansions) (client uses what it sent, ignores in reply)
+            int32_t unk3;         // unused?
+        };
+
+        sequence = \x00\x03\x04\x00
+        compressed = \x15
+        encrypt_type = \x00
+        unk3 = \x00\x28\x00\x09
+        """
+        if buf.startswith(b'\x00\x03\x04\x00\x15\x00\x00') and not login_to_client:  # \x28\x00\x09\x00\x01
+            # LOGIN packet
+            # lm = LoginBaseMessage.from_buffer_copy(buf, 0)
+            # lm_dict = {}
+            # for field_name, _ in lm._fields_:
+            #     lm_dict[field_name] = getattr(lm, field_name)
+            # print(f"LOGIN MESSAGE:  {lm_dict}")
+            #self.debug_write_packet(buf, start_index, length, login_to_client)
+
+            data = buf[start_index + 14 + ctypes.sizeof(LoginBaseMessage):length]
+            data_len = len(data)
+            padded_data = data.ljust((int(data_len / 8) + 1) * 8, b'\x00')
+            data_string = " ".join(f"{x:02x}".upper() for x in padded_data)
+            buf_string = " ".join(f"{x:02x}".upper() for x in buf[start_index:length])
+            hex_string = "\\x".join(f"{x:02x}".upper() for x in padded_data)
+            # print(f"LOGIN DATA (len: {data_len}): {data_string}")
+            # print(f"LOGIN HEX:  {hex_string}")
+            key = b'blah'
+            iv = b'blah'
+            cipher = DES.new(key, DES.MODE_CBC, iv)
+            decrypted_text = cipher.decrypt(data)
+            user, password = decrypted_text.rstrip(b'\x00').split(b'\x00')
+            # print(f'user: `{user.decode()}`, password: `{password.decode()}`')
+            with open("login_packet.bin", "a") as f:
+                f.write(f"{user.decode()}|{password.decode()}: {buf_string}\n")
+                # f.write(f"{hex_string}\n")
+            if user.decode() == "test" and password.decode() == "test":
+                print("LOGIN:  test/test, replacing...")
+                cipher = DES.new(key, DES.MODE_CBC, iv)
+                plaintext = b'a\x00a\x00'
+                padded_plaintext = plaintext.ljust((int(len(plaintext) / 8) + 1) * 8, b'\x00')
+                encrypted_text = cipher.encrypt(padded_plaintext)
+                new_login = buf[:start_index + 14 + ctypes.sizeof(LoginBaseMessage)] + encrypted_text
+                new_login[7] = len(new_login) - 8
+                #self.debug_write_packet(new_login, start_index, len(new_login), login_to_client)
+                return new_login, len(new_login)
+
+        return buf, length
+
     def connection_send(self, data, start_index, length, to_remote):
         addr = self.remote_addr if to_remote else self.local_addr
-        self.debug_write_packet(data, start_index, length, not to_remote)
+        # self.debug_write_packet(data, start_index, length, not to_remote)
+        data, length = self.check_rewrite_auth(data, start_index, length, not to_remote)
         try:
             self.socket.sendto(data[start_index:start_index + length], addr)
         except Exception as ex:
@@ -152,8 +216,10 @@ class Connection:
 
         # // Check if packet is from remote server
         if addr == self.remote_addr:
+            self.debug_write_packet(self.buffer, 0, length, True)
             self.recv_from_remote(self.buffer, 0, length)
         else:
+            self.debug_write_packet(self.buffer, 0, length, False)
             if not self.in_session or (recv_time - self.last_recv_time) > 60:
                 # was: connection_reset(addr)
                 self.local_addr = addr
@@ -165,13 +231,13 @@ class Connection:
     @staticmethod
     def get_protocol_opcode(data, start_index):
         opcode = struct.unpack('!H', data[start_index:start_index + 2])[0]
-        print(f"get_protocol_opcode: {opcode}")
+        # print(f"get_protocol_opcode: {opcode}")
         return opcode
 
     @staticmethod
     def get_sequence(data, start_index):
         seq = struct.unpack('!H', data[start_index + 2:start_index + 4])[0]
-        print(f"{seq}")
+        # print(f"{seq}")
         return seq
 
     @staticmethod
