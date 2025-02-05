@@ -1,1 +1,5 @@
 .idea
+*.ini
+__pycache__
+*.log
+*.bin

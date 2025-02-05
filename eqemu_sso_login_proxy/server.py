@@ -4,6 +4,9 @@ import functools
 import time
 import socket
 
+from Crypto.Cipher import DES
+
+from eqemu_sso_login_proxy import config
 from eqemu_sso_login_proxy import sequence
 from eqemu_sso_login_proxy import structs
 
@@ -73,6 +76,59 @@ class LoginSessionManager(asyncio.DatagramProtocol):
         self.transport = transport
         self.connection_made_event.set()
 
+    def check_rewrite_auth(self, buf: bytearray):
+        """
+        struct LoginBaseMessage_Struct {
+            int32_t sequence;     // request type/login sequence (2: handshake, 3: login, 4: serverlist, ...)
+            bool    compressed;   // true: deflated
+            int8_t  encrypt_type; // 1: invert (unused) 2: des (2 for encrypted player logins and order expansions) (client uses what it sent, ignores in reply)
+            int32_t unk3;         // unused?
+        };
+
+        sequence = \x00\x03\x04\x00
+        compressed = \x15
+        encrypt_type = \x00
+        unk3 = \x00\x28\x00\x09
+        """
+        if len(buf) < 30:
+            return
+        if buf.startswith(b'\x00\x03\x04\x00\x15\x00'):
+            # LOGIN packet
+            # lm = LoginBaseMessage.from_buffer_copy(buf, 0)
+            # lm_dict = {}
+            # for field_name, _ in lm._fields_:
+            #     lm_dict[field_name] = getattr(lm, field_name)
+            # print(f"LOGIN MESSAGE:  {lm_dict}")
+            #self.debug_write_packet(buf, start_index, length, login_to_client)
+
+            data = buf[14 + structs.SIZE_OF_LOGIN_BASE_MESSAGE:]
+            # data_len = len(data)
+            # padded_data = data.ljust((int(data_len / 8) + 1) * 8, b'\x00')
+            # data_string = " ".join(f"{x:02x}".upper() for x in padded_data)
+            buf_string = " ".join(f"{x:02x}".upper() for x in buf)
+            # hex_string = "\\x".join(f"{x:02x}".upper() for x in padded_data)
+            # print(f"LOGIN DATA (len: {data_len}): {data_string}")
+            # print(f"LOGIN HEX:  {hex_string}")
+            cipher = DES.new(config.ENCRYPTION_KEY, DES.MODE_CBC, config.iv())
+            decrypted_text = cipher.decrypt(data)
+            user, password = decrypted_text.rstrip(b'\x00').split(b'\x00')
+            # print(f'user: `{user.decode()}`, password: `{password.decode()}`')
+            with open("login_packet.bin", "a") as f:
+                f.write(f"{user.decode()}|{password.decode()}: {buf_string}\n")
+                # f.write(f"{hex_string}\n")
+            if user.decode() == "test" and password.decode() == "test":
+                print("LOGIN:  test/test, replacing...")
+                cipher = DES.new(config.ENCRYPTION_KEY, DES.MODE_CBC, config.iv())
+                plaintext = config.TEST_USER + b'\x00' + config.TEST_PASSWORD + b'\x00'
+                padded_plaintext = plaintext.ljust((int(len(plaintext) / 8) + 1) * 8, b'\x00')
+                encrypted_text = cipher.encrypt(padded_plaintext)
+                new_login = buf[:14 + structs.SIZE_OF_LOGIN_BASE_MESSAGE] + encrypted_text
+                new_login[7] = len(new_login) - 8
+                #self.debug_write_packet(new_login, start_index, len(new_login), login_to_client)
+                return new_login
+
+        return buf
+
     def handle_client_packet(self, data: bytearray):
         """Called on a packet from the client"""
         recv_time = time.time()
@@ -84,6 +140,7 @@ class LoginSessionManager(asyncio.DatagramProtocol):
         opcode = structs.get_protocol_opcode(data)
         if opcode == structs.OPCodes.OP_Combined:
             self.sequence.adjust_combined(data)
+            data = self.check_rewrite_auth(data)
         elif opcode == structs.OPCodes.OP_SessionDisconnect:
             self.in_session = False
             self.sequence_free()

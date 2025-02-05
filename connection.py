@@ -392,6 +392,7 @@ class Connection:
         for packet in self.sequence.packets:
             packet.data = None
             packet.length = 0
+        self.debug_write_packet(out_buffer, 0, out_len, False)
         self.connection_send(out_buffer, 0, out_len, False)
 
     def sequence_recv_packet(self, buffer, start_index, length) -> None:

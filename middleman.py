@@ -8,7 +8,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 class LoginMiddlemand:
-    def __init__(self, host="0.0.0.0", port=5998):
+    def __init__(self, host="0.0.0.0", port=5999):
         self.connection = None
         self.thread = None
         self.running: bool = False
