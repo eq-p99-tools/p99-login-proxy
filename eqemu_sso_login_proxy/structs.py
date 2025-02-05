@@ -69,7 +69,7 @@ class OPCodes(enum.Enum):
 def get_protocol_opcode(data: bytes):
     # cstyle_opcode = struct.unpack('!H', data[:2])[0]
     opcode = int.from_bytes(data[:2], byteorder='big')
-    print(f"get_protocol_opcode: {opcode}")
+    print(f"get_protocol_opcode: {opcode} ({OPCodes(opcode).name})")
     return OPCodes(opcode)
 
 

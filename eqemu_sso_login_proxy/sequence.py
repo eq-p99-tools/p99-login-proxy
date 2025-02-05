@@ -1,10 +1,6 @@
 from eqemu_sso_login_proxy import structs
 
 
-def copy_fragment(packet, data, start_index, length):
-    packet.data = data[start_index:start_index + length]
-
-
 class Packet:
     def __init__(self):
         self.is_fragment = False
@@ -23,45 +19,34 @@ class Sequence:
         self.seq_from_remote = 0
         self.seq_from_remote_offset = 0
 
-    def free(self):
-        if not self.packets:
-            return
-        self.packets.clear()
-        self.capacity = 0
-        self.count = 0
-        self.frag_start = 0
-        self.frag_count = 0
-        self.seq_to_local = 0
-        self.seq_from_remote = 0
-        self.seq_from_remote_offset = 0
-
-    def adjust_combined(self, data: bytearray):
+    def adjust_combined(self, buffer: bytearray):
         pos = 2
-        length = len(data)
+        length = len(buffer)
         if length < 4:
             return
         while True:
-            sublen = data[pos]
+            sublen = buffer[pos]
             pos += 1
             if (pos + sublen) > length or sublen == 0:
                 return
-            data[:] = data[pos:pos + sublen]
+            # data = buffer[pos:pos + sublen]
             # if struct.unpack('!H', data[:2])[0] == 0x15:
-            if structs.get_protocol_opcode(data) == structs.OPCodes.OP_Combined:
-                self.adjust_ack(data, sublen)
+            if structs.get_protocol_opcode(buffer[pos:pos + sublen]) == structs.OPCodes.OP_Combined:
+                self.adjust_ack(buffer, pos, sublen)
             pos += sublen
             if pos >= length:
                 return
 
-    def adjust_ack(self, data: bytearray, start_index: int):
-        length = len(data)
+    def adjust_ack(self, data: bytearray, start_index: int, length: int):
         if length < 4:
             return
         # struct.pack_into('!H', data, 2, self.seq_from_remote - 1)
-        new_bytes = (self.seq_from_remote - 1).to_bytes(2, byteorder='big')
+        new_bytes = (max(self.seq_from_remote - 1, 0)).to_bytes(2, byteorder='big')
         data[2 + start_index:4 + start_index] = new_bytes
 
-    def sequence_recv_combined(self, buffer: bytearray, start_index: int, length: int) -> None:
+    @staticmethod
+    def recv_combined(buffer: bytearray, recv_func, start_index, length) -> None:
+        # length = len(buffer)
         pos = 2 + start_index
         if length < 4:
             return
@@ -70,12 +55,12 @@ class Sequence:
             pos += 1
             if (pos + sublen) > length or sublen == 0:
                 return
-            self.recv_from_remote(buffer, pos, sublen)
+            recv_func(buffer, start_index=pos, length=sublen, addr=None)
             pos += sublen
             if pos >= length:
                 return
 
-    def sequence_recv_packet(
+    def recv_packet(
             self, buffer: bytearray, start_index: int, length: int) -> bytearray or None:
         seq_val = structs.get_sequence(buffer, start_index)
         packet = self.get_packet_space(seq_val, length)
@@ -83,30 +68,38 @@ class Sequence:
         # struct.pack_into('!H', buffer, 2 + start_index, self.seq_to_local)
         new_bytes = self.seq_to_local.to_bytes(2, byteorder='big')
         buffer[2 + start_index:4 + start_index] = new_bytes
-
+        print(f"recv_packet 1: {seq_val} ({self.seq_from_remote})")
         self.seq_to_local += 1
         if seq_val != self.seq_from_remote:
+            print(f"recv_packet 1.5: {seq_val} ({self.seq_from_remote})")
             return
         seq_val -= self.seq_from_remote_offset
+        print(f"recv_packet 2: {seq_val} ({self.seq_from_remote}) -> {len(self.packets)}")
         for i in range(seq_val, self.count):
+            print(f"recv_packet 3: {i} ({len(self.packets)})")
             packet = self.packets[i]
             # if packet.length > 0:
-            if packet.data and len(packet.data) > 0:
+            if packet.length > 0:
                 self.seq_from_remote += 1
                 if packet.is_fragment and self.process_first_fragment(packet.data):
                     maybe_server_list = self.check_fragment_finished()
+                    print(f"recv_packet 4: {maybe_server_list}")
                     # If this is the server list, the caller should return it to the client
                     return maybe_server_list
 
-    def sequence_recv_fragment(self, data: bytearray, start_index: int, length: int) -> bytearray or None:
-        seq_val = structs.get_sequence(data, start_index)
-        packet = self.get_packet_space(seq_val, length)
+    def recv_fragment(self, data: bytearray, start_index: int, length: int) -> bytearray or None:
+        seq_val = structs.get_sequence(data, 0)
+        packet = self.get_packet_space(seq_val, len(data))
 
         packet.is_fragment = True
-        copy_fragment(packet, data, start_index, length)
+        packet.data = data[start_index:start_index + length]
 
+        print(f"recv_fragment 1: {seq_val} ({self.seq_from_remote}); frag_count: {self.frag_count}")
         if seq_val == self.seq_from_remote:
             self.process_first_fragment(data)
+            maybe_server_list = self.check_fragment_finished()
+            # If this is the server list, the caller should return it to the client
+            return maybe_server_list
         elif self.frag_count > 0:
             maybe_server_list = self.check_fragment_finished()
             # If this is the server list, the caller should return it to the client
@@ -119,13 +112,14 @@ class Sequence:
         while sequence >= len(self.packets):
             self.packets.append(Packet())
         packet = self.packets[sequence]
-        # packet.length = length
+        packet.length = length
         packet.data = None
         return packet
 
     def process_first_fragment(self, data: bytearray) -> bool:
         frag = structs.FirstFrag.from_buffer_copy(data)
-        if frag.app_opcode != 0x18:
+        print(f"process_first_fragment 1: {frag.app_opcode} ({structs.OPCodes.OP_ServerListResponse.value})")
+        if frag.app_opcode != structs.OPCodes.OP_ServerListResponse.value:
             return False
         self.frag_start = structs.get_sequence(data, 0)
 
@@ -145,22 +139,97 @@ class Sequence:
         count = 1
         packet = self.packets[index]
         # got = packet.length - structs.SIZE_OF_FIRST_FRAG + 2
-        got = len(packet.data) - structs.SIZE_OF_FIRST_FRAG + 2
+        got = packet.length - structs.SIZE_OF_FIRST_FRAG + 2
+        print(f"check_fragment_finished 1: {got} ({n})")
         while count < n:
             index += 1
+            # if index >= len(self.packets):
             if index >= self.count:
                 return
             packet = self.packets[index]
             if not packet.data:
                 return
-            got += len(packet.data) - structs.SIZE_OF_FRAG
+            got += packet.length - structs.SIZE_OF_FRAG
             count += 1
         server_list = self.filter_server_list(got - 2)
         return server_list
 
     def filter_server_list(self, total_len):
-        # /* Should not need nearly this much space just for P99 server listings */
-        out_buffer = bytearray()
+        index = self.frag_start - self.seq_from_remote_offset
+        packet = self.packets[index]
+        if packet.length == 0:
+            return
+
+        server_list = bytearray(packet.data[structs.SIZE_OF_FIRST_FRAG:])
+        while len(server_list) < total_len:
+            index += 1
+            packet = self.packets[index]
+            server_list += packet.data[structs.SIZE_OF_FRAG:]
+
+        # /* We now have the whole server list in one piece */
+        servers = []
+        # /* List of servers starts at serverList[20] */
+        pos = 20
+        while pos < total_len:
+            # /* Server listings are variable-size */
+            i = pos
+
+            ip_addr = server_list[pos:].split(b'\0', 1)[0]
+            pos += len(ip_addr) + 1
+
+            pos += structs.SIZE_OF_INT * 2  # /* ListId, runtimeId */
+
+            name = server_list[pos:].split(b'\0', 1)[0]
+            pos += len(name) + 1  # Move forward past the name we just pulled out
+
+            language = server_list[pos:].split(b'\0', 1)[0]
+            pos += len(language) + 1
+
+            region = server_list[pos:].split(b'\0', 1)[0]
+            pos += len(region) + 1
+
+            pos += structs.SIZE_OF_INT * 2  # /* Status, player count */
+
+            # /* Time to check the name! */
+            if name.lower().startswith(b"project 1999") or name.lower().startswith(b"an interesting"):
+                servers.append(server_list[i:pos])
+
+        out_buffer = b''.join(
+            [
+                # Starts with a null byte
+                b'\x00',
+                # Then the OP_Packet opcode
+                bytes([structs.OPCodes.OP_Packet.value]),
+                # Then the sequence number as 2 bytes
+                self.seq_to_local.to_bytes(2, byteorder='big'),
+                # Then the OP_ServerListResponse opcode
+                bytes([structs.OPCodes.OP_ServerListResponse.value]),
+                # Then a null byte
+                b'\x00',
+                # Then the first 16 bytes of the server list (the header)
+                server_list[:16],
+                # Then the server count as 4 bytes
+                len(servers).to_bytes(4, byteorder='little'),
+                # Then our compiled server list
+                b''.join(servers)
+            ]
+        )
+        print(f"filter_server_list: {servers}")
+
+        self.seq_to_local += 1
+        self.seq_from_remote = self.frag_start + 1
+        self.seq_from_remote_offset = self.seq_from_remote
+        self.frag_count = 0
+        self.frag_start = 0
+        for packet in self.packets:
+            packet.data = None
+            packet.length = 0
+        # self.packets.clear()
+
+        return out_buffer
+
+    """
+    def filter_server_list_old(self, total_len):
         index = self.frag_start - self.seq_from_remote_offset
         new_index = self.frag_start
         packet = self.packets[index]
@@ -183,23 +252,17 @@ class Sequence:
         # /* We now have the whole server list in one piece */
         # /* Write our output packet header */
         # out_buffer[0] = 0
-        out_buffer.append(0)
+
         # out_buffer[1] = structs.OPCodes.OP_Packet
-        out_buffer.append(structs.OPCodes.OP_Packet.value)
         # struct.pack_into('!H', out_buffer, 2, self.seq_to_local)
-        new_bytes = self.seq_to_local.to_bytes(2, byteorder='big')
         # out_buffer[2:4] = new_bytes
-        out_buffer += new_bytes
 
         self.seq_to_local += 1
         # out_buffer[4] = structs.OPCodes.OP_ServerListResponse
-        out_buffer.append(structs.OPCodes.OP_ServerListResponse.value)
         # out_buffer[5] = 0
-        out_buffer.append(0)
 
         # First 16 bytes of the server list packet is some kind of header, copy it over
         # out_buffer[6:22] = server_list[:16]
-        out_buffer += server_list[:16]
         # out_len = 16 + 6 + 4
         # out_buffer += b'\0' * 4  # Looks like there are 4 bytes of padding here?
         # out_count = 0
@@ -243,10 +306,40 @@ class Sequence:
 
         # /* Write our outgoing server count */
         # struct.pack_into('<I', out_buffer, 22, out_count)
-        server_count_bytes = len(servers).to_bytes(4, byteorder='little')
-        out_buffer += server_count_bytes
-        for server in servers:
-            out_buffer += server
+
+        # out_buffer = bytearray()
+        # out_buffer.append(0)
+        # out_buffer.append(structs.OPCodes.OP_Packet.value)
+        # new_bytes = self.seq_to_local.to_bytes(2, byteorder='big')
+        # out_buffer += new_bytes
+        # out_buffer.append(structs.OPCodes.OP_ServerListResponse.value)
+        # out_buffer.append(0)
+        # out_buffer += server_list[:16]
+        # server_count_bytes = len(servers).to_bytes(4, byteorder='little')
+        # out_buffer += server_count_bytes
+        # for server in servers:
+        #     out_buffer += server
+
+        out_buffer = b''.join(
+            [
+                # Starts with a null byte
+                b'\x00',
+                # Then the OP_Packet opcode
+                bytes([structs.OPCodes.OP_Packet.value]),
+                # Then the sequence number as 2 bytes
+                self.seq_to_local.to_bytes(2, byteorder='big'),
+                # Then the OP_ServerListResponse opcode
+                bytes([structs.OPCodes.OP_ServerListResponse.value]),
+                # Then a null byte
+                b'\x00',
+                # Then the first 16 bytes of the server list (the header)
+                server_list[:16],
+                # Then the server count as 4 bytes
+                len(servers).to_bytes(4, byteorder='little'),
+                # Then our compiled server list
+                b''.join(servers)
+            ]
+        )
 
         self.seq_from_remote = new_index + 1
         self.seq_from_remote_offset = self.seq_from_remote
@@ -257,3 +350,4 @@ class Sequence:
             # packet.length = 0
         self.packets.clear()
         return out_buffer
+"""
