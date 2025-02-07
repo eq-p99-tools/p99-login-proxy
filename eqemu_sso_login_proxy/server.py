@@ -13,12 +13,10 @@ from eqemu_sso_login_proxy import structs
 import faulthandler
 faulthandler.enable()
 
-UDP_IP = "0.0.0.0"
-
 # Resolve the login server address via DNS
 EQEMU_LOGIN_IP = socket.gethostbyname("login.eqemulator.net")
-EQEMU_ADDR = (EQEMU_LOGIN_IP, 5998)
 EQEMU_PORT = 5998
+EQEMU_ADDR = (EQEMU_LOGIN_IP, EQEMU_PORT)
 
 
 def debug_write_packet(buf: bytes, login_to_client):
@@ -155,7 +153,7 @@ class LoginSessionManager(asyncio.DatagramProtocol):
 
         self.last_recv_time = recv_time
         # await self.connection_made_event.wait()
-        asyncio.get_event_loop().run_until_complete(self.connection_made_event.wait())
+        self.wait_for_connection_established()
         self.send_to_loginserver(data)
 
     async def shutdown(self):
@@ -164,20 +162,29 @@ class LoginSessionManager(asyncio.DatagramProtocol):
         self.transport.close()
 
     def send_to_client(self, data: bytearray):
+        if not data:
+            print("Empty data, not sending to client")
+            return
         debug_write_packet(data, True)
         print(f"Sending data to client: {data}")
         self.proxy.transport.sendto(data, self.client_addr)
 
     def send_to_loginserver(self, data: bytearray):
-        # debug_write_packet(data, False)
+        if not data:
+            print("Empty data, not sending to loginserver")
+            return
+        debug_write_packet(data, False)
         print(f"Sending data to loginserver: {data}")
         self.transport.sendto(data, EQEMU_ADDR)
+
+    def wait_for_connection_established(self):
+        return asyncio.run(self.connection_made_event.wait())
 
     def datagram_received(self, data: bytes, addr: tuple[str, int], start_index=0, length=None) -> None:
         """Called on a packet from the login server"""
         # self.recv_from_remote(self.buffer, 0, length)
         if addr is not None:
-            asyncio.get_event_loop().run_until_complete(self.connection_made_event.wait())
+            self.wait_for_connection_established()
         if length is None:
             length = len(data)
         debug_write_packet(data, True)
@@ -240,27 +247,27 @@ class EQEMULoginProxy(asyncio.DatagramProtocol):
             # Initialize a new datagram endpoint on a free high number port
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.bind(('', 0))
-            _, listen_port = sock.getsockname()
+            _, new_listen_port = sock.getsockname()
             sock.close()
             session_manager = LoginSessionManager(self, client_addr=addr)
             loop = asyncio.get_running_loop()
             session_coroutine = loop.create_datagram_endpoint(
                 lambda: session_manager,
-                local_addr=(UDP_IP, listen_port)
+                local_addr=(config.LISTEN_HOST, new_listen_port)
             )
             asyncio.ensure_future(session_coroutine)
             self.connections[addr] = session_manager
             # session_manager.connection_made_event.wait()
 
-        # Send CLIENT packet to be processed and forwarded to LOGIN SERVER
+        # Send CLIENT packet to be processed and forwarded to EQEMU LOGIN-SERVER
         # asyncio.ensure_future(self.connections[addr].handle_client_packet(bytearray(data)))
         self.connections[addr].handle_client_packet(bytearray(data))
 
 
-async def main():
+def main():
     loop = asyncio.get_event_loop()
     listen_server = loop.create_datagram_endpoint(
-        EQEMULoginProxy, local_addr=(UDP_IP, EQEMU_PORT))
+        EQEMULoginProxy, local_addr=(config.LISTEN_HOST, config.LISTEN_PORT))
     transport, _ = loop.run_until_complete(listen_server)
     print("Started UDP proxy...")
     try:
