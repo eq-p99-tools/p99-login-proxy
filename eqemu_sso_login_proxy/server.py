@@ -49,9 +49,11 @@ class LoginSessionManager(asyncio.DatagramProtocol):
     receiving_combined_event: asyncio.Event
     sequence: sequence.Sequence
 
-    def __init__(self, proxy: EQEMULoginProxy, client_addr: tuple[str, int]):
+    def __init__(self, proxy: EQEMULoginProxy, client_addr: tuple[str, int],
+                 local_addr: tuple[str, int]):
         self.proxy = proxy
         self.client_addr = client_addr
+        self.local_addr = local_addr
         self.in_session = False
         self.last_recv_time = 0
 
@@ -73,6 +75,7 @@ class LoginSessionManager(asyncio.DatagramProtocol):
     def connection_made(self, transport):
         self.transport = transport
         self.connection_made_event.set()
+        print(f"Connection made to {self.transport.get_extra_info('sockname')}")
 
     def check_rewrite_auth(self, buf: bytearray):
         """
@@ -152,8 +155,6 @@ class LoginSessionManager(asyncio.DatagramProtocol):
             print("Let's debug here and see about packet state")
 
         self.last_recv_time = recv_time
-        # await self.connection_made_event.wait()
-        self.wait_for_connection_established()
         self.send_to_loginserver(data)
 
     async def shutdown(self):
@@ -165,26 +166,23 @@ class LoginSessionManager(asyncio.DatagramProtocol):
         if not data:
             print("Empty data, not sending to client")
             return
-        debug_write_packet(data, True)
-        print(f"Sending data to client: {data}")
+        # debug_write_packet(data, True)
+        print(f"Sending data to client {self.client_addr}: {data}")
         self.proxy.transport.sendto(data, self.client_addr)
 
     def send_to_loginserver(self, data: bytearray):
         if not data:
             print("Empty data, not sending to loginserver")
             return
-        debug_write_packet(data, False)
+        # debug_write_packet(data, False)
         print(f"Sending data to loginserver: {data}")
         self.transport.sendto(data, EQEMU_ADDR)
 
-    def wait_for_connection_established(self):
-        return asyncio.run(self.connection_made_event.wait())
-
     def datagram_received(self, data: bytes, addr: tuple[str, int], start_index=0, length=None) -> None:
         """Called on a packet from the login server"""
+        # if addr != EQEMU_ADDR:
+        #     return self.handle_client_packet(bytearray(data))
         # self.recv_from_remote(self.buffer, 0, length)
-        if addr is not None:
-            self.wait_for_connection_established()
         if length is None:
             length = len(data)
         debug_write_packet(data, True)
@@ -229,51 +227,70 @@ class EQEMULoginProxy(asyncio.DatagramProtocol):
 
     connections: dict[tuple[str, int], LoginSessionManager]
     transport: asyncio.DatagramTransport
+    cleanup_lock: asyncio.Lock
 
     def __init__(self):
         super().__init__()
         self.connections = {}
+        self.cleanup_lock = asyncio.Lock()
+        asyncio.create_task(self.cleanup_sessions())
 
     def connection_made(self, transport):
         self.transport = transport
 
+    async def cleanup_sessions(self):
+        while True:
+            await asyncio.sleep(config.SESSION_CLEANUP_INTERVAL)
+            async with self.cleanup_lock:
+                # Remove sessions that haven't been used in a while
+                current_session_count = len(self.connections)
+                current_time = time.time()
+                self.connections = {
+                    addr: session for addr, session in self.connections.items()
+                    if current_time - session.last_recv_time < config.SESSION_CLEANUP_INTERVAL
+                }
+                new_session_count = len(self.connections)
+                print(f"Cleaned up {current_session_count - new_session_count} sessions.")
+
     def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
         print(f"Received message from CLIENT({addr}): {data}")
-
         if len(data) < 2:
             return
 
+        asyncio.create_task(self.handle_packet(data, addr))
+
+    async def handle_packet(self, data: bytes, addr: tuple[str, int]):
         if addr not in self.connections:
             # Initialize a new datagram endpoint on a free high number port
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.bind(('', 0))
             _, new_listen_port = sock.getsockname()
             sock.close()
-            session_manager = LoginSessionManager(self, client_addr=addr)
+            session_manager = LoginSessionManager(
+                self, client_addr=addr,
+                local_addr=(config.LISTEN_HOST, new_listen_port))
             loop = asyncio.get_running_loop()
             session_coroutine = loop.create_datagram_endpoint(
                 lambda: session_manager,
                 local_addr=(config.LISTEN_HOST, new_listen_port)
             )
-            asyncio.ensure_future(session_coroutine)
             self.connections[addr] = session_manager
-            # session_manager.connection_made_event.wait()
+            asyncio.ensure_future(session_coroutine)
+            await session_manager.connection_made_event.wait()
 
         # Send CLIENT packet to be processed and forwarded to EQEMU LOGIN-SERVER
-        # asyncio.ensure_future(self.connections[addr].handle_client_packet(bytearray(data)))
         self.connections[addr].handle_client_packet(bytearray(data))
 
 
-def main():
-    loop = asyncio.get_event_loop()
-    listen_server = loop.create_datagram_endpoint(
-        EQEMULoginProxy, local_addr=(config.LISTEN_HOST, config.LISTEN_PORT))
-    transport, _ = loop.run_until_complete(listen_server)
-    print("Started UDP proxy...")
-    try:
-        loop.run_forever()
-    except KeyboardInterrupt:
-        pass
-    print("Closing proxy transport.")
+async def shutdown(transport):
+    print("Shutting down proxy...")
     transport.close()
+    loop = asyncio.get_running_loop()
     loop.close()
+
+
+async def main():
+    loop = asyncio.get_running_loop()
+    transport, _ = await loop.create_datagram_endpoint(
+        EQEMULoginProxy, local_addr=(config.LISTEN_HOST, config.LISTEN_PORT))
+    print(f"Started UDP proxy, listening on {config.LISTEN_HOST}:{config.LISTEN_PORT}")

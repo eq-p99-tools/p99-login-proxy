@@ -20,3 +20,5 @@ TEST_PASSWORD = CONFIG.get("DEFAULT", "test_password").encode()
 
 ENCRYPTION_KEY = hex_to_bytes(CONFIG.get("encryption", "key"))
 ENCRYPTION_IV = hex_to_bytes(CONFIG.get("encryption", "iv"))
+
+SESSION_CLEANUP_INTERVAL = CONFIG.getint("DEFAULT", "session_cleanup_interval", fallback=5*60)
