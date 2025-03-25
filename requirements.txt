@@ -1,1 +1,4 @@
 PyCryptodome
+PyQt5
+pystray
+pillow
