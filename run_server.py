@@ -1,6 +1,6 @@
 import asyncio
 import sys
-from PyQt5.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication
 
 from eqemu_sso_login_proxy import server
 from eqemu_sso_login_proxy.ui import start_ui
