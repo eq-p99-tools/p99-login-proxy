@@ -95,13 +95,57 @@ class Updater(QObject):
                 self.update_progress.emit("Failed to determine latest version", 0)
                 return False
             
+            # Normalize current version by removing 'v' prefix if present
+            # and stripping any Git-style suffix (e.g., "-1-g9b698df")
+            current_version_normalized = self.current_version.lstrip('v')
+            
+            # If the version has a Git-style suffix (contains a hyphen), 
+            # extract only the base version number
+            if '-' in current_version_normalized:
+                current_version_normalized = current_version_normalized.split('-')[0]
+            
             logger.info(f"Latest version: {latest_version}, Current version: {self.current_version}")
             
             # Compare versions (simple string comparison for now)
-            if latest_version != self.current_version:
-                logger.info(f"Update available: {latest_version}")
-                self.update_available.emit(self.current_version, latest_version)
-                return True
+            # Only consider an update available if the latest version is different
+            # and not considered "older" than the current version
+            if latest_version != current_version_normalized:
+                # Parse versions into components for proper comparison
+                try:
+                    latest_parts = [int(p) for p in latest_version.split('.')]
+                    current_parts = [int(p) for p in current_version_normalized.split('.')]
+                    
+                    # Pad shorter version with zeros
+                    while len(latest_parts) < len(current_parts):
+                        latest_parts.append(0)
+                    while len(current_parts) < len(latest_parts):
+                        current_parts.append(0)
+                    
+                    # Compare version components
+                    is_newer = False
+                    for i in range(len(latest_parts)):
+                        if latest_parts[i] > current_parts[i]:
+                            is_newer = True
+                            break
+                        elif latest_parts[i] < current_parts[i]:
+                            # Latest version is actually older
+                            is_newer = False
+                            break
+                    
+                    if is_newer:
+                        logger.info(f"Update available: {latest_version}")
+                        self.update_available.emit(self.current_version, latest_version)
+                        return True
+                    else:
+                        logger.info("No newer version available")
+                        self.update_progress.emit("Application is up to date", 100)
+                        return False
+                        
+                except ValueError:
+                    # Fall back to string comparison if version parsing fails
+                    logger.info(f"Update available: {latest_version}")
+                    self.update_available.emit(self.current_version, latest_version)
+                    return True
             else:
                 logger.info("Application is up to date")
                 self.update_progress.emit("Application is up to date", 100)
@@ -280,7 +324,19 @@ def check_for_updates_on_startup(parent=None):
     
     if updater.check_for_updates():
         current_version = updater.current_version
-        latest_version = updater.update_available.emit
+        
+        # Get the latest version from the GitHub API
+        try:
+            response = requests.get(GITHUB_RELEASES_URL, timeout=10)
+            if response.status_code == 200:
+                release_data = response.json()
+                latest_version = release_data.get('tag_name', '').lstrip('v')
+            else:
+                logger.error(f"Failed to get latest version: {response.status_code}")
+                return updater
+        except Exception as e:
+            logger.error(f"Error getting latest version: {e}")
+            return updater
         
         # Prompt user to update
         if parent:
