@@ -4,10 +4,14 @@ from PyQt6.QtWidgets import QApplication
 
 from eqemu_sso_login_proxy import server
 from eqemu_sso_login_proxy.ui import start_ui
+from eqemu_sso_login_proxy.updater import check_for_updates_on_startup
 
 if __name__ == '__main__':
     # Initialize the Qt application
     app, main_window = start_ui()
+    
+    # Check for updates on startup
+    updater = check_for_updates_on_startup(main_window)
     
     # Set up the event loop
     loop = asyncio.get_event_loop()
