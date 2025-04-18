@@ -204,7 +204,7 @@ class ProxyUI(wx.Frame):
         self.close_application = close_application.__get__(self)
     
     def __init__(self, parent=None, id=wx.ID_ANY, title="EQEmu Login Proxy"):
-        super().__init__(parent, id, title, size=(550, 550))
+        super().__init__(parent, id, title, size=(550, 500))
         
         # Initialize event handlers
         self.__init_event_handlers()
@@ -241,11 +241,11 @@ class ProxyUI(wx.Frame):
         main_sizer = wx.BoxSizer(wx.VERTICAL)
         
         # Add title
-        title_font = wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
-        title_label = wx.StaticText(panel, label="EQEmu Login Proxy")
-        title_label.SetFont(title_font)
-        title_label.SetForegroundColour(wx.Colour(52, 152, 219))  # #3498db
-        main_sizer.Add(title_label, 0, wx.ALIGN_CENTER | wx.TOP | wx.BOTTOM, 10)
+        # title_font = wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
+        # title_label = wx.StaticText(panel, label="EQEmu Login Proxy")
+        # title_label.SetFont(title_font)
+        # title_label.SetForegroundColour(wx.Colour(52, 152, 219))  # #3498db
+        # main_sizer.Add(title_label, 0, wx.ALIGN_CENTER | wx.TOP | wx.BOTTOM, 10)
         
         # Add horizontal line
         line = wx.StaticLine(panel)
@@ -257,14 +257,26 @@ class ProxyUI(wx.Frame):
         # Proxy Status tab
         proxy_tab = wx.Panel(notebook)
         proxy_sizer = wx.BoxSizer(wx.VERTICAL)
+
+        # Status section
+        status_box = wx.StaticBox(proxy_tab, label="Status")
+        status_box_sizer = wx.StaticBoxSizer(status_box, wx.VERTICAL)
         
-        # Status
+        # Server status
         status_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        status_label = StatusLabel(proxy_tab, "Status:")
+        status_label = StatusLabel(proxy_tab, "Server:")
         self.status_value = ValueLabel(proxy_tab, proxy_stats.proxy_status)
         status_sizer.Add(status_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         status_sizer.Add(self.status_value, 1, wx.ALIGN_CENTER_VERTICAL)
-        proxy_sizer.Add(status_sizer, 0, wx.EXPAND | wx.ALL, 5)
+        status_box_sizer.Add(status_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
+        # Proxy status
+        proxy_status_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        proxy_status_label = StatusLabel(proxy_tab, "EQ Config:")
+        self.proxy_status_text = ValueLabel(proxy_tab, "Checking...")
+        proxy_status_sizer.Add(proxy_status_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        proxy_status_sizer.Add(self.proxy_status_text, 1, wx.ALIGN_CENTER_VERTICAL)
+        status_box_sizer.Add(proxy_status_sizer, 0, wx.EXPAND | wx.ALL, 5)
         
         # Listening address
         address_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -272,7 +284,7 @@ class ProxyUI(wx.Frame):
         self.address_value = ValueLabel(proxy_tab, f"{proxy_stats.listening_address}:{proxy_stats.listening_port}")
         address_sizer.Add(address_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         address_sizer.Add(self.address_value, 1, wx.ALIGN_CENTER_VERTICAL)
-        proxy_sizer.Add(address_sizer, 0, wx.EXPAND | wx.ALL, 5)
+        status_box_sizer.Add(address_sizer, 0, wx.EXPAND | wx.ALL, 5)
         
         # Uptime
         uptime_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -280,18 +292,14 @@ class ProxyUI(wx.Frame):
         self.uptime_value = ValueLabel(proxy_tab, proxy_stats.get_uptime())
         uptime_sizer.Add(uptime_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         uptime_sizer.Add(self.uptime_value, 1, wx.ALIGN_CENTER_VERTICAL)
-        proxy_sizer.Add(uptime_sizer, 0, wx.EXPAND | wx.ALL, 5)
+        status_box_sizer.Add(uptime_sizer, 0, wx.EXPAND | wx.ALL, 5)
         
-        # Add horizontal line
-        line2 = wx.StaticLine(proxy_tab)
-        proxy_sizer.Add(line2, 0, wx.EXPAND | wx.TOP | wx.BOTTOM, 5)
+        # Add the status box to the main proxy sizer
+        proxy_sizer.Add(status_box_sizer, 0, wx.EXPAND | wx.ALL, 10)
         
-        # Connection statistics section title
-        stats_font = wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
-        stats_title = wx.StaticText(proxy_tab, label="Connection Statistics")
-        stats_title.SetFont(stats_font)
-        stats_title.SetForegroundColour(wx.Colour(44, 62, 80))  # #2c3e50
-        proxy_sizer.Add(stats_title, 0, wx.ALIGN_CENTER | wx.TOP | wx.BOTTOM, 5)
+        # Statistics section
+        stats_box = wx.StaticBox(proxy_tab, label="Statistics")
+        stats_box_sizer = wx.StaticBoxSizer(stats_box, wx.VERTICAL)
         
         # Total connections
         total_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -299,7 +307,7 @@ class ProxyUI(wx.Frame):
         self.total_value = ValueLabel(proxy_tab, str(proxy_stats.total_connections))
         total_sizer.Add(total_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         total_sizer.Add(self.total_value, 1, wx.ALIGN_CENTER_VERTICAL)
-        proxy_sizer.Add(total_sizer, 0, wx.EXPAND | wx.ALL, 5)
+        stats_box_sizer.Add(total_sizer, 0, wx.EXPAND | wx.ALL, 5)
         
         # Active connections
         active_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -307,7 +315,7 @@ class ProxyUI(wx.Frame):
         self.active_value = ValueLabel(proxy_tab, str(proxy_stats.active_connections))
         active_sizer.Add(active_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         active_sizer.Add(self.active_value, 1, wx.ALIGN_CENTER_VERTICAL)
-        proxy_sizer.Add(active_sizer, 0, wx.EXPAND | wx.ALL, 5)
+        stats_box_sizer.Add(active_sizer, 0, wx.EXPAND | wx.ALL, 5)
         
         # Completed connections
         completed_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -315,7 +323,33 @@ class ProxyUI(wx.Frame):
         self.completed_value = ValueLabel(proxy_tab, str(proxy_stats.completed_connections))
         completed_sizer.Add(completed_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         completed_sizer.Add(self.completed_value, 1, wx.ALIGN_CENTER_VERTICAL)
-        proxy_sizer.Add(completed_sizer, 0, wx.EXPAND | wx.ALL, 5)
+        stats_box_sizer.Add(completed_sizer, 0, wx.EXPAND | wx.ALL, 5)
+        
+        # Add the statistics box to the main proxy sizer
+        proxy_sizer.Add(stats_box_sizer, 0, wx.EXPAND | wx.ALL, 10)
+        
+        # EQ Configuration Actions section
+        action_box = wx.StaticBox(proxy_tab, label="Actions")
+        action_sizer = wx.StaticBoxSizer(action_box, wx.VERTICAL)
+        
+        # Buttons
+        button_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        
+        self.refresh_btn = wx.Button(proxy_tab, label="Refresh Status")
+        self.refresh_btn.Bind(wx.EVT_BUTTON, self.on_refresh_eq_status)
+        button_sizer.Add(self.refresh_btn, 0, wx.ALL, 5)
+        
+        self.enable_btn = wx.Button(proxy_tab, label="Enable Proxy")
+        self.enable_btn.Bind(wx.EVT_BUTTON, self.on_enable_proxy)
+        button_sizer.Add(self.enable_btn, 0, wx.ALL, 5)
+        
+        self.disable_btn = wx.Button(proxy_tab, label="Disable Proxy")
+        self.disable_btn.Bind(wx.EVT_BUTTON, self.on_disable_proxy)
+        button_sizer.Add(self.disable_btn, 0, wx.ALL, 5)
+        
+        action_sizer.Add(button_sizer, 0, wx.ALL | wx.CENTER, 5)
+        
+        proxy_sizer.Add(action_sizer, 0, wx.ALL | wx.EXPAND, 10)
         
         # Set the proxy tab sizer
         proxy_tab.SetSizer(proxy_sizer)
@@ -325,66 +359,60 @@ class ProxyUI(wx.Frame):
         eq_sizer = wx.BoxSizer(wx.VERTICAL)
         
         # EQ Configuration Status section
-        eq_status_box = wx.StaticBox(eq_tab, label="EverQuest Configuration Status")
+        eq_status_box = wx.StaticBox(eq_tab, label="EverQuest Configuration")
         eq_status_sizer = wx.StaticBoxSizer(eq_status_box, wx.VERTICAL)
         
         # EQ Directory status
-        self.eq_dir_text = wx.StaticText(eq_tab, label="EverQuest Directory: Checking...")
-        eq_status_sizer.Add(self.eq_dir_text, 0, wx.ALL | wx.EXPAND, 5)
+        eq_dir_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        eq_dir_label = StatusLabel(eq_tab, "EverQuest Path:")
+        self.eq_dir_text = ValueLabel(eq_tab, "Checking...")
+        eq_dir_sizer.Add(eq_dir_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        eq_dir_sizer.Add(self.eq_dir_text, 1, wx.ALIGN_CENTER_VERTICAL)
+        eq_status_sizer.Add(eq_dir_sizer, 0, wx.ALL | wx.EXPAND, 5)
         
         # eqhost.txt status
-        self.eqhost_text = wx.StaticText(eq_tab, label="eqhost.txt: Checking...")
-        eq_status_sizer.Add(self.eqhost_text, 0, wx.ALL | wx.EXPAND, 5)
-        
-        # Proxy status
-        self.proxy_status_text = wx.StaticText(eq_tab, label="Proxy Status: Checking...")
-        eq_status_sizer.Add(self.proxy_status_text, 0, wx.ALL | wx.EXPAND, 5)
+        eqhost_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        eqhost_label = StatusLabel(eq_tab, "eqhost.txt Path:")
+        self.eqhost_text = ValueLabel(eq_tab, "Checking...")
+        eqhost_sizer.Add(eqhost_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        eqhost_sizer.Add(self.eqhost_text, 1, wx.ALIGN_CENTER_VERTICAL)
+        eq_status_sizer.Add(eqhost_sizer, 0, wx.ALL | wx.EXPAND, 5)
         
         # eqhost.txt contents
-        self.eqhost_contents = wx.TextCtrl(eq_tab, style=wx.TE_MULTILINE | wx.TE_READONLY, size=(-1, 100))
-        eq_status_sizer.Add(wx.StaticText(eq_tab, label="eqhost.txt Contents:"), 0, wx.ALL, 5)
+        self.eqhost_contents = wx.TextCtrl(eq_tab, style=wx.TE_MULTILINE, size=(-1, 100))
+        eq_status_sizer.Add(StatusLabel(eq_tab, "eqhost.txt Content:"), 0, wx.ALL, 5)
         eq_status_sizer.Add(self.eqhost_contents, 1, wx.ALL | wx.EXPAND, 5)
         
+        # eqhost.txt action buttons
+        eqhost_btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        
+        self.save_eqhost_btn = wx.Button(eq_tab, label="Save")
+        self.save_eqhost_btn.Bind(wx.EVT_BUTTON, self.on_save_eqhost)
+        eqhost_btn_sizer.Add(self.save_eqhost_btn, 0, wx.ALL, 5)
+        
+        self.reset_eqhost_btn = wx.Button(eq_tab, label="Reset")
+        self.reset_eqhost_btn.Bind(wx.EVT_BUTTON, self.on_reset_eqhost)
+        eqhost_btn_sizer.Add(self.reset_eqhost_btn, 0, wx.ALL, 5)
+        
+        eq_status_sizer.Add(eqhost_btn_sizer, 0, wx.ALL | wx.CENTER, 5)
+        
         eq_sizer.Add(eq_status_sizer, 1, wx.ALL | wx.EXPAND, 10)
-        
-        # EQ Configuration Actions section
-        eq_action_box = wx.StaticBox(eq_tab, label="Actions")
-        eq_action_sizer = wx.StaticBoxSizer(eq_action_box, wx.VERTICAL)
-        
-        # Buttons
-        eq_button_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        
-        self.refresh_btn = wx.Button(eq_tab, label="Refresh Status")
-        self.refresh_btn.Bind(wx.EVT_BUTTON, self.on_refresh_eq_status)
-        eq_button_sizer.Add(self.refresh_btn, 0, wx.ALL, 5)
-        
-        self.enable_btn = wx.Button(eq_tab, label="Enable Proxy")
-        self.enable_btn.Bind(wx.EVT_BUTTON, self.on_enable_proxy)
-        eq_button_sizer.Add(self.enable_btn, 0, wx.ALL, 5)
-        
-        self.disable_btn = wx.Button(eq_tab, label="Disable Proxy")
-        self.disable_btn.Bind(wx.EVT_BUTTON, self.on_disable_proxy)
-        eq_button_sizer.Add(self.disable_btn, 0, wx.ALL, 5)
-        
-        eq_action_sizer.Add(eq_button_sizer, 0, wx.ALL | wx.CENTER, 5)
-        
-        eq_sizer.Add(eq_action_sizer, 0, wx.ALL | wx.EXPAND, 10)
         
         # Set the EQ tab sizer
         eq_tab.SetSizer(eq_sizer)
         
         # Add tabs to notebook
         notebook.AddPage(proxy_tab, "Proxy Status")
-        notebook.AddPage(eq_tab, "EverQuest Configuration")
+        notebook.AddPage(eq_tab, "Debug Info")
         
         # Add notebook to main sizer
         main_sizer.Add(notebook, 1, wx.EXPAND | wx.ALL, 10)
         
-        # Minimize to tray button at the bottom
+        # Launch EverQuest button at the bottom
         button_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        self.minimize_btn = wx.Button(panel, label="Minimize to Tray")
-        self.minimize_btn.Bind(wx.EVT_BUTTON, self.on_minimize)
-        button_sizer.Add(self.minimize_btn, 0, wx.ALL, 5)
+        self.launch_eq_btn = wx.Button(panel, label="Launch EverQuest")
+        self.launch_eq_btn.Bind(wx.EVT_BUTTON, self.on_launch_eq)
+        button_sizer.Add(self.launch_eq_btn, 0, wx.ALL, 5)
         
         main_sizer.Add(button_sizer, 0, wx.ALL | wx.CENTER, 5)
         
@@ -393,7 +421,53 @@ class ProxyUI(wx.Frame):
         # Center the window
         self.Centre()
     
-    # Handle minimize to tray button click
+    # Handle launch EverQuest button click
+    def on_launch_eq(self, event):
+        from . import eq_config
+        import os
+        import sys
+        import ctypes
+        import win32api
+        import win32con
+        import win32gui
+        
+        # Get the EverQuest directory
+        eq_dir = eq_config.find_eq_directory()
+        
+        if not eq_dir:
+            wx.MessageBox("EverQuest directory not found.", "Error", wx.OK | wx.ICON_ERROR)
+            return
+        
+        # Path to eqgame.exe
+        eqgame_path = os.path.join(eq_dir, "eqgame.exe")
+        
+        if not os.path.exists(eqgame_path):
+            wx.MessageBox(f"EverQuest executable not found at {eqgame_path}", "Error", wx.OK | wx.ICON_ERROR)
+            return
+        
+        try:
+            # Launch EverQuest with elevated privileges using ShellExecute
+            win32api.ShellExecute(
+                win32gui.GetDesktopWindow(),
+                "runas",  # This verb requests elevation
+                eqgame_path,
+                "patchme",  # No parameters
+                eq_dir,  # Working directory
+                win32con.SW_SHOWNORMAL
+            )
+            
+            # Minimize the proxy to tray after launching EQ
+            # self.Hide()
+            # if hasattr(self, 'tray_icon'):
+            #     self.tray_icon.ShowBalloon(
+            #         "EQEmu Login Proxy",
+            #         "EverQuest launched. The proxy is still running in the system tray.",
+            #         2000
+            #     )
+        except Exception as e:
+            wx.MessageBox(f"Failed to launch EverQuest: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
+    
+    # Handle minimize to tray button click (kept for reference but not used)
     def on_minimize(self, event):
         self.Hide()
         if hasattr(self, 'tray_icon'):
@@ -422,6 +496,41 @@ class ProxyUI(wx.Frame):
             wx.MessageBox("Failed to disable proxy. EverQuest directory or eqhost.txt not found.", 
                          "Error", wx.OK | wx.ICON_ERROR)
         self.update_eq_status()
+    
+    # Save eqhost.txt content
+    def on_save_eqhost(self, event):
+        from . import eq_config
+        import os
+        import logging
+        
+        # Get the EverQuest directory
+        eq_dir = eq_config.find_eq_directory()
+        
+        if not eq_dir:
+            logging.error("EverQuest directory not found when trying to save eqhost.txt")
+            return
+        
+        # Path to eqhost.txt
+        eqhost_path = os.path.join(eq_dir, "eqhost.txt")
+        
+        # Get content from text control
+        content = self.eqhost_contents.GetValue()
+        
+        try:
+            # Write content to file
+            with open(eqhost_path, 'w') as f:
+                f.write(content)
+            
+            logging.info(f"Successfully wrote to eqhost.txt at {eqhost_path}")
+            # Update status after save
+            self.update_eq_status()
+        except Exception as e:
+            logging.error(f"Failed to save eqhost.txt: {str(e)}")
+    
+    # Reset eqhost.txt content from disk
+    def on_reset_eqhost(self, event):
+        # Simply update the status which will reload the file content
+        self.update_eq_status()
         
     # Set the application icon
     def set_icon(self):
@@ -439,27 +548,27 @@ class ProxyUI(wx.Frame):
         
         # Update EQ directory status
         if status["eq_directory_found"]:
-            self.eq_dir_text.SetLabel(f"EverQuest Directory: {status['eq_directory']}")
+            self.eq_dir_text.SetLabel(f"{status['eq_directory']}")
             self.eq_dir_text.SetForegroundColour(wx.Colour(0, 128, 0))  # Green
         else:
-            self.eq_dir_text.SetLabel("EverQuest Directory: Not Found")
+            self.eq_dir_text.SetLabel("Not Found")
             self.eq_dir_text.SetForegroundColour(wx.Colour(255, 0, 0))  # Red
         
         # Update eqhost.txt status
         if status["eqhost_found"]:
-            self.eqhost_text.SetLabel(f"eqhost.txt: {status['eqhost_path']}")
+            self.eqhost_text.SetLabel(f"{status['eqhost_path']}")
             self.eqhost_text.SetForegroundColour(wx.Colour(0, 128, 0))  # Green
         else:
-            self.eqhost_text.SetLabel("eqhost.txt: Not Found")
+            self.eqhost_text.SetLabel("Not Found")
             self.eqhost_text.SetForegroundColour(wx.Colour(255, 0, 0))  # Red
         
         # Update proxy status
         if status["using_proxy"]:
-            self.proxy_status_text.SetLabel("Proxy Status: Enabled")
+            self.proxy_status_text.SetLabel("Enabled")
             self.proxy_status_text.SetForegroundColour(wx.Colour(0, 128, 0))  # Green
         else:
-            self.proxy_status_text.SetLabel("Proxy Status: Disabled")
-            self.proxy_status_text.SetForegroundColour(wx.Colour(128, 128, 128))  # Gray
+            self.proxy_status_text.SetLabel("Disabled")
+            self.proxy_status_text.SetForegroundColour(wx.Colour(128, 0, 0))  # Red
         
         # Update eqhost.txt contents
         self.eqhost_contents.Clear()
@@ -788,8 +897,10 @@ def start_ui():
     if not os.path.exists(icon_path):
         create_tray_icon()
     
+
     # Create the wxPython application
     app = wx.App(False)
+    app.SetVendorName("Toald (P99 Green)")
     
     # Create and show the main window
     main_window = ProxyUI()
