@@ -151,8 +151,13 @@ class ProxyUI(wx.Frame):
                 tooltip = f"EQEmu Login Proxy\nStatus: {proxy_stats.proxy_status}\n"
                 tooltip += f"Connections: {proxy_stats.active_connections} active, "
                 tooltip += f"{proxy_stats.total_connections} total"
-                # In wxPython, we need to get the icon path and create a new icon
-                icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tray_icon.png")
+                
+                # The icon itself is managed by update_icon, we just update the tooltip here
+                if self.tray_icon.using_proxy:
+                    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tray_icon.png")
+                else:
+                    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tray_icon_disabled.png")
+                    
                 if os.path.exists(icon_path):
                     icon = wx.Icon(icon_path)
                     self.tray_icon.SetIcon(icon, tooltip)
@@ -594,16 +599,25 @@ class ProxyUI(wx.Frame):
         # Update button states
         self.enable_btn.Enable(not status["using_proxy"])
         self.disable_btn.Enable(status["using_proxy"])
+        
+        # Update tray icon based on proxy status
+        if hasattr(self, 'tray_icon'):
+            self.tray_icon.update_icon(status["using_proxy"])
     
     # Set up system tray icon and menu
     def setup_tray(self):
         # Create a TaskBarIcon
         self.tray_icon = TaskBarIcon(self)
         
-        # Ensure the tray icon exists
-        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tray_icon.png")
-        if not os.path.exists(icon_path):
-            create_tray_icon()
+        # Ensure both tray icons exist
+        normal_icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tray_icon.png")
+        disabled_icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tray_icon_disabled.png")
+        
+        if not os.path.exists(normal_icon_path):
+            create_tray_icon(disabled=False)
+            
+        if not os.path.exists(disabled_icon_path):
+            create_tray_icon(disabled=True)
     
     # Check for updates on startup (no UI feedback)
     def check_for_updates_on_startup(self):
@@ -706,12 +720,10 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
     def __init__(self, frame):
         super().__init__()
         self.frame = frame
+        self.using_proxy = True  # Default state
         
-        # Set icon
-        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tray_icon.png")
-        if os.path.exists(icon_path):
-            icon = wx.Icon(icon_path)
-            self.SetIcon(icon, "EQEmu Login Proxy")
+        # Set initial icon
+        self.update_icon()
         
         # Bind events
         self.Bind(wx.adv.EVT_TASKBAR_LEFT_DCLICK, self.on_left_dclick)
@@ -725,8 +737,14 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
     # Create the popup menu for the taskbar icon
     def CreatePopupMenu(self):
         menu = wx.Menu()
-        show_item = menu.Append(wx.ID_ANY, "Show Application")
-        self.Bind(wx.EVT_MENU, self.on_show, show_item)
+        
+        # Show/Hide application menu item
+        if self.frame.IsShown():
+            visibility_item = menu.Append(wx.ID_ANY, "Hide Application")
+            self.Bind(wx.EVT_MENU, self.on_hide, visibility_item)
+        else:
+            visibility_item = menu.Append(wx.ID_ANY, "Show Application")
+            self.Bind(wx.EVT_MENU, self.on_show, visibility_item)
         
         # Add update menu item based on update status
         if hasattr(self.frame, 'has_update') and self.frame.has_update and self.frame.new_version:
@@ -751,11 +769,39 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
             # Hide the menu immediately
             wx.CallAfter(self.PopupMenu, None)
     
+    # Update the tray icon based on proxy status
+    def update_icon(self, using_proxy=True):
+        self.using_proxy = using_proxy
+        
+        # Choose the appropriate icon
+        if using_proxy:
+            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tray_icon.png")
+            tooltip = "EQEmu Login Proxy - Enabled"
+        else:
+            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tray_icon_disabled.png")
+            tooltip = "EQEmu Login Proxy - Disabled"
+        
+        # Set the icon
+        if os.path.exists(icon_path):
+            icon = wx.Icon(icon_path)
+            self.SetIcon(icon, tooltip)
+    
     # Show the main window
     def on_show(self, event):
         if not self.frame.IsShown():
             self.frame.Show()
             self.frame.Raise()
+    
+    # Hide the main window
+    def on_hide(self, event):
+        if self.frame.IsShown():
+            self.frame.Hide()
+            # Show notification when hiding
+            self.ShowBalloon(
+                "EQEmu Login Proxy",
+                "Application is still running in the system tray.",
+                2000  # Show for 2 seconds
+            )
     
 
     
@@ -807,32 +853,117 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
     
     # No duplicated update methods needed in TaskBarIcon class
 
-def create_tray_icon():
-    """Create a simple tray icon image"""
-    from PIL import Image, ImageDraw
+def create_tray_icon(disabled=False):
+    """Create a tray icon image with a circle and '99' text
+    
+    Args:
+        disabled (bool): If True, creates a red-tinted version of the icon
+    """
+    from PIL import Image, ImageDraw, ImageFont
+    import os
     
     # Create a new image with a transparent background
     size = 64
     image = Image.new('RGBA', (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
     
-    # Draw a simple network icon
-    margin = 8
-    draw.rectangle((margin, margin, size - margin, size - margin), outline=(52, 152, 219), width=2)
-    draw.line((margin, margin, size - margin, size - margin), fill=(52, 152, 219), width=2)
-    draw.line((size - margin, margin, margin, size - margin), fill=(52, 152, 219), width=2)
+    # Choose color based on disabled status
+    if disabled:
+        # Red color for disabled state
+        color = (219, 52, 52)  # Red
+        filename = "tray_icon_disabled.png"
+    else:
+        # Blue color for normal state
+        color = (52, 152, 219)  # Blue
+        filename = "tray_icon.png"
+    
+    # Draw a circle
+    circle_margin = 0
+    circle_radius = (size - 2 * circle_margin) // 2
+    circle_center = (size // 2, size // 2)
+    circle_bbox = [
+        circle_center[0] - circle_radius,
+        circle_center[1] - circle_radius,
+        circle_center[0] + circle_radius,
+        circle_center[1] + circle_radius
+    ]
+    
+    # Draw filled circle with some transparency
+    circle_fill = color + (200,)  # Add alpha channel (200/255 opacity)
+    draw.ellipse(circle_bbox, fill=circle_fill, outline=color, width=2)
+    
+    # Try to load a font, fall back to default if not available
+    try:
+        # Try to find a bold font for the text
+        font_path = None
+        # Common font locations
+        potential_fonts = [
+            ("C:\\Windows\\Fonts\\lucon.ttf", 1.5, 2),      # Lucida Console
+            ("C:\\Windows\\Fonts\\arialbd.ttf", 1.7, 1.3),  # Arial Bold
+            ("C:\\Windows\\Fonts\\impact.ttf", 1.5, 1.3),   # Impact Regular
+        ]
+        
+        for path, scale, position_mod in potential_fonts:
+            if os.path.exists(path):
+                font_path = path
+                font_scale = scale
+                font_position_mod = position_mod
+                break
+        
+        if font_path:
+            # Increase font size by 40% for better visibility
+            font_size = int(circle_radius * font_scale)
+            font = ImageFont.truetype(font_path, size=font_size)
+        else:
+            # Fall back to default font
+            font = ImageFont.load_default()
+    except Exception:
+        # If any error occurs with fonts, use default
+        font = ImageFont.load_default()
+    
+    # Draw "99" text in white
+    text = "99"
+    text_color = (255, 255, 255)  # White
+    
+    # Get text size to center it
+    try:
+        # For newer Pillow versions
+        text_bbox = draw.textbbox((0, 0), text, font=font)
+        text_width = text_bbox[2] - text_bbox[0]
+        text_height = text_bbox[3] - text_bbox[1]
+    except AttributeError:
+        # For older Pillow versions
+        text_width, text_height = draw.textsize(text, font=font)
+    
+    text_position = (
+        circle_center[0] - text_width // 2,
+        circle_center[1] - text_height // font_position_mod
+    )
+    
+    # Draw text with a slight shadow for better visibility
+    shadow_offset = 1
+    draw.text((text_position[0] + shadow_offset, text_position[1] + shadow_offset), 
+              text, fill=(0, 0, 0, 128), font=font)  # Semi-transparent black shadow
+    draw.text(text_position, text, fill=text_color, font=font)
     
     # Save the image
-    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tray_icon.png")
+    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
+    
+    # Force the icon to be recreated by deleting any existing icon first
+    if os.path.exists(icon_path):
+        try:
+            os.remove(icon_path)
+        except:
+            pass
+    
     image.save(icon_path)
     return icon_path
 
 def start_ui():
     """Initialize and start the UI"""
-    # Create the tray icon if it doesn't exist
-    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tray_icon.png")
-    if not os.path.exists(icon_path):
-        create_tray_icon()
+    # Always recreate both tray icons to ensure consistency
+    create_tray_icon(disabled=False)
+    create_tray_icon(disabled=True)
     
     # Create the wxPython application
     app = wx.App(False)
