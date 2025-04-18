@@ -119,32 +119,45 @@ class LoginProxy(asyncio.DatagramProtocol):
         recv_time = time.time()
         debug_write_packet(data, False)
         
+        print(f"[CLIENT PACKET] Received data from client {addr}")
+        
         # Store client address for responses
         self.client_addr = addr
         
         if not self.in_session or (recv_time - self.last_recv_time) > 60:
+            print(f"[CLIENT PACKET] Session reset needed: in_session={self.in_session}, time_since_last={recv_time - self.last_recv_time:.2f}s")
             self.sequence_free()
             if not self.in_session:
                 # New connection
+                print("[CLIENT PACKET] New connection established, updating stats")
                 proxy_stats.connection_started()
 
         # From recv_from_local
         opcode = structs.get_protocol_opcode(data)
+        print(f"[CLIENT PACKET] Processing packet with opcode: {opcode}")
+        
         if opcode == structs.OPCodes.OP_Combined:
+            print("[CLIENT PACKET] Adjusting combined packet sequence")
             self.sequence.adjust_combined(data)
+            original_data = data.copy()
             data = self.check_rewrite_auth(data)
+            if data != original_data:
+                print("[CLIENT PACKET] Authentication data rewritten")
         elif opcode == structs.OPCodes.OP_SessionDisconnect:
+            print("[CLIENT PACKET] Session disconnect received, cleaning up")
             self.in_session = False
             self.sequence_free()
             # Update UI stats for completed connection
             proxy_stats.connection_completed()
         elif opcode == structs.OPCodes.OP_Ack:
+            print("[CLIENT PACKET] Adjusting ACK sequence values")
             # Rewrite client-to-server ack sequence values, since we will be desynchronizing them
             self.sequence.adjust_ack(data, 0, len(data))
         elif opcode == structs.OPCodes.OP_KeepAlive:
-            print("Let's debug here and see about packet state")
+            print("[CLIENT PACKET] Keep-alive packet received")
 
         self.last_recv_time = recv_time
+        print("[CLIENT PACKET] Forwarding processed packet to login server")
         self.send_to_loginserver(data)
 
     def send_to_client(self, data: bytearray):
@@ -179,33 +192,36 @@ class LoginProxy(asyncio.DatagramProtocol):
         print(f"Received message from login server: {data}")
         opcode = structs.get_protocol_opcode(data[start_index:])
 
-        print("Debug1")
+        print(f"[SERVER PACKET] Processing packet with opcode: {opcode}")
         if opcode == structs.OPCodes.OP_SessionResponse:
             self.in_session = True
             self.sequence_free()
-            print("Debug2")
+            print("[SERVER PACKET] Session response received, session established")
         elif opcode == structs.OPCodes.OP_Combined:
-            print("Debug4")
+            print("[SERVER PACKET] Received combined packet, splitting into individual packets")
             self.sequence.recv_combined(data, functools.partial(self.handle_server_packet), start_index, length)
             # Pieces will be forwarded individually
             return
         elif opcode == structs.OPCodes.OP_Packet:
-            print("Debug5")
+            print("[SERVER PACKET] Processing standard packet")
             maybe_server_list = self.sequence.recv_packet(data, start_index, length)
             if maybe_server_list is not None:
                 # don't double-send packet after server-list?
                 data = maybe_server_list
+                print("[SERVER PACKET] Server list packet detected and processed")
         elif opcode == structs.OPCodes.OP_Fragment:
-            print("Debug6")
+            print("[SERVER PACKET] Processing fragment packet")
             # must be one of the server list packets
             maybe_server_list = self.sequence.recv_fragment(data, start_index, length)
             if maybe_server_list is not None:
                 # We're finished with the server list, forward it
                 data = maybe_server_list
+                print("[SERVER PACKET] Server list fragments complete, forwarding to client")
             else:
                 # Don't forward, whole point is to filter this
+                print("[SERVER PACKET] Fragment part of server list, not forwarding individually")
                 return
-        print("Debug7")
+        print("[SERVER PACKET] Forwarding processed packet to client")
         self.send_to_client(data)
 
 

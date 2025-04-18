@@ -1,20 +1,37 @@
 import sys
 import os
 import time
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout, 
-                             QHBoxLayout, QWidget, QPushButton, QSystemTrayIcon, 
-                             QMenu, QFrame, QMessageBox, QProgressDialog)
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
-from PyQt6.QtGui import QIcon, QPixmap, QFont, QAction
+import threading
+import wx
+import wx.adv
+from PIL import Image
+from . import eq_config
+
+# Define custom event IDs
+EVT_STATS_UPDATED = wx.NewEventType()
+EVT_USER_CONNECTED = wx.NewEventType()
+
+# Create event binder objects
+EVT_STATS_UPDATED_BINDER = wx.PyEventBinder(EVT_STATS_UPDATED, 1)
+EVT_USER_CONNECTED_BINDER = wx.PyEventBinder(EVT_USER_CONNECTED, 1)
+
+# Custom event classes
+class StatsUpdatedEvent(wx.PyCommandEvent):
+    def __init__(self, etype, eid):
+        wx.PyCommandEvent.__init__(self, etype, eid)
+
+class UserConnectedEvent(wx.PyCommandEvent):
+    def __init__(self, etype, eid, username=""):
+        wx.PyCommandEvent.__init__(self, etype, eid)
+        self._username = username
+        
+    def GetUsername(self):
+        return self._username
 
 # Global connection statistics
-class ProxyStats(QObject):
+class ProxyStats:
     """Class to track and update proxy statistics"""
-    stats_updated = pyqtSignal()
-    user_connected = pyqtSignal(str)  # Signal for when a user connects
-    
     def __init__(self):
-        super().__init__()
         self.total_connections = 0
         self.active_connections = 0
         self.completed_connections = 0
@@ -22,29 +39,52 @@ class ProxyStats(QObject):
         self.listening_address = "0.0.0.0"
         self.listening_port = 0
         self.start_time = time.time()
+        self.listeners = []
+    
+    def add_listener(self, listener):
+        """Add a listener for events"""
+        if listener not in self.listeners:
+            self.listeners.append(listener)
+    
+    def remove_listener(self, listener):
+        """Remove a listener"""
+        if listener in self.listeners:
+            self.listeners.remove(listener)
+    
+    def notify_stats_updated(self):
+        """Notify all listeners that stats have been updated"""
+        for listener in self.listeners:
+            evt = StatsUpdatedEvent(EVT_STATS_UPDATED, listener.GetId())
+            wx.PostEvent(listener, evt)
+    
+    def notify_user_connected(self, username):
+        """Notify all listeners that a user has connected"""
+        for listener in self.listeners:
+            evt = UserConnectedEvent(EVT_USER_CONNECTED, listener.GetId(), username)
+            wx.PostEvent(listener, evt)
     
     def update_status(self, status):
         """Update the proxy status"""
         self.proxy_status = status
-        self.stats_updated.emit()
+        self.notify_stats_updated()
     
     def update_listening_info(self, address, port):
         """Update the listening address and port"""
         self.listening_address = address
         self.listening_port = port
-        self.stats_updated.emit()
+        self.notify_stats_updated()
     
     def connection_started(self):
         """Increment connection counters when a new connection starts"""
         self.total_connections += 1
         self.active_connections += 1
-        self.stats_updated.emit()
+        self.notify_stats_updated()
     
     def connection_completed(self):
         """Update counters when a connection completes"""
         self.active_connections = max(0, self.active_connections - 1)
         self.completed_connections += 1
-        self.stats_updated.emit()
+        self.notify_stats_updated()
     
     def get_uptime(self):
         """Return uptime in human-readable format"""
@@ -61,236 +101,570 @@ class ProxyStats(QObject):
 
     def user_login(self, username):
         """Signal that a user has logged in"""
-        self.user_connected.emit(username)
+        self.notify_user_connected(username)
 
 # Create a global stats instance
 proxy_stats = ProxyStats()
 
-class StatusLabel(QLabel):
+class StatusLabel(wx.StaticText):
     """Custom styled status label"""
-    def __init__(self, text="", parent=None):
-        super().__init__(text, parent)
-        self.setStyleSheet("font-weight: bold;")
+    def __init__(self, parent, text="", id=wx.ID_ANY):
+        super().__init__(parent, id, text)
+        font = self.GetFont()
+        font.SetWeight(wx.FONTWEIGHT_BOLD)
+        self.SetFont(font)
 
-class ValueLabel(QLabel):
+class ValueLabel(wx.StaticText):
     """Custom styled value label"""
-    def __init__(self, text="", parent=None):
-        super().__init__(text, parent)
-        self.setStyleSheet("color: #2c3e50;")
+    def __init__(self, parent, text="", id=wx.ID_ANY):
+        super().__init__(parent, id, text)
+        self.SetForegroundColour(wx.Colour(44, 62, 80))  # #2c3e50
 
-class ProxyUI(QMainWindow):
+class ProxyUI(wx.Frame):
     """Main UI window for the proxy application"""
-    # Signal to notify when application should exit
-    exit_signal = pyqtSignal()
+    def __init_event_handlers(self):
+        """Initialize event handlers"""
+        # Define an event to notify when application should exit
+        self.exit_event = threading.Event()
+        
+        # Define event handler methods
+        def on_stats_updated(self, event):
+            """Handle stats updated event"""
+            self.update_stats()
+            
+        def on_user_connected(self, event):
+            """Handle user connected event"""
+            username = event.GetUsername()
+            self.show_user_connected_notification(username)
+            
+        def update_stats(self, event=None):
+            """Update all statistics in the UI"""
+            self.status_value.SetLabel(proxy_stats.proxy_status)
+            self.address_value.SetLabel(f"{proxy_stats.listening_address}:{proxy_stats.listening_port}")
+            self.uptime_value.SetLabel(proxy_stats.get_uptime())
+            self.total_value.SetLabel(str(proxy_stats.total_connections))
+            self.active_value.SetLabel(str(proxy_stats.active_connections))
+            self.completed_value.SetLabel(str(proxy_stats.completed_connections))
+            
+            # Update tray tooltip with basic stats if tray icon exists
+            if hasattr(self, 'tray_icon'):
+                tooltip = f"EQEmu Login Proxy\nStatus: {proxy_stats.proxy_status}\n"
+                tooltip += f"Connections: {proxy_stats.active_connections} active, "
+                tooltip += f"{proxy_stats.total_connections} total"
+                # In wxPython, we need to get the icon path and create a new icon
+                icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tray_icon.png")
+                if os.path.exists(icon_path):
+                    icon = wx.Icon(icon_path)
+                    self.tray_icon.SetIcon(icon, tooltip)
+        
+        def show_user_connected_notification(self, username):
+            """Show a tray notification when a user connects"""
+            if hasattr(self, 'tray_icon'):
+                self.tray_icon.ShowBalloon(
+                    "User Connected",
+                    f"User '{username}' has connected to the proxy.",
+                    3000  # Show for 3 seconds
+                )
+        
+        def bind_close_handler(self):
+            """Bind the close event handler"""
+            self.Bind(wx.EVT_CLOSE, self.on_close)
+        
+        def on_close(self, event):
+            """Handle window close event"""
+            # Minimize to tray instead of closing
+            self.Hide()
+            if hasattr(self, 'tray_icon'):
+                self.tray_icon.ShowBalloon(
+                    "EQEmu Login Proxy",
+                    "Application is still running in the system tray.",
+                    2000
+                )
+        
+        def close_application(self):
+            """Actually close the application"""
+            # Remove the tray icon first to prevent it from lingering
+            if hasattr(self, 'tray_icon'):
+                self.tray_icon.RemoveIcon()
+                self.tray_icon.Destroy()
+            
+            # Set the exit event to notify the main application to exit
+            self.exit_event.set()
+            
+            # This will close the UI, but the main event loop needs to be stopped separately
+            self.Destroy()
+        
+        # Add the methods to the class
+        self.on_stats_updated = on_stats_updated.__get__(self)
+        self.on_user_connected = on_user_connected.__get__(self)
+        self.update_stats = update_stats.__get__(self)
+        self.show_user_connected_notification = show_user_connected_notification.__get__(self)
+        self.Bind_close_handler = bind_close_handler.__get__(self)
+        self.on_close = on_close.__get__(self)
+        self.close_application = close_application.__get__(self)
     
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None, id=wx.ID_ANY, title="EQEmu Login Proxy"):
+        super().__init__(parent, id, title, size=(550, 550))
+        
+        # Initialize event handlers
+        self.__init_event_handlers()
+        
+        # Register as a listener for proxy stats events
+        proxy_stats.add_listener(self)
+        
+        # Bind event handlers
+        self.Bind(EVT_STATS_UPDATED_BINDER, self.on_stats_updated)
+        self.Bind(EVT_USER_CONNECTED_BINDER, self.on_user_connected)
+        
+        # Initialize UI components
         self.init_ui()
         self.setup_tray()
         
         # Update stats periodically
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.update_stats)
-        self.timer.start(1000)  # Update every second
-        
-        # Connect to user login signal
-        proxy_stats.user_connected.connect(self.show_user_connected_notification)
+        self.timer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self.update_stats, self.timer)
+        self.timer.Start(1000)  # Update every second
         
         # Store updater reference
         self.updater = None
         self.update_progress_dialog = None
+        
+        # Set icon
+        self.set_icon()
+        
+        # Update EQ status
+        wx.CallAfter(self.update_eq_status)
     
     def init_ui(self):
-        self.setWindowTitle("EQEmu Login Proxy")
-        self.setGeometry(100, 100, 400, 300)
-        
-        # Create central widget and layout
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
+        # Create main panel
+        panel = wx.Panel(self)
+        main_sizer = wx.BoxSizer(wx.VERTICAL)
         
         # Add title
-        title_label = QLabel("EQEmu Login Proxy")
-        title_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #3498db; margin-bottom: 10px;")
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main_layout.addWidget(title_label)
+        title_font = wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
+        title_label = wx.StaticText(panel, label="EQEmu Login Proxy")
+        title_label.SetFont(title_font)
+        title_label.SetForegroundColour(wx.Colour(52, 152, 219))  # #3498db
+        main_sizer.Add(title_label, 0, wx.ALIGN_CENTER | wx.TOP | wx.BOTTOM, 10)
         
         # Add horizontal line
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setFrameShadow(QFrame.Shadow.Sunken)
-        line.setStyleSheet("background-color: #bdc3c7; margin: 10px 0;")
-        main_layout.addWidget(line)
+        line = wx.StaticLine(panel)
+        main_sizer.Add(line, 0, wx.EXPAND | wx.TOP | wx.BOTTOM, 5)
+        
+        # Create a notebook for tabbed interface
+        notebook = wx.Notebook(panel)
+        
+        # Proxy Status tab
+        proxy_tab = wx.Panel(notebook)
+        proxy_sizer = wx.BoxSizer(wx.VERTICAL)
         
         # Status
-        status_layout = QHBoxLayout()
-        status_label = StatusLabel("Status:")
-        self.status_value = ValueLabel(proxy_stats.proxy_status)
-        status_layout.addWidget(status_label)
-        status_layout.addWidget(self.status_value)
-        status_layout.addStretch()
-        main_layout.addLayout(status_layout)
+        status_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        status_label = StatusLabel(proxy_tab, "Status:")
+        self.status_value = ValueLabel(proxy_tab, proxy_stats.proxy_status)
+        status_sizer.Add(status_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        status_sizer.Add(self.status_value, 1, wx.ALIGN_CENTER_VERTICAL)
+        proxy_sizer.Add(status_sizer, 0, wx.EXPAND | wx.ALL, 5)
         
         # Listening address
-        address_layout = QHBoxLayout()
-        address_label = StatusLabel("Listening on:")
-        self.address_value = ValueLabel(f"{proxy_stats.listening_address}:{proxy_stats.listening_port}")
-        address_layout.addWidget(address_label)
-        address_layout.addWidget(self.address_value)
-        address_layout.addStretch()
-        main_layout.addLayout(address_layout)
+        address_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        address_label = StatusLabel(proxy_tab, "Listening on:")
+        self.address_value = ValueLabel(proxy_tab, f"{proxy_stats.listening_address}:{proxy_stats.listening_port}")
+        address_sizer.Add(address_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        address_sizer.Add(self.address_value, 1, wx.ALIGN_CENTER_VERTICAL)
+        proxy_sizer.Add(address_sizer, 0, wx.EXPAND | wx.ALL, 5)
         
         # Uptime
-        uptime_layout = QHBoxLayout()
-        uptime_label = StatusLabel("Uptime:")
-        self.uptime_value = ValueLabel(proxy_stats.get_uptime())
-        uptime_layout.addWidget(uptime_label)
-        uptime_layout.addWidget(self.uptime_value)
-        uptime_layout.addStretch()
-        main_layout.addLayout(uptime_layout)
+        uptime_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        uptime_label = StatusLabel(proxy_tab, "Uptime:")
+        self.uptime_value = ValueLabel(proxy_tab, proxy_stats.get_uptime())
+        uptime_sizer.Add(uptime_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        uptime_sizer.Add(self.uptime_value, 1, wx.ALIGN_CENTER_VERTICAL)
+        proxy_sizer.Add(uptime_sizer, 0, wx.EXPAND | wx.ALL, 5)
         
-        # Add another horizontal line
-        line2 = QFrame()
-        line2.setFrameShape(QFrame.Shape.HLine)
-        line2.setFrameShadow(QFrame.Shadow.Sunken)
-        line2.setStyleSheet("background-color: #bdc3c7; margin: 10px 0;")
-        main_layout.addWidget(line2)
+        # Add horizontal line
+        line2 = wx.StaticLine(proxy_tab)
+        proxy_sizer.Add(line2, 0, wx.EXPAND | wx.TOP | wx.BOTTOM, 5)
         
         # Connection statistics section title
-        stats_title = QLabel("Connection Statistics")
-        stats_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #2c3e50; margin: 5px 0;")
-        stats_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main_layout.addWidget(stats_title)
+        stats_font = wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
+        stats_title = wx.StaticText(proxy_tab, label="Connection Statistics")
+        stats_title.SetFont(stats_font)
+        stats_title.SetForegroundColour(wx.Colour(44, 62, 80))  # #2c3e50
+        proxy_sizer.Add(stats_title, 0, wx.ALIGN_CENTER | wx.TOP | wx.BOTTOM, 5)
         
         # Total connections
-        total_layout = QHBoxLayout()
-        total_label = StatusLabel("Total Connections:")
-        self.total_value = ValueLabel(str(proxy_stats.total_connections))
-        total_layout.addWidget(total_label)
-        total_layout.addWidget(self.total_value)
-        total_layout.addStretch()
-        main_layout.addLayout(total_layout)
+        total_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        total_label = StatusLabel(proxy_tab, "Total Connections:")
+        self.total_value = ValueLabel(proxy_tab, str(proxy_stats.total_connections))
+        total_sizer.Add(total_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        total_sizer.Add(self.total_value, 1, wx.ALIGN_CENTER_VERTICAL)
+        proxy_sizer.Add(total_sizer, 0, wx.EXPAND | wx.ALL, 5)
         
         # Active connections
-        active_layout = QHBoxLayout()
-        active_label = StatusLabel("Active Connections:")
-        self.active_value = ValueLabel(str(proxy_stats.active_connections))
-        active_layout.addWidget(active_label)
-        active_layout.addWidget(self.active_value)
-        active_layout.addStretch()
-        main_layout.addLayout(active_layout)
+        active_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        active_label = StatusLabel(proxy_tab, "Active Connections:")
+        self.active_value = ValueLabel(proxy_tab, str(proxy_stats.active_connections))
+        active_sizer.Add(active_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        active_sizer.Add(self.active_value, 1, wx.ALIGN_CENTER_VERTICAL)
+        proxy_sizer.Add(active_sizer, 0, wx.EXPAND | wx.ALL, 5)
         
         # Completed connections
-        completed_layout = QHBoxLayout()
-        completed_label = StatusLabel("Completed Connections:")
-        self.completed_value = ValueLabel(str(proxy_stats.completed_connections))
-        completed_layout.addWidget(completed_label)
-        completed_layout.addWidget(self.completed_value)
-        completed_layout.addStretch()
-        main_layout.addLayout(completed_layout)
+        completed_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        completed_label = StatusLabel(proxy_tab, "Completed Connections:")
+        self.completed_value = ValueLabel(proxy_tab, str(proxy_stats.completed_connections))
+        completed_sizer.Add(completed_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        completed_sizer.Add(self.completed_value, 1, wx.ALIGN_CENTER_VERTICAL)
+        proxy_sizer.Add(completed_sizer, 0, wx.EXPAND | wx.ALL, 5)
         
-        # Add spacer
-        main_layout.addStretch()
+        # Set the proxy tab sizer
+        proxy_tab.SetSizer(proxy_sizer)
         
-        # Minimize to tray button
-        minimize_button = QPushButton("Minimize to Tray")
-        minimize_button.clicked.connect(self.hide)
-        main_layout.addWidget(minimize_button)
+        # EverQuest Configuration tab
+        eq_tab = wx.Panel(notebook)
+        eq_sizer = wx.BoxSizer(wx.VERTICAL)
         
-        # Connect stats update signal
-        proxy_stats.stats_updated.connect(self.update_stats)
+        # EQ Configuration Status section
+        eq_status_box = wx.StaticBox(eq_tab, label="EverQuest Configuration Status")
+        eq_status_sizer = wx.StaticBoxSizer(eq_status_box, wx.VERTICAL)
+        
+        # EQ Directory status
+        self.eq_dir_text = wx.StaticText(eq_tab, label="EverQuest Directory: Checking...")
+        eq_status_sizer.Add(self.eq_dir_text, 0, wx.ALL | wx.EXPAND, 5)
+        
+        # eqhost.txt status
+        self.eqhost_text = wx.StaticText(eq_tab, label="eqhost.txt: Checking...")
+        eq_status_sizer.Add(self.eqhost_text, 0, wx.ALL | wx.EXPAND, 5)
+        
+        # Proxy status
+        self.proxy_status_text = wx.StaticText(eq_tab, label="Proxy Status: Checking...")
+        eq_status_sizer.Add(self.proxy_status_text, 0, wx.ALL | wx.EXPAND, 5)
+        
+        # eqhost.txt contents
+        self.eqhost_contents = wx.TextCtrl(eq_tab, style=wx.TE_MULTILINE | wx.TE_READONLY, size=(-1, 100))
+        eq_status_sizer.Add(wx.StaticText(eq_tab, label="eqhost.txt Contents:"), 0, wx.ALL, 5)
+        eq_status_sizer.Add(self.eqhost_contents, 1, wx.ALL | wx.EXPAND, 5)
+        
+        eq_sizer.Add(eq_status_sizer, 1, wx.ALL | wx.EXPAND, 10)
+        
+        # EQ Configuration Actions section
+        eq_action_box = wx.StaticBox(eq_tab, label="Actions")
+        eq_action_sizer = wx.StaticBoxSizer(eq_action_box, wx.VERTICAL)
+        
+        # Buttons
+        eq_button_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        
+        self.refresh_btn = wx.Button(eq_tab, label="Refresh Status")
+        self.refresh_btn.Bind(wx.EVT_BUTTON, self.on_refresh_eq_status)
+        eq_button_sizer.Add(self.refresh_btn, 0, wx.ALL, 5)
+        
+        self.enable_btn = wx.Button(eq_tab, label="Enable Proxy")
+        self.enable_btn.Bind(wx.EVT_BUTTON, self.on_enable_proxy)
+        eq_button_sizer.Add(self.enable_btn, 0, wx.ALL, 5)
+        
+        self.disable_btn = wx.Button(eq_tab, label="Disable Proxy")
+        self.disable_btn.Bind(wx.EVT_BUTTON, self.on_disable_proxy)
+        eq_button_sizer.Add(self.disable_btn, 0, wx.ALL, 5)
+        
+        eq_action_sizer.Add(eq_button_sizer, 0, wx.ALL | wx.CENTER, 5)
+        
+        eq_sizer.Add(eq_action_sizer, 0, wx.ALL | wx.EXPAND, 10)
+        
+        # Set the EQ tab sizer
+        eq_tab.SetSizer(eq_sizer)
+        
+        # Add tabs to notebook
+        notebook.AddPage(proxy_tab, "Proxy Status")
+        notebook.AddPage(eq_tab, "EverQuest Configuration")
+        
+        # Add notebook to main sizer
+        main_sizer.Add(notebook, 1, wx.EXPAND | wx.ALL, 10)
+        
+        # Minimize to tray button at the bottom
+        button_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.minimize_btn = wx.Button(panel, label="Minimize to Tray")
+        self.minimize_btn.Bind(wx.EVT_BUTTON, self.on_minimize)
+        button_sizer.Add(self.minimize_btn, 0, wx.ALL, 5)
+        
+        main_sizer.Add(button_sizer, 0, wx.ALL | wx.CENTER, 5)
+        
+        panel.SetSizer(main_sizer)
+        
+        # Center the window
+        self.Centre()
     
-    def setup_tray(self):
-        """Set up system tray icon and menu"""
-        # Create a simple icon for the tray
-        self.tray_icon = QSystemTrayIcon(self)
+    # Handle minimize to tray button click
+    def on_minimize(self, event):
+        self.Hide()
+        if hasattr(self, 'tray_icon'):
+            self.tray_icon.ShowBalloon(
+                "EQEmu Login Proxy",
+                "Application is still running in the system tray.",
+                2000  # Show for 2 seconds
+            )
+    
+    # Refresh EverQuest configuration status
+    def on_refresh_eq_status(self, event):
+        self.update_eq_status()
+    
+    # Enable proxy in EverQuest configuration
+    def on_enable_proxy(self, event):
+        success = eq_config.enable_proxy()
+        if not success:
+            wx.MessageBox("Failed to enable proxy. EverQuest directory or eqhost.txt not found.", 
+                         "Error", wx.OK | wx.ICON_ERROR)
+        self.update_eq_status()
+    
+    # Disable proxy in EverQuest configuration
+    def on_disable_proxy(self, event):
+        success = eq_config.disable_proxy()
+        if not success:
+            wx.MessageBox("Failed to disable proxy. EverQuest directory or eqhost.txt not found.", 
+                         "Error", wx.OK | wx.ICON_ERROR)
+        self.update_eq_status()
         
-        # Try to use a custom icon if available, otherwise use a system icon
+    # Set the application icon
+    def set_icon(self):
         icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tray_icon.png")
         if os.path.exists(icon_path):
-            self.tray_icon.setIcon(QIcon(icon_path))
-        else:
-            # Use a system icon as fallback
-            self.tray_icon.setIcon(QIcon.fromTheme("network-server"))
-        
-        # Create tray menu
-        tray_menu = QMenu()
-        
-        # Add actions to the menu
-        show_action = QAction("Show", self)
-        show_action.triggered.connect(self.show)
-        
-        check_update_action = QAction("Check for Updates", self)
-        check_update_action.triggered.connect(self.check_for_updates)
-        
-        exit_action = QAction("Exit", self)
-        exit_action.triggered.connect(self.close_application)
-        
-        tray_menu.addAction(show_action)
-        tray_menu.addAction(check_update_action)
-        tray_menu.addSeparator()
-        tray_menu.addAction(exit_action)
-        
-        # Set the menu for tray icon
-        self.tray_icon.setContextMenu(tray_menu)
-        
-        # Show the tray icon
-        self.tray_icon.show()
-        
-        # Connect activated signal (for double-click)
-        self.tray_icon.activated.connect(self.tray_icon_activated)
+            icon = wx.Icon(icon_path)
+            self.SetIcon(icon)
+    
+    # Update EverQuest configuration status display
+    def update_eq_status(self):
+        """Update the EverQuest configuration status display"""
 
-    def tray_icon_activated(self, reason):
-        """Handle tray icon activation (e.g., double-click)"""
-        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
-            self.show()
-            self.activateWindow()
-    
-    def update_stats(self):
-        """Update all statistics in the UI"""
-        self.status_value.setText(proxy_stats.proxy_status)
-        self.address_value.setText(f"{proxy_stats.listening_address}:{proxy_stats.listening_port}")
-        self.uptime_value.setText(proxy_stats.get_uptime())
-        self.total_value.setText(str(proxy_stats.total_connections))
-        self.active_value.setText(str(proxy_stats.active_connections))
-        self.completed_value.setText(str(proxy_stats.completed_connections))
+        # Get current status
+        status = eq_config.get_eq_status()
         
-        # Update tray tooltip with basic stats
-        self.tray_icon.setToolTip(f"EQEmu Login Proxy\nStatus: {proxy_stats.proxy_status}\n"
-                                 f"Connections: {proxy_stats.active_connections} active, "
-                                 f"{proxy_stats.total_connections} total")
+        # Update EQ directory status
+        if status["eq_directory_found"]:
+            self.eq_dir_text.SetLabel(f"EverQuest Directory: {status['eq_directory']}")
+            self.eq_dir_text.SetForegroundColour(wx.Colour(0, 128, 0))  # Green
+        else:
+            self.eq_dir_text.SetLabel("EverQuest Directory: Not Found")
+            self.eq_dir_text.SetForegroundColour(wx.Colour(255, 0, 0))  # Red
+        
+        # Update eqhost.txt status
+        if status["eqhost_found"]:
+            self.eqhost_text.SetLabel(f"eqhost.txt: {status['eqhost_path']}")
+            self.eqhost_text.SetForegroundColour(wx.Colour(0, 128, 0))  # Green
+        else:
+            self.eqhost_text.SetLabel("eqhost.txt: Not Found")
+            self.eqhost_text.SetForegroundColour(wx.Colour(255, 0, 0))  # Red
+        
+        # Update proxy status
+        if status["using_proxy"]:
+            self.proxy_status_text.SetLabel("Proxy Status: Enabled")
+            self.proxy_status_text.SetForegroundColour(wx.Colour(0, 128, 0))  # Green
+        else:
+            self.proxy_status_text.SetLabel("Proxy Status: Disabled")
+            self.proxy_status_text.SetForegroundColour(wx.Colour(128, 128, 128))  # Gray
+        
+        # Update eqhost.txt contents
+        self.eqhost_contents.Clear()
+        if status["eqhost_contents"]:
+            self.eqhost_contents.AppendText("\n".join(status["eqhost_contents"]))
+        
+        # Update button states
+        self.enable_btn.Enable(not status["using_proxy"])
+        self.disable_btn.Enable(status["using_proxy"])
     
-    def closeEvent(self, event):
+    # Set up system tray icon and menu
+    def setup_tray(self):
+        # Create a TaskBarIcon
+        self.tray_icon = TaskBarIcon(self)
+        
+        # Ensure the tray icon exists
+        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tray_icon.png")
+        if not os.path.exists(icon_path):
+            create_tray_icon()
+    
+    # Check for updates manually
+    def check_for_updates(self):
+        from . import updater
+        if self.updater is None:
+            self.updater = updater.Updater()
+            self.updater.update_available_callback = self.on_update_available
+            self.updater.update_progress_callback = self.on_update_progress
+            self.updater.update_complete_callback = self.on_update_complete
+        
+        self.updater.check_for_updates()
+    
+    # Handle when an update is available
+    def on_update_available(self, current_version, new_version):
+        message = f"A new version ({new_version}) is available. You are currently running {current_version}.\n\nWould you like to update now?"
+        dialog = wx.MessageDialog(self, message, "Update Available", wx.YES_NO | wx.ICON_INFORMATION)
+        result = dialog.ShowModal()
+        dialog.Destroy()
+        
+        if result == wx.ID_YES:
+            # Create progress dialog
+            self.update_progress_dialog = wx.ProgressDialog(
+                "Updating",
+                "Downloading update...",
+                maximum=100,
+                parent=self,
+                style=wx.PD_APP_MODAL | wx.PD_AUTO_HIDE
+            )
+            
+            # Start the update process
+            self.updater.download_and_install_update()
+    
+    # Handle update progress updates
+    def on_update_progress(self, message, progress):
+        if self.update_progress_dialog:
+            self.update_progress_dialog.Update(progress, message)
+    
+    # Handle update completion
+    def on_update_complete(self, success, message):
+        if self.update_progress_dialog:
+            self.update_progress_dialog.Destroy()
+            self.update_progress_dialog = None
+        
+        if success:
+            dialog = wx.MessageDialog(self, message + "\n\nThe application will now restart.", "Update Complete", wx.OK | wx.ICON_INFORMATION)
+            dialog.ShowModal()
+            dialog.Destroy()
+            
+            # Restart the application
+            self.close_application()
+            import sys
+            import os
+            import subprocess
+            subprocess.Popen([sys.executable] + sys.argv)
+        else:
+            wx.MessageBox(message, "Update Failed", wx.OK | wx.ICON_ERROR)
+    
+    # Cancel the update process
+    def cancel_update(self):
+        if self.updater:
+            self.updater.cancel_update()
+        
+        if self.update_progress_dialog:
+            self.update_progress_dialog.Destroy()
+            self.update_progress_dialog = None
+
+class TaskBarIcon(wx.adv.TaskBarIcon):
+    def __init__(self, frame):
+        super().__init__()
+        self.frame = frame
+        
+        # Set icon
+        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tray_icon.png")
+        if os.path.exists(icon_path):
+            icon = wx.Icon(icon_path)
+            self.SetIcon(icon, "EQEmu Login Proxy")
+        
+        # Bind events
+        self.Bind(wx.adv.EVT_TASKBAR_LEFT_DCLICK, self.on_left_dclick)
+    
+    # Handle double-click on the taskbar icon
+    def on_left_dclick(self, event):
+        if not self.frame.IsShown():
+            self.frame.Show()
+            self.frame.Raise()
+    
+    # Create the popup menu for the taskbar icon
+    def CreatePopupMenu(self):
+        menu = wx.Menu()
+        show_item = menu.Append(wx.ID_ANY, "Show")
+        self.Bind(wx.EVT_MENU, self.on_show, show_item)
+        
+        check_updates_item = menu.Append(wx.ID_ANY, "Check for Updates")
+        self.Bind(wx.EVT_MENU, self.on_check_updates, check_updates_item)
+        
+        menu.AppendSeparator()
+        
+        exit_item = menu.Append(wx.ID_ANY, "Exit")
+        self.Bind(wx.EVT_MENU, self.on_exit, exit_item)
+        
+        return menu
+    
+    # Show the main window
+    def on_show(self, event):
+        if not self.frame.IsShown():
+            self.frame.Show()
+            self.frame.Raise()
+    
+
+    
+    def on_check_updates(self, event):
+        """Check for updates"""
+        self.frame.check_for_updates()
+    
+    def on_exit(self, event):
+        """Exit the application"""
+        self.frame.close_application()
+    
+    def ShowBalloon(self, title, text, msec=0):
+        """Show a balloon notification"""
+        if wx.Platform == '__WXMSW__':
+            # Only available on Windows
+            super().ShowBalloon(title, text, msec)
+        else:
+            # For other platforms, we could implement a custom notification
+            pass
+    
+    def on_stats_updated(self, event):
+        """Handle stats updated event"""
+        self.update_stats()
+    
+    def update_stats(self, event=None):
+        """Update all statistics in the UI"""
+        self.status_value.SetLabel(proxy_stats.proxy_status)
+        self.address_value.SetLabel(f"{proxy_stats.listening_address}:{proxy_stats.listening_port}")
+        self.uptime_value.SetLabel(proxy_stats.get_uptime())
+        self.total_value.SetLabel(str(proxy_stats.total_connections))
+        self.active_value.SetLabel(str(proxy_stats.active_connections))
+        self.completed_value.SetLabel(str(proxy_stats.completed_connections))
+        
+        # Update tray tooltip with basic stats if tray icon exists
+        if hasattr(self, 'tray_icon'):
+            tooltip = f"EQEmu Login Proxy\nStatus: {proxy_stats.proxy_status}\n"
+            tooltip += f"Connections: {proxy_stats.active_connections} active, "
+            tooltip += f"{proxy_stats.total_connections} total"
+            self.tray_icon.SetIcon(self.tray_icon.GetIcon(), tooltip)
+    
+    def on_user_connected(self, event):
+        """Handle user connected event"""
+        username = event.GetUsername()
+        self.show_user_connected_notification(username)
+    
+    def Bind_close_handler(self):
+        """Bind the close event handler"""
+        self.Bind(wx.EVT_CLOSE, self.on_close)
+    
+    def on_close(self, event):
         """Handle window close event"""
         # Minimize to tray instead of closing
-        event.ignore()
-        self.hide()
-        self.tray_icon.showMessage(
-            "EQEmu Login Proxy",
-            "Application is still running in the system tray.",
-            QSystemTrayIcon.MessageIcon.Information,
-            2000
-        )
+        self.Hide()
+        if hasattr(self, 'tray_icon'):
+            self.tray_icon.ShowBalloon(
+                "EQEmu Login Proxy",
+                "Application is still running in the system tray.",
+                2000
+            )
     
     def close_application(self):
         """Actually close the application"""
-        # Hide the tray icon first to prevent it from lingering
+        # Remove the tray icon first to prevent it from lingering
         if hasattr(self, 'tray_icon'):
-            self.tray_icon.hide()
+            self.tray_icon.RemoveIcon()
+            self.tray_icon.Destroy()
         
-        # Emit signal to notify the main application to exit
-        self.exit_signal.emit()
+        # Set the exit event to notify the main application to exit
+        self.exit_event.set()
         
         # This will close the UI, but the main event loop needs to be stopped separately
-        self.close()
+        self.Destroy()
     
     def show_user_connected_notification(self, username):
         """Show a tray notification when a user connects"""
         if hasattr(self, 'tray_icon'):
-            self.tray_icon.showMessage(
+            self.tray_icon.ShowBalloon(
                 "User Connected",
                 f"User '{username}' has connected to the proxy.",
-                QSystemTrayIcon.MessageIcon.Information,
                 3000  # Show for 3 seconds
             )
     
@@ -301,90 +675,91 @@ class ProxyUI(QMainWindow):
         # Create updater if not already created
         if not self.updater:
             self.updater = Updater()
-            self.updater.update_available.connect(self.on_update_available)
-            self.updater.update_progress.connect(self.on_update_progress)
-            self.updater.update_complete.connect(self.on_update_complete)
+            # Connect event handlers using wxPython's Pub-Sub mechanism
+            self.updater.update_available_callback = self.on_update_available
+            self.updater.update_progress_callback = self.on_update_progress
+            self.updater.update_complete_callback = self.on_update_complete
         
         # Create progress dialog
-        self.update_progress_dialog = QProgressDialog("Checking for updates...", "Cancel", 0, 100, self)
-        self.update_progress_dialog.setWindowTitle("Update Check")
-        self.update_progress_dialog.setAutoClose(False)
-        self.update_progress_dialog.setAutoReset(False)
-        self.update_progress_dialog.canceled.connect(self.cancel_update)
-        self.update_progress_dialog.show()
+        self.update_progress_dialog = wx.ProgressDialog(
+            "Update Check",
+            "Checking for updates...",
+            maximum=100,
+            parent=self,
+            style=wx.PD_APP_MODAL | wx.PD_AUTO_HIDE | wx.PD_CAN_ABORT
+        )
         
         # Check for updates
-        QApplication.processEvents()
         has_update = self.updater.check_for_updates()
         
         if not has_update and self.update_progress_dialog:
-            self.update_progress_dialog.close()
+            self.update_progress_dialog.Destroy()
             self.update_progress_dialog = None
-            QMessageBox.information(self, "Update Check", "Your application is up to date.")
+            wx.MessageBox("Your application is up to date.", "Update Check", wx.OK | wx.ICON_INFORMATION)
     
     def on_update_available(self, current_version, new_version):
         """Handle when an update is available"""
         if self.update_progress_dialog:
-            self.update_progress_dialog.close()
+            self.update_progress_dialog.Destroy()
             self.update_progress_dialog = None
         
         # Ask user if they want to update
-        response = QMessageBox.question(
-            self,
+        message = f"A new version is available: {new_version}\n"
+        message += f"Current version: {current_version}\n\n"
+        message += "Would you like to update now?"
+        response = wx.MessageBox(
+            message,
             "Update Available",
-            f"A new version is available: {new_version}\n"
-            f"Current version: {current_version}\n\n"
-            "Would you like to update now?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes
+            wx.YES_NO | wx.ICON_QUESTION
         )
         
-        if response == QMessageBox.StandardButton.Yes:
+        if response == wx.YES:
             # Create progress dialog for update
-            self.update_progress_dialog = QProgressDialog("Preparing to update...", "Cancel", 0, 100, self)
-            self.update_progress_dialog.setWindowTitle("Updating")
-            self.update_progress_dialog.setAutoClose(False)
-            self.update_progress_dialog.setAutoReset(False)
-            self.update_progress_dialog.canceled.connect(self.cancel_update)
-            self.update_progress_dialog.show()
+            self.update_progress_dialog = wx.ProgressDialog(
+                "Updating",
+                "Preparing to update...",
+                maximum=100,
+                parent=self,
+                style=wx.PD_APP_MODAL | wx.PD_AUTO_HIDE | wx.PD_CAN_ABORT
+            )
             
             # Start update in background
-            QApplication.processEvents()
             self.updater.perform_update(new_version)
     
     def on_update_progress(self, message, progress):
         """Handle update progress updates"""
         if self.update_progress_dialog:
-            self.update_progress_dialog.setLabelText(message)
-            self.update_progress_dialog.setValue(progress)
-            QApplication.processEvents()
+            # Returns tuple (continue, skip) - we only care about continue
+            result, _ = self.update_progress_dialog.Update(progress, message)
+            if not result:  # User clicked Cancel
+                self.cancel_update()
     
     def on_update_complete(self, success, message):
         """Handle update completion"""
         if self.update_progress_dialog:
-            self.update_progress_dialog.close()
+            self.update_progress_dialog.Destroy()
             self.update_progress_dialog = None
         
         if success:
             # Ask user if they want to restart
-            response = QMessageBox.question(
-                self,
-                "Update Complete",
+            response = wx.MessageBox(
                 f"{message}\n\nRestart application now?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.Yes
+                "Update Complete",
+                wx.YES_NO | wx.ICON_QUESTION
             )
             
-            if response == QMessageBox.StandardButton.Yes:
+            if response == wx.YES:
                 self.updater.restart_application()
         else:
             # Show error message
-            QMessageBox.critical(self, "Update Failed", message)
+            wx.MessageBox(message, "Update Failed", wx.OK | wx.ICON_ERROR)
     
     def cancel_update(self):
         """Cancel the update process"""
-        self.update_progress_dialog = None
-        QMessageBox.information(self, "Update Cancelled", "The update process has been cancelled.")
+        if self.update_progress_dialog:
+            self.update_progress_dialog.Destroy()
+            self.update_progress_dialog = None
+        wx.MessageBox("The update process has been cancelled.", "Update Cancelled", wx.OK | wx.ICON_INFORMATION)
 
 def create_tray_icon():
     """Create a simple tray icon image"""
@@ -413,11 +788,14 @@ def start_ui():
     if not os.path.exists(icon_path):
         create_tray_icon()
     
-    # Create the Qt application
-    app = QApplication(sys.argv)
+    # Create the wxPython application
+    app = wx.App(False)
     
     # Create and show the main window
     main_window = ProxyUI()
-    main_window.show()
+    main_window.Show()
+    
+    # Bind the close handler
+    main_window.Bind_close_handler()
     
     return app, main_window

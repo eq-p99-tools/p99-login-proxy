@@ -8,8 +8,7 @@ import time
 import logging
 from pathlib import Path
 import requests
-from PyQt6.QtCore import QObject, pyqtSignal
-from PyQt6.QtWidgets import QMessageBox
+import wx
 
 # Set up logging
 logging.basicConfig(
@@ -33,14 +32,13 @@ GITHUB_REPO_URL = f"https://github.com/{REPO_OWNER}/{REPO_NAME}"
 VERSION_FILE = "version.json"
 
 
-class Updater(QObject):
+class Updater:
     """Class to handle application updates"""
-    update_available = pyqtSignal(str, str)  # Current version, new version
-    update_progress = pyqtSignal(str, int)  # Status message, progress percentage
-    update_complete = pyqtSignal(bool, str)  # Success, message
-    
     def __init__(self):
-        super().__init__()
+        # Initialize callback functions
+        self.update_available_callback = None  # Current version, new version
+        self.update_progress_callback = None  # Status message, progress percentage
+        self.update_complete_callback = None  # Success, message
         self.current_version = self._get_current_version()
         logger.info(f"Current application version: {self.current_version}")
     
@@ -78,13 +76,15 @@ class Updater(QObject):
     def check_for_updates(self):
         """Check if updates are available"""
         logger.info("Checking for updates...")
-        self.update_progress.emit("Checking for updates...", 0)
+        if self.update_progress_callback:
+            self.update_progress_callback("Checking for updates...", 0)
         
         try:
             response = requests.get(GITHUB_RELEASES_URL, timeout=10)
             if response.status_code != 200:
                 logger.error(f"Failed to check for updates: {response.status_code}")
-                self.update_progress.emit("Failed to check for updates", 0)
+                if self.update_progress_callback:
+                    self.update_progress_callback("Failed to check for updates", 0)
                 return False
             
             release_data = response.json()
@@ -92,7 +92,8 @@ class Updater(QObject):
             
             if not latest_version:
                 logger.error("No version tag found in release data")
-                self.update_progress.emit("Failed to determine latest version", 0)
+                if self.update_progress_callback:
+                    self.update_progress_callback("Failed to determine latest version", 0)
                 return False
             
             # Normalize current version by removing 'v' prefix if present
@@ -134,32 +135,38 @@ class Updater(QObject):
                     
                     if is_newer:
                         logger.info(f"Update available: {latest_version}")
-                        self.update_available.emit(self.current_version, latest_version)
+                        if self.update_available_callback:
+                            self.update_available_callback(self.current_version, latest_version)
                         return True
                     else:
                         logger.info("No newer version available")
-                        self.update_progress.emit("Application is up to date", 100)
+                        if self.update_progress_callback:
+                            self.update_progress_callback("Application is up to date", 100)
                         return False
                         
                 except ValueError:
                     # Fall back to string comparison if version parsing fails
                     logger.info(f"Update available: {latest_version}")
-                    self.update_available.emit(self.current_version, latest_version)
+                    if self.update_available_callback:
+                        self.update_available_callback(self.current_version, latest_version)
                     return True
             else:
                 logger.info("Application is up to date")
-                self.update_progress.emit("Application is up to date", 100)
+                if self.update_progress_callback:
+                    self.update_progress_callback("Application is up to date", 100)
                 return False
                 
         except Exception as e:
             logger.error(f"Error checking for updates: {e}")
-            self.update_progress.emit(f"Error checking for updates: {str(e)}", 0)
+            if self.update_progress_callback:
+                self.update_progress_callback(f"Error checking for updates: {str(e)}", 0)
             return False
     
     def download_update(self, version):
         """Download the update from GitHub"""
         logger.info(f"Downloading update version {version}...")
-        self.update_progress.emit(f"Downloading update version {version}...", 10)
+        if self.update_progress_callback:
+            self.update_progress_callback(f"Downloading update version {version}...", 10)
         
         download_url = f"{GITHUB_REPO_URL}/archive/refs/tags/v{version}.zip"
         temp_dir = tempfile.mkdtemp()
@@ -170,7 +177,8 @@ class Updater(QObject):
             response = requests.get(download_url, stream=True, timeout=60)
             if response.status_code != 200:
                 logger.error(f"Failed to download update: {response.status_code}")
-                self.update_progress.emit("Failed to download update", 0)
+                if self.update_progress_callback:
+                    self.update_progress_callback("Failed to download update", 0)
                 return None
             
             total_size = int(response.headers.get('content-length', 0))
@@ -182,15 +190,18 @@ class Updater(QObject):
                         f.write(chunk)
                         downloaded += len(chunk)
                         progress = min(30, int(downloaded / total_size * 20) + 10) if total_size > 0 else 20
-                        self.update_progress.emit(f"Downloading update... {downloaded}/{total_size} bytes", progress)
+                        if self.update_progress_callback:
+                            self.update_progress_callback(f"Downloading update... {downloaded}/{total_size} bytes", progress)
             
             logger.info(f"Update downloaded to {zip_path}")
-            self.update_progress.emit("Download complete, extracting...", 30)
+            if self.update_progress_callback:
+                self.update_progress_callback("Download complete, extracting...", 30)
             return zip_path
             
         except Exception as e:
             logger.error(f"Error downloading update: {e}")
-            self.update_progress.emit(f"Error downloading update: {str(e)}", 0)
+            if self.update_progress_callback:
+                self.update_progress_callback(f"Error downloading update: {str(e)}", 0)
             return None
     
     def extract_update(self, zip_path):
@@ -198,7 +209,8 @@ class Updater(QObject):
         import zipfile
         
         logger.info(f"Extracting update from {zip_path}...")
-        self.update_progress.emit("Extracting update...", 40)
+        if self.update_progress_callback:
+            self.update_progress_callback("Extracting update...", 40)
         
         extract_dir = os.path.dirname(zip_path)
         
@@ -212,23 +224,27 @@ class Updater(QObject):
             
             if not extracted_dirs:
                 logger.error("No directories found after extraction")
-                self.update_progress.emit("Failed to extract update", 0)
+                if self.update_progress_callback:
+                    self.update_progress_callback("Failed to extract update", 0)
                 return None
             
             extracted_dir = os.path.join(extract_dir, extracted_dirs[0])
             logger.info(f"Update extracted to {extracted_dir}")
-            self.update_progress.emit("Update extracted, preparing to install...", 50)
+            if self.update_progress_callback:
+                self.update_progress_callback("Update extracted, preparing to install...", 50)
             return extracted_dir
             
         except Exception as e:
             logger.error(f"Error extracting update: {e}")
-            self.update_progress.emit(f"Error extracting update: {str(e)}", 0)
+            if self.update_progress_callback:
+                self.update_progress_callback(f"Error extracting update: {str(e)}", 0)
             return None
     
     def install_update(self, extracted_dir, version):
         """Install the update by replacing files"""
         logger.info(f"Installing update from {extracted_dir}...")
-        self.update_progress.emit("Installing update...", 60)
+        if self.update_progress_callback:
+            self.update_progress_callback("Installing update...", 60)
         
         app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         
@@ -267,20 +283,25 @@ class Updater(QObject):
                 
                 # Update progress
                 progress = min(90, int(i / total_files * 30) + 60)
-                self.update_progress.emit(f"Installing update... ({i+1}/{total_files})", progress)
+                if self.update_progress_callback:
+                    self.update_progress_callback(f"Installing update... ({i+1}/{total_files})", progress)
             
             # Update version file
             self._update_version_file(version)
             
             logger.info("Update installed successfully")
-            self.update_progress.emit("Update installed successfully", 100)
-            self.update_complete.emit(True, f"Updated to version {version}")
+            if self.update_progress_callback:
+                self.update_progress_callback("Update installed successfully", 100)
+            if self.update_complete_callback:
+                self.update_complete_callback(True, f"Updated to version {version}")
             return True
             
         except Exception as e:
             logger.error(f"Error installing update: {e}")
-            self.update_progress.emit(f"Error installing update: {str(e)}", 0)
-            self.update_complete.emit(False, f"Error installing update: {str(e)}")
+            if self.update_progress_callback:
+                self.update_progress_callback(f"Error installing update: {str(e)}", 0)
+            if self.update_complete_callback:
+                self.update_complete_callback(False, f"Error installing update: {str(e)}")
             return False
     
     def perform_update(self, version):
@@ -322,48 +343,71 @@ def check_for_updates_on_startup(parent=None):
     """Check for updates on startup and prompt user to update if available"""
     updater = Updater()
     
-    if updater.check_for_updates():
-        current_version = updater.current_version
-        
-        # Get the latest version from the GitHub API
-        try:
-            response = requests.get(GITHUB_RELEASES_URL, timeout=10)
-            if response.status_code == 200:
-                release_data = response.json()
-                latest_version = release_data.get('tag_name', '').lstrip('v')
-            else:
-                logger.error(f"Failed to get latest version: {response.status_code}")
-                return updater
-        except Exception as e:
-            logger.error(f"Error getting latest version: {e}")
-            return updater
-        
+    # Define callback functions
+    def on_update_available(current_version, new_version):
         # Prompt user to update
         if parent:
-            response = QMessageBox.question(
-                parent,
+            message = f"A new version is available: {new_version}\n"
+            message += f"Current version: {current_version}\n\n"
+            message += "Would you like to update now?"
+            response = wx.MessageBox(
+                message,
                 "Update Available",
-                f"A new version is available: {latest_version}\n"
-                f"Current version: {current_version}\n\n"
-                "Would you like to update now?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.Yes
+                wx.YES_NO | wx.ICON_QUESTION,
+                parent
             )
             
-            if response == QMessageBox.StandardButton.Yes:
-                # Perform update
-                updater.perform_update(latest_version)
-                
-                # Prompt to restart
-                restart_response = QMessageBox.question(
-                    parent,
-                    "Update Complete",
-                    "Update has been installed. Restart application now?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.Yes
+            if response == wx.YES:
+                # Create progress dialog
+                progress_dialog = wx.ProgressDialog(
+                    "Updating",
+                    "Preparing to update...",
+                    maximum=100,
+                    parent=parent,
+                    style=wx.PD_APP_MODAL | wx.PD_AUTO_HIDE | wx.PD_CAN_ABORT
                 )
                 
-                if restart_response == QMessageBox.StandardButton.Yes:
-                    updater.restart_application()
+                # Define progress callback
+                def on_update_progress(message, progress):
+                    if progress_dialog:
+                        result, _ = progress_dialog.Update(progress, message)
+                        if not result:  # User clicked Cancel
+                            progress_dialog.Destroy()
+                
+                # Define completion callback
+                def on_update_complete(success, message):
+                    if progress_dialog:
+                        progress_dialog.Destroy()
+                    
+                    if success:
+                        restart_response = wx.MessageBox(
+                            f"{message}\n\nRestart application now?",
+                            "Update Complete",
+                            wx.YES_NO | wx.ICON_QUESTION,
+                            parent
+                        )
+                        
+                        if restart_response == wx.YES:
+                            updater.restart_application()
+                    else:
+                        wx.MessageBox(
+                            message,
+                            "Update Failed",
+                            wx.OK | wx.ICON_ERROR,
+                            parent
+                        )
+                
+                # Set callbacks
+                updater.update_progress_callback = on_update_progress
+                updater.update_complete_callback = on_update_complete
+                
+                # Start update
+                updater.perform_update(new_version)
+    
+    # Set callback
+    updater.update_available_callback = on_update_available
+    
+    # Check for updates
+    updater.check_for_updates()
     
     return updater
