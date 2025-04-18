@@ -1,7 +1,7 @@
-import sys
 import os
 import time
 import threading
+import logging
 import wx
 import wx.adv
 from PIL import Image
@@ -166,10 +166,6 @@ class ProxyUI(wx.Frame):
                     3000  # Show for 3 seconds
                 )
         
-        def bind_close_handler(self):
-            """Bind the close event handler"""
-            self.Bind(wx.EVT_CLOSE, self.on_close)
-        
         def on_close(self, event):
             """Handle window close event"""
             # Minimize to tray instead of closing
@@ -199,7 +195,6 @@ class ProxyUI(wx.Frame):
         self.on_user_connected = on_user_connected.__get__(self)
         self.update_stats = update_stats.__get__(self)
         self.show_user_connected_notification = show_user_connected_notification.__get__(self)
-        self.Bind_close_handler = bind_close_handler.__get__(self)
         self.on_close = on_close.__get__(self)
         self.close_application = close_application.__get__(self)
     
@@ -234,18 +229,14 @@ class ProxyUI(wx.Frame):
         
         # Update EQ status
         wx.CallAfter(self.update_eq_status)
+        
+        # Automatically check for updates on startup
+        wx.CallAfter(self.check_for_updates_on_startup)
     
     def init_ui(self):
         # Create main panel
         panel = wx.Panel(self)
         main_sizer = wx.BoxSizer(wx.VERTICAL)
-        
-        # Add title
-        # title_font = wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
-        # title_label = wx.StaticText(panel, label="EQEmu Login Proxy")
-        # title_label.SetFont(title_font)
-        # title_label.SetForegroundColour(wx.Colour(52, 152, 219))  # #3498db
-        # main_sizer.Add(title_label, 0, wx.ALIGN_CENTER | wx.TOP | wx.BOTTOM, 10)
         
         # Add horizontal line
         line = wx.StaticLine(panel)
@@ -398,6 +389,18 @@ class ProxyUI(wx.Frame):
         
         eq_sizer.Add(eq_status_sizer, 1, wx.ALL | wx.EXPAND, 10)
         
+        # UI Options section
+        ui_options_box = wx.StaticBox(eq_tab, label="UI Options")
+        ui_options_sizer = wx.StaticBoxSizer(ui_options_box, wx.VERTICAL)
+        
+        # Always on top checkbox
+        self.always_on_top_cb = wx.CheckBox(eq_tab, label="Always On Top")
+        self.always_on_top_cb.SetValue(False)  # Default to unchecked
+        self.always_on_top_cb.Bind(wx.EVT_CHECKBOX, self.on_always_on_top)
+        ui_options_sizer.Add(self.always_on_top_cb, 0, wx.ALL, 5)
+        
+        eq_sizer.Add(ui_options_sizer, 0, wx.ALL | wx.EXPAND, 10)
+        
         # Set the EQ tab sizer
         eq_tab.SetSizer(eq_sizer)
         
@@ -531,6 +534,19 @@ class ProxyUI(wx.Frame):
     def on_reset_eqhost(self, event):
         # Simply update the status which will reload the file content
         self.update_eq_status()
+    
+    # Handle Always On Top checkbox
+    def on_always_on_top(self, event):
+        # Get the checkbox state
+        is_checked = self.always_on_top_cb.GetValue()
+        
+        # Set the window style
+        if is_checked:
+            # Set the window to be always on top
+            self.SetWindowStyle(self.GetWindowStyle() | wx.STAY_ON_TOP)
+        else:
+            # Remove the always on top style
+            self.SetWindowStyle(self.GetWindowStyle() & ~wx.STAY_ON_TOP)
         
     # Set the application icon
     def set_icon(self):
@@ -588,6 +604,38 @@ class ProxyUI(wx.Frame):
         icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tray_icon.png")
         if not os.path.exists(icon_path):
             create_tray_icon()
+    
+    # Check for updates on startup (no UI feedback)
+    def check_for_updates_on_startup(self):
+        from . import updater
+        if self.updater is None:
+            self.updater = updater.Updater()
+            self.updater.update_available_callback = self.on_update_available
+            self.updater.update_progress_callback = self.on_update_progress
+            self.updater.update_complete_callback = self.on_update_complete
+        
+        # Store the result for the tray menu
+        self.has_update = False
+        self.new_version = None
+        
+        # Set callbacks for startup check
+        original_callback = self.updater.update_available_callback
+        
+        def startup_update_callback(current_version, new_version):
+            self.has_update = True
+            self.new_version = new_version
+            # Update the tray menu
+            if hasattr(self, 'tray_icon'):
+                self.tray_icon.update_menu()
+        
+        # Use our special callback for the startup check
+        self.updater.update_available_callback = startup_update_callback
+        
+        # Check for updates silently
+        self.updater.check_for_updates()
+        
+        # Restore original callback
+        self.updater.update_available_callback = original_callback
     
     # Check for updates manually
     def check_for_updates(self):
@@ -677,11 +725,16 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
     # Create the popup menu for the taskbar icon
     def CreatePopupMenu(self):
         menu = wx.Menu()
-        show_item = menu.Append(wx.ID_ANY, "Show")
+        show_item = menu.Append(wx.ID_ANY, "Show Application")
         self.Bind(wx.EVT_MENU, self.on_show, show_item)
         
-        check_updates_item = menu.Append(wx.ID_ANY, "Check for Updates")
-        self.Bind(wx.EVT_MENU, self.on_check_updates, check_updates_item)
+        # Add update menu item based on update status
+        if hasattr(self.frame, 'has_update') and self.frame.has_update and self.frame.new_version:
+            update_item = menu.Append(wx.ID_ANY, f"New version: {self.frame.new_version}")
+            self.Bind(wx.EVT_MENU, self.on_do_update, update_item)
+        else:
+            update_item = menu.Append(wx.ID_ANY, "No update available.")
+            update_item.Enable(False)
         
         menu.AppendSeparator()
         
@@ -689,6 +742,14 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
         self.Bind(wx.EVT_MENU, self.on_exit, exit_item)
         
         return menu
+    
+    # Update the menu (called when update status changes)
+    def update_menu(self):
+        # Force the menu to be rebuilt next time it's shown
+        if wx.Platform == '__WXMSW__':
+            self.PopupMenu(self.CreatePopupMenu())
+            # Hide the menu immediately
+            wx.CallAfter(self.PopupMenu, None)
     
     # Show the main window
     def on_show(self, event):
@@ -715,160 +776,36 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
             # For other platforms, we could implement a custom notification
             pass
     
-    def on_stats_updated(self, event):
-        """Handle stats updated event"""
-        self.update_stats()
-    
-    def update_stats(self, event=None):
-        """Update all statistics in the UI"""
-        self.status_value.SetLabel(proxy_stats.proxy_status)
-        self.address_value.SetLabel(f"{proxy_stats.listening_address}:{proxy_stats.listening_port}")
-        self.uptime_value.SetLabel(proxy_stats.get_uptime())
-        self.total_value.SetLabel(str(proxy_stats.total_connections))
-        self.active_value.SetLabel(str(proxy_stats.active_connections))
-        self.completed_value.SetLabel(str(proxy_stats.completed_connections))
-        
-        # Update tray tooltip with basic stats if tray icon exists
-        if hasattr(self, 'tray_icon'):
-            tooltip = f"EQEmu Login Proxy\nStatus: {proxy_stats.proxy_status}\n"
-            tooltip += f"Connections: {proxy_stats.active_connections} active, "
-            tooltip += f"{proxy_stats.total_connections} total"
-            self.tray_icon.SetIcon(self.tray_icon.GetIcon(), tooltip)
-    
-    def on_user_connected(self, event):
-        """Handle user connected event"""
-        username = event.GetUsername()
-        self.show_user_connected_notification(username)
-    
-    def Bind_close_handler(self):
-        """Bind the close event handler"""
-        self.Bind(wx.EVT_CLOSE, self.on_close)
-    
-    def on_close(self, event):
-        """Handle window close event"""
-        # Minimize to tray instead of closing
-        self.Hide()
-        if hasattr(self, 'tray_icon'):
-            self.tray_icon.ShowBalloon(
-                "EQEmu Login Proxy",
-                "Application is still running in the system tray.",
-                2000
-            )
-    
-    def close_application(self):
-        """Actually close the application"""
-        # Remove the tray icon first to prevent it from lingering
-        if hasattr(self, 'tray_icon'):
-            self.tray_icon.RemoveIcon()
-            self.tray_icon.Destroy()
-        
-        # Set the exit event to notify the main application to exit
-        self.exit_event.set()
-        
-        # This will close the UI, but the main event loop needs to be stopped separately
-        self.Destroy()
-    
-    def show_user_connected_notification(self, username):
-        """Show a tray notification when a user connects"""
-        if hasattr(self, 'tray_icon'):
-            self.tray_icon.ShowBalloon(
-                "User Connected",
-                f"User '{username}' has connected to the proxy.",
-                3000  # Show for 3 seconds
-            )
-    
-    def check_for_updates(self):
-        """Check for updates manually"""
-        from eqemu_sso_login_proxy.updater import Updater
-        
-        # Create updater if not already created
-        if not self.updater:
-            self.updater = Updater()
-            # Connect event handlers using wxPython's Pub-Sub mechanism
-            self.updater.update_available_callback = self.on_update_available
-            self.updater.update_progress_callback = self.on_update_progress
-            self.updater.update_complete_callback = self.on_update_complete
-        
-        # Create progress dialog
-        self.update_progress_dialog = wx.ProgressDialog(
-            "Update Check",
-            "Checking for updates...",
-            maximum=100,
-            parent=self,
-            style=wx.PD_APP_MODAL | wx.PD_AUTO_HIDE | wx.PD_CAN_ABORT
-        )
-        
-        # Check for updates
-        has_update = self.updater.check_for_updates()
-        
-        if not has_update and self.update_progress_dialog:
-            self.update_progress_dialog.Destroy()
-            self.update_progress_dialog = None
-            wx.MessageBox("Your application is up to date.", "Update Check", wx.OK | wx.ICON_INFORMATION)
-    
-    def on_update_available(self, current_version, new_version):
-        """Handle when an update is available"""
-        if self.update_progress_dialog:
-            self.update_progress_dialog.Destroy()
-            self.update_progress_dialog = None
-        
-        # Ask user if they want to update
-        message = f"A new version is available: {new_version}\n"
-        message += f"Current version: {current_version}\n\n"
-        message += "Would you like to update now?"
-        response = wx.MessageBox(
-            message,
-            "Update Available",
-            wx.YES_NO | wx.ICON_QUESTION
-        )
-        
-        if response == wx.YES:
+    # These methods are used by the tray icon menu
+    def on_do_update(self, event):
+        """Perform the update"""
+        if self.frame.has_update and self.frame.new_version:
             # Create progress dialog for update
-            self.update_progress_dialog = wx.ProgressDialog(
+            self.frame.update_progress_dialog = wx.ProgressDialog(
                 "Updating",
                 "Preparing to update...",
                 maximum=100,
-                parent=self,
+                parent=self.frame,
                 style=wx.PD_APP_MODAL | wx.PD_AUTO_HIDE | wx.PD_CAN_ABORT
             )
             
             # Start update in background
-            self.updater.perform_update(new_version)
+            self.frame.updater.download_and_install_update()
     
-    def on_update_progress(self, message, progress):
-        """Handle update progress updates"""
-        if self.update_progress_dialog:
-            # Returns tuple (continue, skip) - we only care about continue
-            result, _ = self.update_progress_dialog.Update(progress, message)
-            if not result:  # User clicked Cancel
-                self.cancel_update()
+    def on_exit(self, event):
+        """Exit the application"""
+        self.frame.close_application()
     
-    def on_update_complete(self, success, message):
-        """Handle update completion"""
-        if self.update_progress_dialog:
-            self.update_progress_dialog.Destroy()
-            self.update_progress_dialog = None
-        
-        if success:
-            # Ask user if they want to restart
-            response = wx.MessageBox(
-                f"{message}\n\nRestart application now?",
-                "Update Complete",
-                wx.YES_NO | wx.ICON_QUESTION
-            )
-            
-            if response == wx.YES:
-                self.updater.restart_application()
+    def ShowBalloon(self, title, text, msec=0):
+        """Show a balloon notification"""
+        if wx.Platform == '__WXMSW__':
+            # Only available on Windows
+            super().ShowBalloon(title, text, msec)
         else:
-            # Show error message
-            wx.MessageBox(message, "Update Failed", wx.OK | wx.ICON_ERROR)
+            # For other platforms, we could implement a custom notification
+            pass
     
-    def cancel_update(self):
-        """Cancel the update process"""
-        if self.update_progress_dialog:
-            self.update_progress_dialog.Destroy()
-            self.update_progress_dialog = None
-        wx.MessageBox("The update process has been cancelled.", "Update Cancelled", wx.OK | wx.ICON_INFORMATION)
+    # No duplicated update methods needed in TaskBarIcon class
 
 def create_tray_icon():
     """Create a simple tray icon image"""
@@ -897,7 +834,6 @@ def start_ui():
     if not os.path.exists(icon_path):
         create_tray_icon()
     
-
     # Create the wxPython application
     app = wx.App(False)
     app.SetVendorName("Toald (P99 Green)")
@@ -907,6 +843,6 @@ def start_ui():
     main_window.Show()
     
     # Bind the close handler
-    main_window.Bind_close_handler()
+    main_window.Bind(wx.EVT_CLOSE, main_window.on_close)
     
     return app, main_window
