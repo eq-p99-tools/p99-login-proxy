@@ -1,11 +1,18 @@
+import logging
 import os
+import subprocess
+import sys
 import time
 import threading
-import logging
+import win32api
+import win32con
+import win32gui
+
 import wx
 import wx.adv
-from PIL import Image
+
 from . import eq_config
+from . import updater
 
 # Define custom event IDs
 EVT_STATS_UPDATED = wx.NewEventType()
@@ -195,6 +202,8 @@ class ProxyUI(wx.Frame):
             # This will close the UI, but the main event loop needs to be stopped separately
             self.Destroy()
         
+
+        
         # Add the methods to the class
         self.on_stats_updated = on_stats_updated.__get__(self)
         self.on_user_connected = on_user_connected.__get__(self)
@@ -218,7 +227,9 @@ class ProxyUI(wx.Frame):
         
         # Initialize UI components
         self.init_ui()
-        self.setup_tray()
+        
+        # Create a TaskBarIcon
+        self.tray_icon = TaskBarIcon(self)
         
         # Update stats periodically
         self.timer = wx.Timer(self)
@@ -265,14 +276,6 @@ class ProxyUI(wx.Frame):
         status_sizer.Add(status_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         status_sizer.Add(self.status_value, 1, wx.ALIGN_CENTER_VERTICAL)
         status_box_sizer.Add(status_sizer, 0, wx.EXPAND | wx.ALL, 5)
-
-        # Proxy status
-        proxy_status_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        proxy_status_label = StatusLabel(proxy_tab, "EQ Config:")
-        self.proxy_status_text = ValueLabel(proxy_tab, "Checking...")
-        proxy_status_sizer.Add(proxy_status_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
-        proxy_status_sizer.Add(self.proxy_status_text, 1, wx.ALIGN_CENTER_VERTICAL)
-        status_box_sizer.Add(proxy_status_sizer, 0, wx.EXPAND | wx.ALL, 5)
         
         # Listening address
         address_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -281,6 +284,14 @@ class ProxyUI(wx.Frame):
         address_sizer.Add(address_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         address_sizer.Add(self.address_value, 1, wx.ALIGN_CENTER_VERTICAL)
         status_box_sizer.Add(address_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
+        # Proxy status
+        proxy_status_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        proxy_status_label = StatusLabel(proxy_tab, "EQ Config:")
+        self.proxy_status_text = ValueLabel(proxy_tab, "Checking...")
+        proxy_status_sizer.Add(proxy_status_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        proxy_status_sizer.Add(self.proxy_status_text, 1, wx.ALIGN_CENTER_VERTICAL)
+        status_box_sizer.Add(proxy_status_sizer, 0, wx.EXPAND | wx.ALL, 5)
         
         # Uptime
         uptime_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -416,11 +427,21 @@ class ProxyUI(wx.Frame):
         # Add notebook to main sizer
         main_sizer.Add(notebook, 1, wx.EXPAND | wx.ALL, 10)
         
-        # Launch EverQuest button at the bottom
+        # Buttons at the bottom
         button_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        
+        # Launch EverQuest button
         self.launch_eq_btn = wx.Button(panel, label="Launch EverQuest")
         self.launch_eq_btn.Bind(wx.EVT_BUTTON, self.on_launch_eq)
         button_sizer.Add(self.launch_eq_btn, 0, wx.ALL, 5)
+        
+        # Add some space between buttons
+        button_sizer.AddSpacer(60)
+        
+        # Exit button
+        self.exit_btn = wx.Button(panel, label="Exit")
+        self.exit_btn.Bind(wx.EVT_BUTTON, self.on_exit_button)
+        button_sizer.Add(self.exit_btn, 0, wx.ALL, 5)
         
         main_sizer.Add(button_sizer, 0, wx.ALL | wx.CENTER, 5)
         
@@ -431,14 +452,6 @@ class ProxyUI(wx.Frame):
     
     # Handle launch EverQuest button click
     def on_launch_eq(self, event):
-        from . import eq_config
-        import os
-        import sys
-        import ctypes
-        import win32api
-        import win32con
-        import win32gui
-        
         # Get the EverQuest directory
         eq_dir = eq_config.find_eq_directory()
         
@@ -507,10 +520,6 @@ class ProxyUI(wx.Frame):
     
     # Save eqhost.txt content
     def on_save_eqhost(self, event):
-        from . import eq_config
-        import os
-        import logging
-        
         # Get the EverQuest directory
         eq_dir = eq_config.find_eq_directory()
         
@@ -552,6 +561,11 @@ class ProxyUI(wx.Frame):
         else:
             # Remove the always on top style
             self.SetWindowStyle(self.GetWindowStyle() & ~wx.STAY_ON_TOP)
+    
+    # Handle exit button click
+    def on_exit_button(self, event):
+        """Exit the application when the exit button is clicked"""
+        self.close_application()
         
     # Set the application icon
     def set_icon(self):
@@ -604,24 +618,8 @@ class ProxyUI(wx.Frame):
         if hasattr(self, 'tray_icon'):
             self.tray_icon.update_icon(status["using_proxy"])
     
-    # Set up system tray icon and menu
-    def setup_tray(self):
-        # Create a TaskBarIcon
-        self.tray_icon = TaskBarIcon(self)
-        
-        # Ensure both tray icons exist
-        normal_icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tray_icon.png")
-        disabled_icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tray_icon_disabled.png")
-        
-        if not os.path.exists(normal_icon_path):
-            create_tray_icon(disabled=False)
-            
-        if not os.path.exists(disabled_icon_path):
-            create_tray_icon(disabled=True)
-    
     # Check for updates on startup (no UI feedback)
     def check_for_updates_on_startup(self):
-        from . import updater
         if self.updater is None:
             self.updater = updater.Updater()
             self.updater.update_available_callback = self.on_update_available
@@ -653,7 +651,6 @@ class ProxyUI(wx.Frame):
     
     # Check for updates manually
     def check_for_updates(self):
-        from . import updater
         if self.updater is None:
             self.updater = updater.Updater()
             self.updater.update_available_callback = self.on_update_available
@@ -700,9 +697,7 @@ class ProxyUI(wx.Frame):
             
             # Restart the application
             self.close_application()
-            import sys
-            import os
-            import subprocess
+
             subprocess.Popen([sys.executable] + sys.argv)
         else:
             wx.MessageBox(message, "Update Failed", wx.OK | wx.ICON_ERROR)
@@ -853,118 +848,9 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
     
     # No duplicated update methods needed in TaskBarIcon class
 
-def create_tray_icon(disabled=False):
-    """Create a tray icon image with a circle and '99' text
-    
-    Args:
-        disabled (bool): If True, creates a red-tinted version of the icon
-    """
-    from PIL import Image, ImageDraw, ImageFont
-    import os
-    
-    # Create a new image with a transparent background
-    size = 64
-    image = Image.new('RGBA', (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(image)
-    
-    # Choose color based on disabled status
-    if disabled:
-        # Red color for disabled state
-        color = (219, 52, 52)  # Red
-        filename = "tray_icon_disabled.png"
-    else:
-        # Blue color for normal state
-        color = (52, 152, 219)  # Blue
-        filename = "tray_icon.png"
-    
-    # Draw a circle
-    circle_margin = 0
-    circle_radius = (size - 2 * circle_margin) // 2
-    circle_center = (size // 2, size // 2)
-    circle_bbox = [
-        circle_center[0] - circle_radius,
-        circle_center[1] - circle_radius,
-        circle_center[0] + circle_radius,
-        circle_center[1] + circle_radius
-    ]
-    
-    # Draw filled circle with some transparency
-    circle_fill = color + (200,)  # Add alpha channel (200/255 opacity)
-    draw.ellipse(circle_bbox, fill=circle_fill, outline=color, width=2)
-    
-    # Try to load a font, fall back to default if not available
-    try:
-        # Try to find a bold font for the text
-        font_path = None
-        # Common font locations
-        potential_fonts = [
-            ("C:\\Windows\\Fonts\\lucon.ttf", 1.5, 2),      # Lucida Console
-            ("C:\\Windows\\Fonts\\arialbd.ttf", 1.7, 1.3),  # Arial Bold
-            ("C:\\Windows\\Fonts\\impact.ttf", 1.5, 1.3),   # Impact Regular
-        ]
-        
-        for path, scale, position_mod in potential_fonts:
-            if os.path.exists(path):
-                font_path = path
-                font_scale = scale
-                font_position_mod = position_mod
-                break
-        
-        if font_path:
-            # Increase font size by 40% for better visibility
-            font_size = int(circle_radius * font_scale)
-            font = ImageFont.truetype(font_path, size=font_size)
-        else:
-            # Fall back to default font
-            font = ImageFont.load_default()
-    except Exception:
-        # If any error occurs with fonts, use default
-        font = ImageFont.load_default()
-    
-    # Draw "99" text in white
-    text = "99"
-    text_color = (255, 255, 255)  # White
-    
-    # Get text size to center it
-    try:
-        # For newer Pillow versions
-        text_bbox = draw.textbbox((0, 0), text, font=font)
-        text_width = text_bbox[2] - text_bbox[0]
-        text_height = text_bbox[3] - text_bbox[1]
-    except AttributeError:
-        # For older Pillow versions
-        text_width, text_height = draw.textsize(text, font=font)
-    
-    text_position = (
-        circle_center[0] - text_width // 2,
-        circle_center[1] - text_height // font_position_mod
-    )
-    
-    # Draw text with a slight shadow for better visibility
-    shadow_offset = 1
-    draw.text((text_position[0] + shadow_offset, text_position[1] + shadow_offset), 
-              text, fill=(0, 0, 0, 128), font=font)  # Semi-transparent black shadow
-    draw.text(text_position, text, fill=text_color, font=font)
-    
-    # Save the image
-    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
-    
-    # Force the icon to be recreated by deleting any existing icon first
-    if os.path.exists(icon_path):
-        try:
-            os.remove(icon_path)
-        except:
-            pass
-    
-    image.save(icon_path)
-    return icon_path
 
 def start_ui():
     """Initialize and start the UI"""
-    # Always recreate both tray icons to ensure consistency
-    create_tray_icon(disabled=False)
-    create_tray_icon(disabled=True)
-    
     # Create the wxPython application
     app = wx.App(False)
     app.SetVendorName("Toald (P99 Green)")
