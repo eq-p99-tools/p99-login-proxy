@@ -6,13 +6,13 @@ import time
 import threading
 import win32api
 import win32con
-import win32gui
 
 import wx
 import wx.adv
 
-from . import eq_config
-from . import updater
+from eqemu_sso_login_proxy import config
+from eqemu_sso_login_proxy import eq_config
+from eqemu_sso_login_proxy import updater
 
 # Define custom event IDs
 EVT_STATS_UPDATED = wx.NewEventType()
@@ -142,11 +142,12 @@ class ProxyUI(wx.Frame):
         def on_user_connected(self, event):
             """Handle user connected event"""
             username = event.GetUsername()
+            self.last_username_label.SetLabel(username)
             self.show_user_connected_notification(username)
             
         def update_stats(self, event=None):
             """Update all statistics in the UI"""
-            self.status_value.SetLabel(proxy_stats.proxy_status)
+            # self.status_value.SetLabel(proxy_stats.proxy_status)
             self.address_value.SetLabel(f"{proxy_stats.listening_address}:{proxy_stats.listening_port}")
             self.uptime_value.SetLabel(proxy_stats.get_uptime())
             self.total_value.SetLabel(str(proxy_stats.total_connections))
@@ -155,15 +156,15 @@ class ProxyUI(wx.Frame):
             
             # Update tray tooltip with basic stats if tray icon exists
             if hasattr(self, 'tray_icon'):
-                tooltip = f"EQEmu Login Proxy\nStatus: {proxy_stats.proxy_status}\n"
+                tooltip = f"{config.APP_NAME}\nStatus: {proxy_stats.proxy_status}\n"
                 tooltip += f"Connections: {proxy_stats.active_connections} active, "
                 tooltip += f"{proxy_stats.total_connections} total"
                 
                 # The icon itself is managed by update_icon, we just update the tooltip here
                 if self.tray_icon.using_proxy:
-                    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tray_icon.png")
+                    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../tray_icon.png")
                 else:
-                    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tray_icon_disabled.png")
+                    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../tray_icon_disabled.png")
                     
                 if os.path.exists(icon_path):
                     icon = wx.Icon(icon_path)
@@ -174,7 +175,7 @@ class ProxyUI(wx.Frame):
             if hasattr(self, 'tray_icon'):
                 self.tray_icon.ShowBalloon(
                     "User Connected",
-                    f"User '{username}' has connected to the proxy.",
+                    f"User has connected to the proxy as '{username}'.",
                     3000  # Show for 3 seconds
                 )
         
@@ -184,8 +185,8 @@ class ProxyUI(wx.Frame):
             self.Hide()
             if hasattr(self, 'tray_icon'):
                 self.tray_icon.ShowBalloon(
-                    "EQEmu Login Proxy",
-                    "Application is still running in the system tray.",
+                    config.APP_NAME,
+                    f"{config.APP_NAME} is still running in the system tray.",
                     2000
                 )
         
@@ -212,7 +213,7 @@ class ProxyUI(wx.Frame):
         self.on_close = on_close.__get__(self)
         self.close_application = close_application.__get__(self)
     
-    def __init__(self, parent=None, id=wx.ID_ANY, title="EQEmu Login Proxy"):
+    def __init__(self, parent=None, id=wx.ID_ANY, title=config.APP_NAME):
         super().__init__(parent, id, title, size=(550, 500))
         
         # Initialize event handlers
@@ -270,12 +271,12 @@ class ProxyUI(wx.Frame):
         status_box_sizer = wx.StaticBoxSizer(status_box, wx.VERTICAL)
         
         # Server status
-        status_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        status_label = StatusLabel(proxy_tab, "Server:")
-        self.status_value = ValueLabel(proxy_tab, proxy_stats.proxy_status)
-        status_sizer.Add(status_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
-        status_sizer.Add(self.status_value, 1, wx.ALIGN_CENTER_VERTICAL)
-        status_box_sizer.Add(status_sizer, 0, wx.EXPAND | wx.ALL, 5)
+        # status_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        # status_label = StatusLabel(proxy_tab, "Server:")
+        # self.status_value = ValueLabel(proxy_tab, proxy_stats.proxy_status)
+        # status_sizer.Add(status_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        # status_sizer.Add(self.status_value, 1, wx.ALIGN_CENTER_VERTICAL)
+        # status_box_sizer.Add(status_sizer, 0, wx.EXPAND | wx.ALL, 5)
         
         # Listening address
         address_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -293,6 +294,14 @@ class ProxyUI(wx.Frame):
         proxy_status_sizer.Add(self.proxy_status_text, 1, wx.ALIGN_CENTER_VERTICAL)
         status_box_sizer.Add(proxy_status_sizer, 0, wx.EXPAND | wx.ALL, 5)
         
+        # Last username connected
+        last_user_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        last_user_label = StatusLabel(proxy_tab, "Last Username:")
+        self.last_username_label = ValueLabel(proxy_tab, "")
+        last_user_sizer.Add(last_user_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        last_user_sizer.Add(self.last_username_label, 1, wx.ALIGN_CENTER_VERTICAL)
+        status_box_sizer.Add(last_user_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
         # Uptime
         uptime_sizer = wx.BoxSizer(wx.HORIZONTAL)
         uptime_label = StatusLabel(proxy_tab, "Uptime:")
@@ -411,7 +420,10 @@ class ProxyUI(wx.Frame):
         
         # Always on top checkbox
         self.always_on_top_cb = wx.CheckBox(eq_tab, label="Always On Top")
-        self.always_on_top_cb.SetValue(False)  # Default to unchecked
+        self.always_on_top_cb.SetValue(config.ALWAYS_ON_TOP)  # Default to value in config
+        if config.ALWAYS_ON_TOP:
+            # Set the window to be always on top
+            self.SetWindowStyle(self.GetWindowStyle() | wx.STAY_ON_TOP)
         self.always_on_top_cb.Bind(wx.EVT_CHECKBOX, self.on_always_on_top)
         ui_options_sizer.Add(self.always_on_top_cb, 0, wx.ALL, 5)
         
@@ -469,7 +481,7 @@ class ProxyUI(wx.Frame):
         try:
             # Launch EverQuest with elevated privileges using ShellExecute
             win32api.ShellExecute(
-                win32gui.GetDesktopWindow(),
+                self.GetHandle(),
                 "runas",  # This verb requests elevation
                 eqgame_path,
                 "patchme",  # No parameters
@@ -481,8 +493,8 @@ class ProxyUI(wx.Frame):
             # self.Hide()
             # if hasattr(self, 'tray_icon'):
             #     self.tray_icon.ShowBalloon(
-            #         "EQEmu Login Proxy",
-            #         "EverQuest launched. The proxy is still running in the system tray.",
+            #         config.APP_NAME,
+            #         f"{config.APP_NAME} is still running in the system tray.",
             #         2000
             #     )
         except Exception as e:
@@ -493,8 +505,8 @@ class ProxyUI(wx.Frame):
         self.Hide()
         if hasattr(self, 'tray_icon'):
             self.tray_icon.ShowBalloon(
-                "EQEmu Login Proxy",
-                "Application is still running in the system tray.",
+                config.APP_NAME,
+                f"{config.APP_NAME} is still running in the system tray.",
                 2000  # Show for 2 seconds
             )
     
@@ -561,6 +573,9 @@ class ProxyUI(wx.Frame):
         else:
             # Remove the always on top style
             self.SetWindowStyle(self.GetWindowStyle() & ~wx.STAY_ON_TOP)
+            
+        # Update the checkbox state in the config
+        config.set_always_on_top(is_checked)
     
     # Handle exit button click
     def on_exit_button(self, event):
@@ -569,7 +584,7 @@ class ProxyUI(wx.Frame):
         
     # Set the application icon
     def set_icon(self):
-        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tray_icon.png")
+        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../tray_icon.png")
         if os.path.exists(icon_path):
             icon = wx.Icon(icon_path)
             self.SetIcon(icon)
@@ -770,11 +785,11 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
         
         # Choose the appropriate icon
         if using_proxy:
-            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tray_icon.png")
-            tooltip = "EQEmu Login Proxy - Enabled"
+            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../tray_icon.png")
+            tooltip = f"{config.APP_NAME} - Enabled"
         else:
-            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tray_icon_disabled.png")
-            tooltip = "EQEmu Login Proxy - Disabled"
+            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../tray_icon_disabled.png")
+            tooltip = f"{config.APP_NAME} - Disabled"
         
         # Set the icon
         if os.path.exists(icon_path):
@@ -793,8 +808,8 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
             self.frame.Hide()
             # Show notification when hiding
             self.ShowBalloon(
-                "EQEmu Login Proxy",
-                "Application is still running in the system tray.",
+                config.APP_NAME,
+                f"{config.APP_NAME} is still running in the system tray.",
                 2000  # Show for 2 seconds
             )
     

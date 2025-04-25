@@ -8,16 +8,12 @@ from Crypto.Cipher import DES
 
 from eqemu_sso_login_proxy import config
 from eqemu_sso_login_proxy import sequence
+from eqemu_sso_login_proxy import sso_api
 from eqemu_sso_login_proxy import structs
-from eqemu_sso_login_proxy.ui import proxy_stats
+from eqemu_sso_login_proxy import ui
 
-import faulthandler
-faulthandler.enable()
-
-# Resolve the login server address via DNS
-EQEMU_LOGIN_IP = socket.gethostbyname("login.eqemulator.net")
-EQEMU_PORT = 5998
-EQEMU_ADDR = (EQEMU_LOGIN_IP, EQEMU_PORT)
+# import faulthandler
+# faulthandler.enable()
 
 
 def debug_write_packet(buf: bytes, login_to_client):
@@ -53,7 +49,7 @@ class LoginProxy(asyncio.DatagramProtocol):
         self.last_recv_time = 0
         self.sequence = sequence.Sequence()
         # Update UI stats
-        proxy_stats.update_status("Initializing")
+        ui.proxy_stats.update_status("Initializing")
 
     def sequence_free(self):
         if not self.sequence.packets:
@@ -68,8 +64,8 @@ class LoginProxy(asyncio.DatagramProtocol):
         local_addr = transport.get_extra_info('sockname')
         if local_addr:
             host, port = local_addr
-            proxy_stats.update_listening_info(host, port)
-            proxy_stats.update_status("Listening")
+            ui.proxy_stats.update_listening_info(host, port)
+            ui.proxy_stats.update_status("Listening")
         print(f"Proxy listening on {local_addr}")
 
     def check_rewrite_auth(self, buf: bytearray):
@@ -91,27 +87,43 @@ class LoginProxy(asyncio.DatagramProtocol):
         if buf.startswith(b'\x00\x03\x04\x00\x15\x00'):
             # LOGIN packet
             data = buf[14 + structs.SIZE_OF_LOGIN_BASE_MESSAGE:]
-            buf_string = " ".join(f"{x:02x}".upper() for x in buf)
+            # buf_string = " ".join(f"{x:02x}".upper() for x in buf)
             cipher = DES.new(config.ENCRYPTION_KEY, DES.MODE_CBC, config.iv())
             decrypted_text = cipher.decrypt(data)
             user, password = decrypted_text.rstrip(b'\x00').split(b'\x00')
             
             # Notify UI about user login
             username = user.decode()
-            proxy_stats.user_login(username)
             
-            with open("login_packet.bin", "a") as f:
-                f.write(f"{username}|{password.decode()}: {buf_string}\n")
-            if username == "test" and password.decode() == "test":
-                print("LOGIN:  test/test, replacing...")
-                cipher = DES.new(config.ENCRYPTION_KEY, DES.MODE_CBC, config.iv())
-                plaintext = config.TEST_USER + b'\x00' + config.TEST_PASSWORD + b'\x00'
-                padded_plaintext = plaintext.ljust((int(len(plaintext) / 8) + 1) * 8, b'\x00')
-                encrypted_text = cipher.encrypt(padded_plaintext)
-                new_login = buf[:14 + structs.SIZE_OF_LOGIN_BASE_MESSAGE] + encrypted_text
-                new_login[7] = len(new_login) - 8
-                return new_login
+            # with open("login_packet.bin", "a") as f:
+            #     f.write(f"{username}|{password.decode()}: {buf_string}\n")
 
+            # if username == "test" and password.decode() == "test":
+            #     print("LOGIN:  test/test, replacing...")
+            #     cipher = DES.new(config.ENCRYPTION_KEY, DES.MODE_CBC, config.iv())
+            #     plaintext = config.TEST_USER + b'\x00' + config.TEST_PASSWORD + b'\x00'
+            #     padded_plaintext = plaintext.ljust((int(len(plaintext) / 8) + 1) * 8, b'\x00')
+            #     encrypted_text = cipher.encrypt(padded_plaintext)
+            #     new_login = buf[:14 + structs.SIZE_OF_LOGIN_BASE_MESSAGE] + encrypted_text
+            #     new_login[7] = len(new_login) - 8
+            #     return new_login
+
+            try:
+                new_user, new_pass = sso_api.check_sso_login(username, password.decode())
+                if new_user and new_pass:
+                    print(f"LOGIN: {username}/{password.decode()}, replacing with {new_user}/{new_pass}")
+                    cipher = DES.new(config.ENCRYPTION_KEY, DES.MODE_CBC, config.iv())
+                    plaintext = new_user.encode() + b'\x00' + new_pass.encode() + b'\x00'
+                    padded_plaintext = plaintext.ljust((int(len(plaintext) / 8) + 1) * 8, b'\x00')
+                    encrypted_text = cipher.encrypt(padded_plaintext)
+                    new_login = buf[:14 + structs.SIZE_OF_LOGIN_BASE_MESSAGE] + encrypted_text
+                    new_login[7] = len(new_login) - 8
+                    ui.proxy_stats.user_login(new_user)
+                    return new_login
+            except Exception as e:
+                print(f"FAILED TO CHECK LOGIN: {username}, error: {str(e)}")
+
+        ui.proxy_stats.user_login(username)
         return buf
 
     def handle_client_packet(self, data: bytearray, addr: tuple[str, int]):
@@ -130,7 +142,7 @@ class LoginProxy(asyncio.DatagramProtocol):
             if not self.in_session:
                 # New connection
                 print("[CLIENT PACKET] New connection established, updating stats")
-                proxy_stats.connection_started()
+                ui.proxy_stats.connection_started()
 
         # From recv_from_local
         opcode = structs.get_protocol_opcode(data)
@@ -148,7 +160,7 @@ class LoginProxy(asyncio.DatagramProtocol):
             self.in_session = False
             self.sequence_free()
             # Update UI stats for completed connection
-            proxy_stats.connection_completed()
+            ui.proxy_stats.connection_completed()
         elif opcode == structs.OPCodes.OP_Ack:
             print("[CLIENT PACKET] Adjusting ACK sequence values")
             # Rewrite client-to-server ack sequence values, since we will be desynchronizing them
@@ -172,11 +184,11 @@ class LoginProxy(asyncio.DatagramProtocol):
             print("Empty data, not sending to loginserver")
             return
         print(f"Sending data to loginserver: {data}")
-        self.transport.sendto(data, EQEMU_ADDR)
+        self.transport.sendto(data, config.EQEMU_ADDR)
 
     def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
         """Called when a datagram is received"""
-        if addr == EQEMU_ADDR:
+        if addr == config.EQEMU_ADDR:
             # Packet from login server
             self.handle_server_packet(data, addr)
         else:
@@ -227,7 +239,7 @@ class LoginProxy(asyncio.DatagramProtocol):
 
 async def shutdown(transport):
     print("Shutting down proxy...")
-    proxy_stats.update_status("Shutting down")
+    ui.proxy_stats.update_status("Shutting down")
     transport.close()
     loop = asyncio.get_running_loop()
     loop.close()
@@ -235,7 +247,7 @@ async def shutdown(transport):
 
 async def main():
     # Update UI status
-    proxy_stats.update_status("Starting")
+    ui.proxy_stats.update_status("Starting")
     
     loop = asyncio.get_running_loop()
     transport, _ = await loop.create_datagram_endpoint(
