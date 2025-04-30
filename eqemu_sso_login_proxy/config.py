@@ -28,6 +28,7 @@ EQEMU_ADDR = (EQEMU_LOGIN_IP, EQEMU_PORT)
 
 SSO_API = CONFIG.get("DEFAULT", "sso_api", fallback="https://proxy.p99loginproxy.net")
 SSO_TIMEOUT = CONFIG.getint("DEFAULT", "sso_timeout", fallback=10)
+SSO_CA_BUNDLE = CONFIG.get("DEFAULT", "sso_ca_bundle", fallback=True)
 
 ALWAYS_ON_TOP = CONFIG.getboolean("DEFAULT", "always_on_top", fallback=False)
 
