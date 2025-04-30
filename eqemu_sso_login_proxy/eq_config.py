@@ -331,7 +331,7 @@ def write_eqhost_file(lines: List[str], eqhost_path: Optional[str] = None) -> bo
         return False
 
 
-def is_using_proxy() -> Tuple[bool, Optional[str]]:
+def is_using_proxy(eq_dir: Optional[str] = None) -> Tuple[bool, Optional[str]]:
     """
     Check if EverQuest is configured to use the proxy.
     
@@ -340,7 +340,7 @@ def is_using_proxy() -> Tuple[bool, Optional[str]]:
             - bool: True if using proxy, False otherwise
             - Optional[str]: Path to eqhost.txt if found, None otherwise
     """
-    eqhost_path = get_eqhost_path()
+    eqhost_path = get_eqhost_path(eq_dir)
     if not eqhost_path:
         return False, None
     
@@ -495,7 +495,7 @@ def get_eq_status() -> dict:
     """
     # Use cached values for efficiency
     eq_dir = find_eq_directory()
-    using_proxy, eqhost_path = is_using_proxy()
+    using_proxy, eqhost_path = is_using_proxy(eq_dir)
     
     status = {
         "eq_directory_found": eq_dir is not None,

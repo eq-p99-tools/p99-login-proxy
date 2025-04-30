@@ -117,6 +117,19 @@ class ProxyStats:
 # Create a global stats instance
 proxy_stats = ProxyStats()
 
+
+def warning(message):
+    # Display a warning popup and wait for the user to click ok
+    dialog = wx.MessageDialog(None, message, "Warning", wx.OK | wx.ICON_WARNING)
+    dialog.ShowModal()
+    dialog.Destroy()
+
+def error(message):
+    # Display an error popup and wait for the user to click ok
+    dialog = wx.MessageDialog(None, message, "Error", wx.OK | wx.ICON_ERROR)
+    dialog.ShowModal()
+    dialog.Destroy()
+
 class StatusLabel(wx.StaticText):
     """Custom styled status label"""
     def __init__(self, parent, text="", id=wx.ID_ANY):
@@ -241,18 +254,12 @@ class ProxyUI(wx.Frame):
         self.Bind(wx.EVT_TIMER, self.update_stats, self.timer)
         self.timer.Start(1000)  # Update every second
         
-        # Store updater reference
-        self.updater = None
-        self.update_progress_dialog = None
-        
         # Set icon
         self.set_icon()
         
         # Update EQ status
         wx.CallAfter(self.update_eq_status)
-        
-        # Automatically check for updates on startup
-        # wx.CallAfter(self.check_for_updates)
+
     
     def init_ui(self):
         # Create main panel
@@ -656,72 +663,7 @@ class ProxyUI(wx.Frame):
         # Update tray icon based on proxy status
         if hasattr(self, 'tray_icon'):
             self.tray_icon.update_icon(status["using_proxy"])
-    
-    # Check for updates manually
-    def check_for_updates(self):
-        if self.updater is None:
-            self.updater = updater.Updater()
-            self.updater.update_available_callback = self.on_update_available
-            self.updater.update_progress_callback = self.on_update_progress
-            self.updater.update_complete_callback = self.on_update_complete
 
-        # Store the result for the tray menu
-        self.has_update = False
-        self.new_version = None
-
-        self.updater.check_for_updates()
-    
-    # Handle when an update is available
-    def on_update_available(self, current_version, new_version):
-        message = f"A new version ({new_version}) is available. You are currently running {current_version}.\n\nWould you like to update now?"
-        dialog = wx.MessageDialog(self, message, "Update Available", wx.YES_NO | wx.ICON_INFORMATION)
-        result = dialog.ShowModal()
-        dialog.Destroy()
-        
-        if result == wx.ID_YES:
-            # Create progress dialog
-            self.update_progress_dialog = wx.ProgressDialog(
-                "Updating",
-                "Downloading update...",
-                maximum=100,
-                parent=self,
-                style=wx.PD_APP_MODAL | wx.PD_AUTO_HIDE
-            )
-            
-            # Start the update process
-            self.updater.download_and_install_update()
-    
-    # Handle update progress updates
-    def on_update_progress(self, message, progress):
-        if self.update_progress_dialog:
-            self.update_progress_dialog.Update(progress, message)
-    
-    # Handle update completion
-    def on_update_complete(self, success, message):
-        if self.update_progress_dialog:
-            self.update_progress_dialog.Destroy()
-            self.update_progress_dialog = None
-        
-        if success:
-            dialog = wx.MessageDialog(self, message + "\n\nThe application will now restart.", "Update Complete", wx.OK | wx.ICON_INFORMATION)
-            dialog.ShowModal()
-            dialog.Destroy()
-            
-            # Restart the application
-            self.close_application()
-
-            subprocess.Popen([sys.executable] + sys.argv)
-        else:
-            wx.MessageBox(message, "Update Failed", wx.OK | wx.ICON_ERROR)
-    
-    # Cancel the update process
-    def cancel_update(self):
-        if self.updater:
-            self.updater.cancel_update()
-        
-        if self.update_progress_dialog:
-            self.update_progress_dialog.Destroy()
-            self.update_progress_dialog = None
 
 class TaskBarIcon(wx.adv.TaskBarIcon):
     def __init__(self, frame):
@@ -753,13 +695,9 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
             visibility_item = menu.Append(wx.ID_ANY, "Show Application")
             self.Bind(wx.EVT_MENU, self.on_show, visibility_item)
         
-        # Add update menu item based on update status
-        if hasattr(self.frame, 'has_update') and self.frame.has_update and self.frame.new_version:
-            update_item = menu.Append(wx.ID_ANY, f"New version: {self.frame.new_version}")
-            self.Bind(wx.EVT_MENU, self.on_do_update, update_item)
-        else:
-            update_item = menu.Append(wx.ID_ANY, "No update available.")
-            update_item.Enable(False)
+        # Add update menu item
+        update_item = menu.Append(wx.ID_ANY, "Check for Updates")
+        self.Bind(wx.EVT_MENU, self.on_check_updates, update_item)
         
         menu.AppendSeparator()
         
@@ -830,41 +768,11 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
                 2000  # Show for 2 seconds
             )
     
-
-    
     def on_check_updates(self, event):
         """Check for updates"""
-        self.frame.check_for_updates()
-    
-    def on_exit(self, event):
-        """Exit the application"""
-        self.frame.close_application()
-    
-    def ShowBalloon(self, title, text, msec=0):
-        """Show a balloon notification"""
-        if wx.Platform == '__WXMSW__':
-            # Only available on Windows
-            super().ShowBalloon(title, text, msec)
-        else:
-            # For other platforms, we could implement a custom notification
-            pass
+        updater.check_update()
     
     # These methods are used by the tray icon menu
-    def on_do_update(self, event):
-        """Perform the update"""
-        if self.frame.has_update and self.frame.new_version:
-            # Create progress dialog for update
-            self.frame.update_progress_dialog = wx.ProgressDialog(
-                "Updating",
-                "Preparing to update...",
-                maximum=100,
-                parent=self.frame,
-                style=wx.PD_APP_MODAL | wx.PD_AUTO_HIDE | wx.PD_CAN_ABORT
-            )
-            
-            # Start update in background
-            self.frame.updater.perform_update(self.frame.new_version)
-    
     def on_exit(self, event):
         """Exit the application"""
         self.frame.close_application()
@@ -877,8 +785,6 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
         else:
             # For other platforms, we could implement a custom notification
             pass
-    
-    # No duplicated update methods needed in TaskBarIcon class
 
 
 def start_ui():

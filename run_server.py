@@ -2,10 +2,11 @@ import asyncio
 import sys
 import wx
 import threading
+import os
 
 from eqemu_sso_login_proxy import server
-from eqemu_sso_login_proxy.ui import start_ui
-from eqemu_sso_login_proxy.updater import check_for_updates_on_startup
+from eqemu_sso_login_proxy import ui
+from eqemu_sso_login_proxy import updater
 
 # Class to integrate wxPython with asyncio
 class WxAsyncApp(wx.App):
@@ -39,14 +40,19 @@ class WxAsyncApp(wx.App):
     
     async def _check_exit(self):
         """Check if the exit event has been set"""
-        # Start the proxy server
+        # Start the proxy server\
         self.proxy_task = asyncio.create_task(server.main())
 
         # Wait for the exit event to be set
         while not self.exit_event.is_set():
             await asyncio.sleep(0.1)
-            if self.transport is None and self.proxy_task.done():
-                self.transport = self.proxy_task.result()
+            try:
+                if self.transport is None and self.proxy_task.done():
+                    self.transport = self.proxy_task.result()
+            except Exception as e:
+                print(f"Failed to start UDP proxy: {e}")
+                ui.error("Failed to start UDP proxy, check if another instance is running, and restart.")
+                self.stop_event_loop()
         
         # Cancel the proxy task
         self.proxy_task.cancel()
@@ -77,10 +83,10 @@ if __name__ == '__main__':
     wx_app = WxAsyncApp()
     
     # Initialize the UI
-    app, main_window = start_ui()
+    app, main_window = ui.start_ui()
     
     # Check for updates on startup
-    updater = check_for_updates_on_startup(main_window)
+    updater.check_update()
     
     # Set up exit handler
     def handle_exit():
