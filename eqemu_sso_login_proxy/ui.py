@@ -252,7 +252,7 @@ class ProxyUI(wx.Frame):
         wx.CallAfter(self.update_eq_status)
         
         # Automatically check for updates on startup
-        wx.CallAfter(self.check_for_updates_on_startup)
+        # wx.CallAfter(self.check_for_updates)
     
     def init_ui(self):
         # Create main panel
@@ -588,10 +588,30 @@ class ProxyUI(wx.Frame):
         
     # Set the application icon
     def set_icon(self):
-        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../tray_icon.png")
-        if os.path.exists(icon_path):
-            icon = wx.Icon(icon_path)
+        # Try multiple possible locations for the icon file
+        icon_paths = [
+            # When running from source
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "../tray_icon.png"),
+            # When running from PyInstaller bundle
+            os.path.join(os.path.dirname(sys.executable), "tray_icon.png"),
+            # Current directory
+            "tray_icon.png"
+        ]
+        
+        icon = None
+        for path in icon_paths:
+            if os.path.exists(path):
+                try:
+                    icon = wx.Icon(path, wx.BITMAP_TYPE_ANY)
+                    break
+                except Exception as e:
+                    print(f"Failed to load icon from {path}: {e}")
+        
+        if icon:
             self.SetIcon(icon)
+            # Also set the taskbar icon explicitly
+            if hasattr(self, 'tray_icon'):
+                self.tray_icon.SetIcon(icon, config.APP_NAME)
     
     # Update EverQuest configuration status display
     def update_eq_status(self):
@@ -637,37 +657,6 @@ class ProxyUI(wx.Frame):
         if hasattr(self, 'tray_icon'):
             self.tray_icon.update_icon(status["using_proxy"])
     
-    # Check for updates on startup (no UI feedback)
-    def check_for_updates_on_startup(self):
-        if self.updater is None:
-            self.updater = updater.Updater()
-            self.updater.update_available_callback = self.on_update_available
-            self.updater.update_progress_callback = self.on_update_progress
-            self.updater.update_complete_callback = self.on_update_complete
-        
-        # Store the result for the tray menu
-        self.has_update = False
-        self.new_version = None
-        
-        # Set callbacks for startup check
-        original_callback = self.updater.update_available_callback
-        
-        def startup_update_callback(current_version, new_version):
-            self.has_update = True
-            self.new_version = new_version
-            # Update the tray menu
-            if hasattr(self, 'tray_icon'):
-                self.tray_icon.update_menu()
-        
-        # Use our special callback for the startup check
-        self.updater.update_available_callback = startup_update_callback
-        
-        # Check for updates silently
-        self.updater.check_for_updates()
-        
-        # Restore original callback
-        self.updater.update_available_callback = original_callback
-    
     # Check for updates manually
     def check_for_updates(self):
         if self.updater is None:
@@ -675,7 +664,11 @@ class ProxyUI(wx.Frame):
             self.updater.update_available_callback = self.on_update_available
             self.updater.update_progress_callback = self.on_update_progress
             self.updater.update_complete_callback = self.on_update_complete
-        
+
+        # Store the result for the tray menu
+        self.has_update = False
+        self.new_version = None
+
         self.updater.check_for_updates()
     
     # Handle when an update is available
@@ -787,18 +780,38 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
     def update_icon(self, using_proxy=True):
         self.using_proxy = using_proxy
         
-        # Choose the appropriate icon
-        if using_proxy:
-            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../tray_icon.png")
-            tooltip = f"{config.APP_NAME} - Enabled"
-        else:
-            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../tray_icon_disabled.png")
-            tooltip = f"{config.APP_NAME} - Disabled"
+        # Choose the appropriate icon filename
+        icon_filename = "tray_icon.png" if using_proxy else "tray_icon_disabled.png"
+        tooltip = f"{config.APP_NAME} - {'Enabled' if using_proxy else 'Disabled'}"
         
-        # Set the icon
-        if os.path.exists(icon_path):
-            icon = wx.Icon(icon_path)
+        # Try multiple possible locations for the icon file
+        icon_paths = [
+            # When running from source
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), f"../{icon_filename}"),
+            # When running from PyInstaller bundle
+            os.path.join(os.path.dirname(sys.executable), icon_filename),
+            # Current directory
+            icon_filename
+        ]
+        
+        # Try to load the icon from each possible path
+        for path in icon_paths:
+            if os.path.exists(path):
+                try:
+                    icon = wx.Icon(path, wx.BITMAP_TYPE_ANY)
+                    self.SetIcon(icon, tooltip)
+                    return  # Successfully set the icon
+                except Exception as e:
+                    print(f"Failed to load icon from {path}: {e}")
+        
+        # If we get here, we couldn't find or load the icon
+        print(f"Warning: Could not find or load icon {icon_filename}")
+        # Try to use a default icon
+        try:
+            icon = wx.Icon(wx.ArtProvider.GetBitmap(wx.ART_INFORMATION, wx.ART_OTHER, (16, 16)))
             self.SetIcon(icon, tooltip)
+        except:
+            pass  # Last resort - just don't set an icon
     
     # Show the main window
     def on_show(self, event):
@@ -850,7 +863,7 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
             )
             
             # Start update in background
-            self.frame.updater.download_and_install_update()
+            self.frame.updater.perform_update(self.frame.new_version)
     
     def on_exit(self, event):
         """Exit the application"""

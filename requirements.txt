@@ -5,3 +5,4 @@ pillow>=9.5.0
 requests>=2.31.0
 gitpython>=3.1.40
 pywin32>=306
+semver>=3.0.1

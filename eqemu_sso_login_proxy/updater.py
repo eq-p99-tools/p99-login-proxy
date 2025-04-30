@@ -1,14 +1,13 @@
 import os
 import sys
-import tempfile
 import shutil
 import subprocess
-import json
-import time
 import logging
-from pathlib import Path
 import requests
 import wx
+import semver
+
+from eqemu_sso_login_proxy import config
 
 # Set up logging
 logging.basicConfig(
@@ -22,14 +21,29 @@ logging.basicConfig(
 logger = logging.getLogger("updater")
 
 # GitHub repository information
-REPO_OWNER = "rm-you"
-REPO_NAME = "middlemand-python"
-GITHUB_API_URL = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}"
-GITHUB_RELEASES_URL = f"{GITHUB_API_URL}/releases/latest"
-GITHUB_REPO_URL = f"https://github.com/{REPO_OWNER}/{REPO_NAME}"
+GITHUB_REPO = "rm-you/middlemand-python"
+GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
+GITHUB_LATEST_RELEASE_URL = f"{GITHUB_API_URL}/latest"
+GITHUB_TAGGED_RELEASES_URL = f"{GITHUB_API_URL}/tags/{tag}"
+GITHUB_REPO_URL = f"https://github.com/{GITHUB_REPO}"
 
-# Local version file
-VERSION_FILE = "version.json"
+
+if os.path.exists("github_auth.json"):
+    with open("github_auth.json") as gha:
+        auth_data = json.load(gha)
+    get = functools.partial(requests.get, auth=requests.auth.HTTPBasicAuth(
+        auth_data['username'], auth_data['key']))
+else:
+    get = requests.get
+
+
+def get_release_from_github(tag=None):
+    if tag:
+        tag_data = get(GITHUB_TAGGED_RELEASES_URL.format(tag=tag)).json()
+    else:
+        tag_data = get(GITHUB_LATEST_RELEASE_URL).json()
+    version = semver.Version.parse(tag_data['tag_name'])
+    return version, tag_data
 
 
 class Updater:
@@ -39,40 +53,63 @@ class Updater:
         self.update_available_callback = None  # Current version, new version
         self.update_progress_callback = None  # Status message, progress percentage
         self.update_complete_callback = None  # Success, message
-        self.current_version = self._get_current_version()
-        logger.info(f"Current application version: {self.current_version}")
+        logger.info(f"Current application version: {config.APP_VERSION}")
     
-    def _get_current_version(self):
-        """Get the current version from the version file or git"""
-        # Try to get version from version file
-        if os.path.exists(VERSION_FILE):
-            try:
-                with open(VERSION_FILE, 'r') as f:
-                    version_data = json.load(f)
-                    return version_data.get('version', '0.0.0')
-            except Exception as e:
-                logger.error(f"Error reading version file: {e}")
+    def _normalize_version(self, version_str):
+        """Normalize version string to semver format (x.y.z)"""
+        # Remove 'v' prefix if present
+        version_str = version_str.lstrip('v')
+            
+        # Split version into components
+        parts = version_str.split('.')
         
-        # If version file doesn't exist or is invalid, try to get from git
+        # Ensure we have at least 3 components (major.minor.patch)
+        while len(parts) < 3:
+            parts.append('0')
+            
+        # Join back with only the first 3 components
+        normalized = '.'.join(parts[:3])
+        
+        # Validate that it's a proper semver
         try:
-            import git
-            repo = git.Repo(search_parent_directories=True)
-            return repo.git.describe('--tags', '--always')
-        except Exception as e:
-            logger.error(f"Error getting version from git: {e}")
-            return "0.0.0"  # Default version if all else fails
+            normalized_semver = semver.Version.parse(normalized)
+            return normalized_semver
+        except ValueError:
+            # If invalid, return a default valid semver
+            logger.warning(f"Invalid semver: {version_str}, using 0.0.0 instead")
+            return semver.Version(0, 0, 0)
     
-    def _update_version_file(self, version):
-        """Update the version file with the new version"""
-        try:
-            with open(VERSION_FILE, 'w') as f:
-                json.dump({'version': version, 'updated_at': time.time()}, f)
-            logger.info(f"Updated version file to {version}")
-            return True
-        except Exception as e:
-            logger.error(f"Error updating version file: {e}")
-            return False
-    
+    def download_and_unpack(self, url: str):
+        # pylint: disable=no-member
+        asset_data = get(url).json()
+        zip_url = None
+        for asset in asset_data:
+            if asset['content_type'] == 'application/x-zip-compressed':
+                zip_url = asset['browser_download_url']
+                break
+        if zip_url:
+            zip_data = get(zip_url, stream=True)
+            size = int(zip_data.headers.get('content-length', 0))
+            if self.update_progress_callback:
+                self.update_progress_callback(f"Downloading update...", 0)
+            with io.BytesIO() as bio:
+                downloaded = 0
+                for data in zip_data.iter_content(chunk_size=int(size/100)):
+                    bio.write(data)
+                    downloaded += len(data)
+                    if self.update_progress_callback:
+                        self.update_progress_callback(f"Downloading update...", int(downloaded / size * 98))
+                self.update_progress_callback(f"Extracting...", 99)
+                with zipfile.ZipFile(bio) as zip_file:
+                    exe_name = zip_file.namelist()[0]
+                    zip_file.extractall()
+                if self.update_progress_callback:
+                    self.update_progress_callback(f"Update complete.", 100)
+                return exe_name
+        if self.update_progress_callback:
+            self.update_progress_callback(f"Update failed.", 100)
+        return None
+
     def check_for_updates(self):
         """Check if updates are available"""
         logger.info("Checking for updates...")
@@ -80,166 +117,26 @@ class Updater:
             self.update_progress_callback("Checking for updates...", 0)
         
         try:
-            response = requests.get(GITHUB_RELEASES_URL, timeout=10)
-            if response.status_code != 200:
-                logger.error(f"Failed to check for updates: {response.status_code}")
-                if self.update_progress_callback:
-                    self.update_progress_callback("Failed to check for updates", 0)
-                return False
-            
-            release_data = response.json()
-            latest_version = release_data.get('tag_name', '').lstrip('v')
-            
-            if not latest_version:
-                logger.error("No version tag found in release data")
-                if self.update_progress_callback:
-                    self.update_progress_callback("Failed to determine latest version", 0)
-                return False
-            
-            # Normalize current version by removing 'v' prefix if present
-            # and stripping any Git-style suffix (e.g., "-1-g9b698df")
-            current_version_normalized = self.current_version.lstrip('v')
-            
-            # If the version has a Git-style suffix (contains a hyphen), 
-            # extract only the base version number
-            if '-' in current_version_normalized:
-                current_version_normalized = current_version_normalized.split('-')[0]
-            
-            logger.info(f"Latest version: {latest_version}, Current version: {self.current_version}")
-            
-            # Compare versions (simple string comparison for now)
-            # Only consider an update available if the latest version is different
-            # and not considered "older" than the current version
-            if latest_version != current_version_normalized:
-                # Parse versions into components for proper comparison
-                try:
-                    latest_parts = [int(p) for p in latest_version.split('.')]
-                    current_parts = [int(p) for p in current_version_normalized.split('.')]
-                    
-                    # Pad shorter version with zeros
-                    while len(latest_parts) < len(current_parts):
-                        latest_parts.append(0)
-                    while len(current_parts) < len(latest_parts):
-                        current_parts.append(0)
-                    
-                    # Compare version components
-                    is_newer = False
-                    for i in range(len(latest_parts)):
-                        if latest_parts[i] > current_parts[i]:
-                            is_newer = True
-                            break
-                        elif latest_parts[i] < current_parts[i]:
-                            # Latest version is actually older
-                            is_newer = False
-                            break
-                    
-                    if is_newer:
-                        logger.info(f"Update available: {latest_version}")
-                        if self.update_available_callback:
-                            self.update_available_callback(self.current_version, latest_version)
-                        return True
-                    else:
-                        logger.info("No newer version available")
-                        if self.update_progress_callback:
-                            self.update_progress_callback("Application is up to date", 100)
-                        return False
-                        
-                except ValueError:
-                    # Fall back to string comparison if version parsing fails
-                    logger.info(f"Update available: {latest_version}")
-                    if self.update_available_callback:
-                        self.update_available_callback(self.current_version, latest_version)
-                    return True
+            latest_version, tag_data = get_release_from_github()
+            logger.info(f"Latest version: {latest_version}, Current version: {config.APP_VERSION}")
+            # Compare versions using semver
+            if latest_version > config.APP_VERSION:
+                logger.info(f"Update available: {latest_version} (current: {config.APP_VERSION})")
+                if self.update_available_callback:
+                    self.update_available_callback(config.APP_VERSION, latest_version, tag_data)
+                return True
             else:
-                logger.info("Application is up to date")
+                logger.info(f"No updates available (current: {config.APP_VERSION}, latest: {latest_version})")
                 if self.update_progress_callback:
-                    self.update_progress_callback("Application is up to date", 100)
+                    self.update_progress_callback("No updates available", 100)
                 return False
-                
         except Exception as e:
             logger.error(f"Error checking for updates: {e}")
             if self.update_progress_callback:
                 self.update_progress_callback(f"Error checking for updates: {str(e)}", 0)
             return False
     
-    def download_update(self, version):
-        """Download the update from GitHub"""
-        logger.info(f"Downloading update version {version}...")
-        if self.update_progress_callback:
-            self.update_progress_callback(f"Downloading update version {version}...", 10)
-        
-        download_url = f"{GITHUB_REPO_URL}/archive/refs/tags/v{version}.zip"
-        temp_dir = tempfile.mkdtemp()
-        zip_path = os.path.join(temp_dir, "update.zip")
-        
-        try:
-            # Download the update
-            response = requests.get(download_url, stream=True, timeout=60)
-            if response.status_code != 200:
-                logger.error(f"Failed to download update: {response.status_code}")
-                if self.update_progress_callback:
-                    self.update_progress_callback("Failed to download update", 0)
-                return None
-            
-            total_size = int(response.headers.get('content-length', 0))
-            downloaded = 0
-            
-            with open(zip_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        progress = min(30, int(downloaded / total_size * 20) + 10) if total_size > 0 else 20
-                        if self.update_progress_callback:
-                            self.update_progress_callback(f"Downloading update... {downloaded}/{total_size} bytes", progress)
-            
-            logger.info(f"Update downloaded to {zip_path}")
-            if self.update_progress_callback:
-                self.update_progress_callback("Download complete, extracting...", 30)
-            return zip_path
-            
-        except Exception as e:
-            logger.error(f"Error downloading update: {e}")
-            if self.update_progress_callback:
-                self.update_progress_callback(f"Error downloading update: {str(e)}", 0)
-            return None
-    
-    def extract_update(self, zip_path):
-        """Extract the downloaded update"""
-        import zipfile
-        
-        logger.info(f"Extracting update from {zip_path}...")
-        if self.update_progress_callback:
-            self.update_progress_callback("Extracting update...", 40)
-        
-        extract_dir = os.path.dirname(zip_path)
-        
-        try:
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(extract_dir)
-            
-            # Find the extracted directory (should be the only directory)
-            extracted_dirs = [d for d in os.listdir(extract_dir) 
-                             if os.path.isdir(os.path.join(extract_dir, d)) and d != '__MACOSX']
-            
-            if not extracted_dirs:
-                logger.error("No directories found after extraction")
-                if self.update_progress_callback:
-                    self.update_progress_callback("Failed to extract update", 0)
-                return None
-            
-            extracted_dir = os.path.join(extract_dir, extracted_dirs[0])
-            logger.info(f"Update extracted to {extracted_dir}")
-            if self.update_progress_callback:
-                self.update_progress_callback("Update extracted, preparing to install...", 50)
-            return extracted_dir
-            
-        except Exception as e:
-            logger.error(f"Error extracting update: {e}")
-            if self.update_progress_callback:
-                self.update_progress_callback(f"Error extracting update: {str(e)}", 0)
-            return None
-    
+
     def install_update(self, extracted_dir, version):
         """Install the update by replacing files"""
         logger.info(f"Installing update from {extracted_dir}...")
@@ -286,9 +183,6 @@ class Updater:
                 if self.update_progress_callback:
                     self.update_progress_callback(f"Installing update... ({i+1}/{total_files})", progress)
             
-            # Update version file
-            self._update_version_file(version)
-            
             logger.info("Update installed successfully")
             if self.update_progress_callback:
                 self.update_progress_callback("Update installed successfully", 100)
@@ -307,46 +201,47 @@ class Updater:
     def perform_update(self, version):
         """Perform the complete update process"""
         # Download the update
-        zip_path = self.download_update(version)
-        if not zip_path:
-            return False
-        
-        # Extract the update
-        extracted_dir = self.extract_update(zip_path)
-        if not extracted_dir:
+        logger.info(f"Downloading update version {version}...")
+        exe_path = self.download_and_unpack(tag_data['assets_url'])
+        if not exe_path:
             return False
         
         # Install the update
-        return self.install_update(extracted_dir, version)
-    
-    def restart_application(self):
-        """Restart the application after update"""
-        logger.info("Restarting application...")
-        
-        try:
-            # Get the path to the Python executable and script
-            python = sys.executable
-            script = os.path.abspath(sys.argv[0])
-            
-            # Start a new process
-            subprocess.Popen([python, script])
-            
-            # Exit the current process
-            sys.exit(0)
-            
-        except Exception as e:
-            logger.error(f"Error restarting application: {e}")
-            return False
+        if exe_path:
+            logger.info(f"Installing update version {version}...")
+            current_exe = os.path.basename(sys.executable).lower()
+            if not current_exe.startswith("python"):
+                if current_exe == f"P99LoginProxy-{config.APP_VERSION}.exe":
+                    pass
+                else:
+                    os.rename(current_exe,
+                                f"P99LoginProxy-{config.APP_VERSION}.exe")
+                    os.rename(exe_path, "P99LoginProxy.exe")
+                    newest_exe = "P99LoginProxy.exe"
+            if self.update_complete_callback:
+                self.update_complete_callback(True, f"Updated to version {version}")
+            with subprocess.Popen([newest_exe]):
+                sys.exit()
+        elif self.update_complete_callback:
+            self.update_complete_callback(False, f"Error installing update.")
+        return False
 
 
 def check_for_updates_on_startup(parent=None):
     """Check for updates on startup and prompt user to update if available"""
     updater = Updater()
+    if parent:
+        parent.has_update = False
+        parent.new_version = None
+        parent.updater = updater
     
     # Define callback functions
-    def on_update_available(current_version, new_version):
+    def on_update_available(current_version, new_version, tag_data):
         # Prompt user to update
+        print("on_update_available callback triggered")
         if parent:
+            parent.has_update = True
+            parent.new_version = new_version
             message = f"A new version is available: {new_version}\n"
             message += f"Current version: {current_version}\n\n"
             message += "Would you like to update now?"
@@ -402,7 +297,7 @@ def check_for_updates_on_startup(parent=None):
                 updater.update_complete_callback = on_update_complete
                 
                 # Start update
-                updater.perform_update(new_version)
+                updater.perform_update(new_version, tag_data)
     
     # Set callback
     updater.update_available_callback = on_update_available

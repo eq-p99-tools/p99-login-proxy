@@ -1,11 +1,17 @@
 import configparser
 import socket
+import semver
 
 
 CONFIG = configparser.ConfigParser()
 CONFIG.read("proxyconfig.ini")
 
 APP_NAME = "P99 Login Proxy"
+APP_VERSION = semver.Version(
+    major=0,
+    minor=0,
+    patch=0
+)
 
 def hex_to_bytes(hex_str):
     return bytes.fromhex(hex_str.replace('\\x', ''))
