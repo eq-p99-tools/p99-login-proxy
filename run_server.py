@@ -13,6 +13,7 @@ class WxAsyncApp(wx.App):
         super().__init__(False)
         self.loop = asyncio.get_event_loop()
         self.running = False
+        self.transport = None
         self.exit_event = threading.Event()
     
     def start_event_loop(self):
@@ -39,15 +40,33 @@ class WxAsyncApp(wx.App):
     async def _check_exit(self):
         """Check if the exit event has been set"""
         # Start the proxy server
-        proxy_task = asyncio.create_task(server.main())
-        
+        self.proxy_task = asyncio.create_task(server.main())
+
         # Wait for the exit event to be set
         while not self.exit_event.is_set():
             await asyncio.sleep(0.1)
+            if self.transport is None and self.proxy_task.done():
+                self.transport = self.proxy_task.result()
         
         # Cancel the proxy task
-        proxy_task.cancel()
+        self.proxy_task.cancel()
     
+    def on_power_resume(self, event):
+        """Handle power resume event"""
+        wx.CallAfter(self.restart_proxy_server)
+
+    def restart_proxy_server(self):
+        """Restart the proxy server"""
+        print("System resume event detected. Restarting proxy server...")
+
+        if self.transport:
+            self.transport.close()
+        print("Existing transport shutdown.")
+
+        self.proxy_task = self.loop.create_task(server.main())
+        self.transport = None
+        print("New transport started.")
+
     def stop_event_loop(self):
         """Stop the event loop"""
         self.exit_event.set()
@@ -78,6 +97,9 @@ if __name__ == '__main__':
     # Start checking for exit event
     check_exit_event()
     
+    # Bind the power resume event
+    main_window.Bind(wx.EVT_POWER_RESUME, wx_app.on_power_resume)
+
     try:
         # Start the event loop
         wx_app.start_event_loop()

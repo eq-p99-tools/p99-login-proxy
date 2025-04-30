@@ -47,7 +47,11 @@ class ProxyStats:
         self.listening_port = 0
         self.start_time = time.time()
         self.listeners = []
-    
+
+    def reset_uptime(self):
+        """Reset the start time for uptime calculation"""
+        self.start_time = time.time()
+
     def add_listener(self, listener):
         """Add a listener for events"""
         if listener not in self.listeners:
