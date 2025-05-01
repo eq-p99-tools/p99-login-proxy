@@ -17,12 +17,12 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(f"{__name__}.log"),
+        logging.FileHandler(f"updater.log"),
         logging.StreamHandler()
     ]
 )
 
-LOG = logging.getLogger(__name__)
+LOG = logging.getLogger("updater")
 
 GITHUB_API_LATEST_RELEASE_URL = (
     "https://api.github.com/repos/rm-you/middlemand-python/releases/latest")
@@ -111,12 +111,15 @@ def check_update():
                     if current_exe.lower() == f"p99loginproxy-{current_version}.exe":
                         pass
                     else:
+                        # if the new name already exists, remove it first
+                        if os.path.exists(f"P99LoginProxy-{current_version}.exe"):
+                            os.remove(f"P99LoginProxy-{current_version}.exe")
                         os.rename(current_exe,
                                   f"P99LoginProxy-{current_version}.exe")
                         os.rename(newest_exe, "P99LoginProxy.exe")
                         newest_exe = "P99LoginProxy.exe"
                 with subprocess.Popen([newest_exe]):
-                    sys.exit()
+                    os._exit(0)
             else:
                 LOG.error("Failed to update. Continuing with existing version.")
                 dlg = wx.MessageDialog(

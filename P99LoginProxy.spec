@@ -1,4 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
+from eqemu_sso_login_proxy import config
 
 block_cipher = None
 
@@ -34,7 +35,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='P99LoginProxy',
+    name=f'P99LoginProxy-{config.APP_VERSION}',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

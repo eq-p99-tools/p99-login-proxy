@@ -78,7 +78,7 @@ class WxAsyncApp(wx.App):
         self.exit_event.set()
         self.ExitMainLoop()
 
-if __name__ == '__main__':
+def main():
     # Create the wxPython application with asyncio integration
     wx_app = WxAsyncApp()
     
@@ -114,3 +114,6 @@ if __name__ == '__main__':
     finally:
         print("Shutting down.")
         sys.exit(0)
+
+if __name__ == '__main__':
+    main()

@@ -6,3 +6,7 @@ __pycache__
 old/
 venv/
 *.exe
+.eggs
+*.egg-info
+dist
+build

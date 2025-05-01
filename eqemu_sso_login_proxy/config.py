@@ -10,7 +10,7 @@ APP_NAME = "P99 Login Proxy"
 APP_VERSION = semver.Version(
     major=0,
     minor=1,
-    patch=0,
+    patch=1,
     prerelease="updatetest"
 )
 
