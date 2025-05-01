@@ -28,25 +28,19 @@ pyz = PYZ(
     cipher=block_cipher
 )
 
+CONSOLE_BUILD = bool(config.APP_VERSION.build)
+
 exe = EXE(
     pyz,
     a.scripts,
     a.binaries,
     a.zipfiles,
     a.datas,
-    [],
     name=f'P99LoginProxy-{config.APP_VERSION}',
-    debug=False,
-    bootloader_ignore_signals=False,
+    debug=CONSOLE_BUILD,
     strip=False,
-    upx=True,
-    upx_exclude=[],
+    upx=False,
     runtime_tmpdir=None,
-    console=False,  # Set to False for a GUI-only application without console
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
+    console=CONSOLE_BUILD,
     icon='tray_icon.png',
 )
