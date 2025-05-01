@@ -93,9 +93,13 @@ class LoginProxy(asyncio.DatagramProtocol):
 
             # Notify UI about user login
             username = user.decode()
+            password = password.decode()
 
             try:
-                new_user, new_pass = sso_api.check_sso_login(username, password.decode())
+                if config.DEBUG_PASSWORD:
+                    print(f"[CHECK REWRITE] Overwriting client supplied password with configured password.")
+                    password = config.DEBUG_PASSWORD
+                new_user, new_pass = sso_api.check_sso_login(username, password)
                 if new_user and new_pass:
                     print(f"[CHECK REWRITE] CHECK SUCCESSFUL: {username} found with valid token, replacing password.")
                     cipher = DES.new(config.ENCRYPTION_KEY, DES.MODE_CBC, config.iv())

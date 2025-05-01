@@ -425,8 +425,26 @@ class ProxyUI(wx.Frame):
         eq_sizer.Add(eq_status_sizer, 1, wx.ALL | wx.EXPAND, 10)
         
         # UI Options section
-        ui_options_box = wx.StaticBox(eq_tab, label="UI Options")
+        ui_options_box = wx.StaticBox(eq_tab, label="Options")
         ui_options_sizer = wx.StaticBoxSizer(ui_options_box, wx.VERTICAL)
+        
+        # Create a horizontal sizer for all options
+        options_row_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        
+        # Password field
+        password_field_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        password_label = StatusLabel(eq_tab, "Password:")
+        self.password_field = wx.TextCtrl(eq_tab, style=wx.TE_PASSWORD)
+        self.password_field.SetValue(config.DEBUG_PASSWORD)  # Set to decrypted value from config
+        password_field_sizer.Add(password_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        password_field_sizer.Add(self.password_field, 1, wx.EXPAND, 0)
+        self.password_field.Bind(wx.EVT_TEXT, self.on_save_debug_password)
+        
+        # Add password field to the options row with proportion=1 to make it expand
+        options_row_sizer.Add(password_field_sizer, 1, wx.EXPAND | wx.ALL, 5)
+
+        # Add some spacing between the password field and checkbox
+        options_row_sizer.AddSpacer(20)
         
         # Always on top checkbox
         self.always_on_top_cb = wx.CheckBox(eq_tab, label="Always On Top")
@@ -434,11 +452,18 @@ class ProxyUI(wx.Frame):
         if config.ALWAYS_ON_TOP:
             # Set the window to be always on top
             self.SetWindowStyle(self.GetWindowStyle() | wx.STAY_ON_TOP)
+
         self.always_on_top_cb.Bind(wx.EVT_CHECKBOX, self.on_always_on_top)
-        ui_options_sizer.Add(self.always_on_top_cb, 0, wx.ALL, 5)
         
+        # Add checkbox to the options row
+        options_row_sizer.Add(self.always_on_top_cb, 0, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 5)
+        
+        # Add the options row to the main options sizer
+        ui_options_sizer.Add(options_row_sizer, 1, wx.EXPAND | wx.ALL, 5)
+
+        # Add the options sizer to the eq_sizer with expand flag
         eq_sizer.Add(ui_options_sizer, 0, wx.ALL | wx.EXPAND, 10)
-        
+
         # Set the EQ tab sizer
         eq_tab.SetSizer(eq_sizer)
         
@@ -586,6 +611,14 @@ class ProxyUI(wx.Frame):
             
         # Update the checkbox state in the config
         config.set_always_on_top(is_checked)
+    
+    # Handle saving the password on typing
+    def on_save_debug_password(self, event):
+        # Get the password from the field
+        password = self.password_field.GetValue()
+        
+        # Save the password to config (it will be encrypted)
+        config.set_debug_password(password)
     
     # Handle exit button click
     def on_exit_button(self, event):
