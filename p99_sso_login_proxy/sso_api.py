@@ -19,9 +19,6 @@ def check_sso_login(username: str, password: str) -> tuple[str, str]:
     verify = getattr(config, 'SSO_CA_BUNDLE', True)
     print(f"[SSO] Using CA bundle: {verify}")
 
-    # Actually, just don't verify for now because this whole thing is a hack and getting certs refreshed is annoying
-    verify = False
-
     response = requests.post(f"{config.SSO_API}/auth", json={
         "username": username,
         "password": password
