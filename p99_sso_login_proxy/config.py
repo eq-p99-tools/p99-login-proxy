@@ -11,7 +11,7 @@ APP_VERSION = semver.Version(
     major=1,
     minor=0,
     patch=0,
-    prerelease="rc1"
+    prerelease="rc2"
 )
 
 def hex_to_bytes(hex_str):
