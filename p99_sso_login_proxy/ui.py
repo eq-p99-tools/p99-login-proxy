@@ -1,0 +1,802 @@
+import logging
+import os
+import sys
+import time
+import threading
+import win32api
+import win32con
+
+import wx
+import wx.adv
+
+from p99_sso_login_proxy import config
+from p99_sso_login_proxy import eq_config
+from p99_sso_login_proxy import updater
+
+# Define custom event IDs
+EVT_STATS_UPDATED = wx.NewEventType()
+EVT_USER_CONNECTED = wx.NewEventType()
+
+# Create event binder objects
+EVT_STATS_UPDATED_BINDER = wx.PyEventBinder(EVT_STATS_UPDATED, 1)
+EVT_USER_CONNECTED_BINDER = wx.PyEventBinder(EVT_USER_CONNECTED, 1)
+
+# Custom event classes
+class StatsUpdatedEvent(wx.PyCommandEvent):
+    def __init__(self, etype, eid):
+        wx.PyCommandEvent.__init__(self, etype, eid)
+
+class UserConnectedEvent(wx.PyCommandEvent):
+    def __init__(self, etype, eid, username=""):
+        wx.PyCommandEvent.__init__(self, etype, eid)
+        self._username = username
+        
+    def GetUsername(self):
+        return self._username
+
+# Global connection statistics
+class ProxyStats:
+    """Class to track and update proxy statistics"""
+    def __init__(self):
+        self.total_connections = 0
+        self.active_connections = 0
+        self.completed_connections = 0
+        self.proxy_status = "Initializing..."
+        self.listening_address = "0.0.0.0"
+        self.listening_port = 0
+        self.start_time = time.time()
+        self.listeners = []
+
+    def reset_uptime(self):
+        """Reset the start time for uptime calculation"""
+        self.start_time = time.time()
+
+    def add_listener(self, listener):
+        """Add a listener for events"""
+        if listener not in self.listeners:
+            self.listeners.append(listener)
+    
+    def remove_listener(self, listener):
+        """Remove a listener"""
+        if listener in self.listeners:
+            self.listeners.remove(listener)
+    
+    def notify_stats_updated(self):
+        """Notify all listeners that stats have been updated"""
+        for listener in self.listeners:
+            evt = StatsUpdatedEvent(EVT_STATS_UPDATED, listener.GetId())
+            wx.PostEvent(listener, evt)
+    
+    def notify_user_connected(self, username):
+        """Notify all listeners that a user has connected"""
+        for listener in self.listeners:
+            evt = UserConnectedEvent(EVT_USER_CONNECTED, listener.GetId(), username)
+            wx.PostEvent(listener, evt)
+    
+    def update_status(self, status):
+        """Update the proxy status"""
+        self.proxy_status = status
+        self.notify_stats_updated()
+    
+    def update_listening_info(self, address, port):
+        """Update the listening address and port"""
+        self.listening_address = address
+        self.listening_port = port
+        self.notify_stats_updated()
+    
+    def connection_started(self):
+        """Increment connection counters when a new connection starts"""
+        self.total_connections += 1
+        self.active_connections += 1
+        self.notify_stats_updated()
+    
+    def connection_completed(self):
+        """Update counters when a connection completes"""
+        self.active_connections = max(0, self.active_connections - 1)
+        self.completed_connections += 1
+        self.notify_stats_updated()
+    
+    def get_uptime(self):
+        """Return uptime in human-readable format"""
+        uptime_seconds = int(time.time() - self.start_time)
+        hours, remainder = divmod(uptime_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        
+        if hours > 0:
+            return f"{hours}h {minutes}m {seconds}s"
+        elif minutes > 0:
+            return f"{minutes}m {seconds}s"
+        else:
+            return f"{seconds}s"
+
+    def user_login(self, username):
+        """Signal that a user has logged in"""
+        self.notify_user_connected(username)
+
+# Create a global stats instance
+proxy_stats = ProxyStats()
+
+
+def warning(message):
+    # Display a warning popup and wait for the user to click ok
+    dialog = wx.MessageDialog(None, message, "Warning", wx.OK | wx.ICON_WARNING)
+    dialog.ShowModal()
+    dialog.Destroy()
+
+def error(message):
+    # Display an error popup and wait for the user to click ok
+    dialog = wx.MessageDialog(None, message, "Error", wx.OK | wx.ICON_ERROR)
+    dialog.ShowModal()
+    dialog.Destroy()
+
+class StatusLabel(wx.StaticText):
+    """Custom styled status label"""
+    def __init__(self, parent, text="", id=wx.ID_ANY):
+        super().__init__(parent, id, text)
+        font = self.GetFont()
+        font.SetWeight(wx.FONTWEIGHT_BOLD)
+        self.SetFont(font)
+
+class ValueLabel(wx.StaticText):
+    """Custom styled value label"""
+    def __init__(self, parent, text="", id=wx.ID_ANY):
+        super().__init__(parent, id, text)
+        self.SetForegroundColour(wx.Colour(44, 62, 80))  # #2c3e50
+
+class ProxyUI(wx.Frame):
+    """Main UI window for the proxy application"""
+    def __init_event_handlers(self):
+        """Initialize event handlers"""
+        # Define an event to notify when application should exit
+        self.exit_event = threading.Event()
+        
+        # Define event handler methods
+        def on_stats_updated(self, event):
+            """Handle stats updated event"""
+            self.update_stats()
+            
+        def on_user_connected(self, event):
+            """Handle user connected event"""
+            username = event.GetUsername()
+            self.last_username_label.SetLabel(username)
+            self.show_user_connected_notification(username)
+            
+        def update_stats(self, event=None):
+            """Update all statistics in the UI"""
+            # self.status_value.SetLabel(proxy_stats.proxy_status)
+            self.address_value.SetLabel(f"{proxy_stats.listening_address}:{proxy_stats.listening_port}")
+            self.uptime_value.SetLabel(proxy_stats.get_uptime())
+            self.total_value.SetLabel(str(proxy_stats.total_connections))
+            self.active_value.SetLabel(str(proxy_stats.active_connections))
+            self.completed_value.SetLabel(str(proxy_stats.completed_connections))
+            
+            # Update tray tooltip with basic stats if tray icon exists
+            if hasattr(self, 'tray_icon'):
+                tooltip = f"{config.APP_NAME}\nStatus: {proxy_stats.proxy_status}\n"
+                tooltip += f"Connections: {proxy_stats.active_connections} active, "
+                tooltip += f"{proxy_stats.total_connections} total"
+                
+                # The icon itself is managed by update_icon, we just update the tooltip here
+                if self.tray_icon.using_proxy:
+                    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../tray_icon.png")
+                else:
+                    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../tray_icon_disabled.png")
+                    
+                if os.path.exists(icon_path):
+                    icon = wx.Icon(icon_path)
+                    self.tray_icon.SetIcon(icon, tooltip)
+        
+        def show_user_connected_notification(self, username):
+            """Show a tray notification when a user connects"""
+            if hasattr(self, 'tray_icon'):
+                self.tray_icon.ShowBalloon(
+                    "User Connected",
+                    f"User has connected to the proxy as '{username}'.",
+                    3000  # Show for 3 seconds
+                )
+        
+        def on_close(self, event):
+            """Handle window close event"""
+            # Minimize to tray instead of closing
+            self.Hide()
+            if hasattr(self, 'tray_icon'):
+                self.tray_icon.ShowBalloon(
+                    config.APP_NAME,
+                    f"{config.APP_NAME} is still running in the system tray.",
+                    2000
+                )
+        
+        def close_application(self):
+            """Actually close the application"""
+            # Remove the tray icon first to prevent it from lingering
+            if hasattr(self, 'tray_icon'):
+                self.tray_icon.RemoveIcon()
+                self.tray_icon.Destroy()
+            
+            # Set the exit event to notify the main application to exit
+            self.exit_event.set()
+            
+            # This will close the UI, but the main event loop needs to be stopped separately
+            self.Destroy()
+        
+
+        
+        # Add the methods to the class
+        self.on_stats_updated = on_stats_updated.__get__(self)
+        self.on_user_connected = on_user_connected.__get__(self)
+        self.update_stats = update_stats.__get__(self)
+        self.show_user_connected_notification = show_user_connected_notification.__get__(self)
+        self.on_close = on_close.__get__(self)
+        self.close_application = close_application.__get__(self)
+    
+    def __init__(self, parent=None, id=wx.ID_ANY, title=config.APP_NAME):
+        super().__init__(parent, id, title, size=(550, 500))
+        
+        # Initialize event handlers
+        self.__init_event_handlers()
+        
+        # Register as a listener for proxy stats events
+        proxy_stats.add_listener(self)
+        
+        # Bind event handlers
+        self.Bind(EVT_STATS_UPDATED_BINDER, self.on_stats_updated)
+        self.Bind(EVT_USER_CONNECTED_BINDER, self.on_user_connected)
+        
+        # Initialize UI components
+        self.init_ui()
+        
+        # Create a TaskBarIcon
+        self.tray_icon = TaskBarIcon(self)
+        
+        # Update stats periodically
+        self.timer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self.update_stats, self.timer)
+        self.timer.Start(1000)  # Update every second
+        
+        # Set icon
+        self.set_icon()
+        
+        # Update EQ status
+        wx.CallAfter(self.update_eq_status)
+
+    
+    def init_ui(self):
+        # Create main panel
+        panel = wx.Panel(self)
+        main_sizer = wx.BoxSizer(wx.VERTICAL)
+        
+        # Add horizontal line
+        line = wx.StaticLine(panel)
+        main_sizer.Add(line, 0, wx.EXPAND | wx.TOP | wx.BOTTOM, 5)
+        
+        # Create a notebook for tabbed interface
+        notebook = wx.Notebook(panel)
+        
+        # Proxy Status tab
+        proxy_tab = wx.Panel(notebook)
+        proxy_sizer = wx.BoxSizer(wx.VERTICAL)
+
+        # Status section
+        status_box = wx.StaticBox(proxy_tab, label="Status")
+        status_box_sizer = wx.StaticBoxSizer(status_box, wx.VERTICAL)
+        
+        # Server status
+        # status_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        # status_label = StatusLabel(proxy_tab, "Server:")
+        # self.status_value = ValueLabel(proxy_tab, proxy_stats.proxy_status)
+        # status_sizer.Add(status_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        # status_sizer.Add(self.status_value, 1, wx.ALIGN_CENTER_VERTICAL)
+        # status_box_sizer.Add(status_sizer, 0, wx.EXPAND | wx.ALL, 5)
+        
+        # Listening address
+        address_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        address_label = StatusLabel(proxy_tab, "Listening on:")
+        self.address_value = ValueLabel(proxy_tab, f"{proxy_stats.listening_address}:{proxy_stats.listening_port}")
+        address_sizer.Add(address_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        address_sizer.Add(self.address_value, 1, wx.ALIGN_CENTER_VERTICAL)
+        status_box_sizer.Add(address_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
+        # Proxy status
+        proxy_status_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        proxy_status_label = StatusLabel(proxy_tab, "EQ Config:")
+        self.proxy_status_text = ValueLabel(proxy_tab, "Checking...")
+        proxy_status_sizer.Add(proxy_status_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        proxy_status_sizer.Add(self.proxy_status_text, 1, wx.ALIGN_CENTER_VERTICAL)
+        status_box_sizer.Add(proxy_status_sizer, 0, wx.EXPAND | wx.ALL, 5)
+        
+        # Last username connected
+        last_user_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        last_user_label = StatusLabel(proxy_tab, "Last Username:")
+        self.last_username_label = ValueLabel(proxy_tab, "")
+        last_user_sizer.Add(last_user_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        last_user_sizer.Add(self.last_username_label, 1, wx.ALIGN_CENTER_VERTICAL)
+        status_box_sizer.Add(last_user_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
+        # Uptime
+        uptime_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        uptime_label = StatusLabel(proxy_tab, "Uptime:")
+        self.uptime_value = ValueLabel(proxy_tab, proxy_stats.get_uptime())
+        uptime_sizer.Add(uptime_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        uptime_sizer.Add(self.uptime_value, 1, wx.ALIGN_CENTER_VERTICAL)
+        status_box_sizer.Add(uptime_sizer, 0, wx.EXPAND | wx.ALL, 5)
+        
+        # Add the status box to the main proxy sizer
+        proxy_sizer.Add(status_box_sizer, 0, wx.EXPAND | wx.ALL, 10)
+        
+        # Statistics section
+        stats_box = wx.StaticBox(proxy_tab, label="Statistics")
+        stats_box_sizer = wx.StaticBoxSizer(stats_box, wx.VERTICAL)
+        
+        # Total connections
+        total_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        total_label = StatusLabel(proxy_tab, "Total Connections:")
+        self.total_value = ValueLabel(proxy_tab, str(proxy_stats.total_connections))
+        total_sizer.Add(total_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        total_sizer.Add(self.total_value, 1, wx.ALIGN_CENTER_VERTICAL)
+        stats_box_sizer.Add(total_sizer, 0, wx.EXPAND | wx.ALL, 5)
+        
+        # Active connections
+        active_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        active_label = StatusLabel(proxy_tab, "Active Connections:")
+        self.active_value = ValueLabel(proxy_tab, str(proxy_stats.active_connections))
+        active_sizer.Add(active_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        active_sizer.Add(self.active_value, 1, wx.ALIGN_CENTER_VERTICAL)
+        stats_box_sizer.Add(active_sizer, 0, wx.EXPAND | wx.ALL, 5)
+        
+        # Completed connections
+        completed_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        completed_label = StatusLabel(proxy_tab, "Completed Connections:")
+        self.completed_value = ValueLabel(proxy_tab, str(proxy_stats.completed_connections))
+        completed_sizer.Add(completed_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        completed_sizer.Add(self.completed_value, 1, wx.ALIGN_CENTER_VERTICAL)
+        stats_box_sizer.Add(completed_sizer, 0, wx.EXPAND | wx.ALL, 5)
+        
+        # Add the statistics box to the main proxy sizer
+        proxy_sizer.Add(stats_box_sizer, 0, wx.EXPAND | wx.ALL, 10)
+        
+        # EQ Configuration Actions section
+        action_box = wx.StaticBox(proxy_tab, label="Actions")
+        action_sizer = wx.StaticBoxSizer(action_box, wx.VERTICAL)
+        
+        # Buttons
+        button_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        
+        self.refresh_btn = wx.Button(proxy_tab, label="Refresh Status")
+        self.refresh_btn.Bind(wx.EVT_BUTTON, self.on_refresh_eq_status)
+        button_sizer.Add(self.refresh_btn, 0, wx.ALL, 5)
+        
+        self.enable_btn = wx.Button(proxy_tab, label="Enable Proxy")
+        self.enable_btn.Bind(wx.EVT_BUTTON, self.on_enable_proxy)
+        button_sizer.Add(self.enable_btn, 0, wx.ALL, 5)
+        
+        self.disable_btn = wx.Button(proxy_tab, label="Disable Proxy")
+        self.disable_btn.Bind(wx.EVT_BUTTON, self.on_disable_proxy)
+        button_sizer.Add(self.disable_btn, 0, wx.ALL, 5)
+        
+        action_sizer.Add(button_sizer, 0, wx.ALL | wx.CENTER, 5)
+        
+        proxy_sizer.Add(action_sizer, 0, wx.ALL | wx.EXPAND, 10)
+        
+        # Set the proxy tab sizer
+        proxy_tab.SetSizer(proxy_sizer)
+        
+        # EverQuest Configuration tab
+        eq_tab = wx.Panel(notebook)
+        eq_sizer = wx.BoxSizer(wx.VERTICAL)
+        
+        # EQ Configuration Status section
+        eq_status_box = wx.StaticBox(eq_tab, label="EverQuest Configuration")
+        eq_status_sizer = wx.StaticBoxSizer(eq_status_box, wx.VERTICAL)
+        
+        # EQ Directory status
+        eq_dir_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        eq_dir_label = StatusLabel(eq_tab, "EverQuest Path:")
+        self.eq_dir_text = ValueLabel(eq_tab, "Checking...")
+        eq_dir_sizer.Add(eq_dir_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        eq_dir_sizer.Add(self.eq_dir_text, 1, wx.ALIGN_CENTER_VERTICAL)
+        eq_status_sizer.Add(eq_dir_sizer, 0, wx.ALL | wx.EXPAND, 5)
+        
+        # eqhost.txt status
+        eqhost_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        eqhost_label = StatusLabel(eq_tab, "eqhost.txt Path:")
+        self.eqhost_text = ValueLabel(eq_tab, "Checking...")
+        eqhost_sizer.Add(eqhost_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        eqhost_sizer.Add(self.eqhost_text, 1, wx.ALIGN_CENTER_VERTICAL)
+        eq_status_sizer.Add(eqhost_sizer, 0, wx.ALL | wx.EXPAND, 5)
+        
+        # eqhost.txt contents
+        self.eqhost_contents = wx.TextCtrl(eq_tab, style=wx.TE_MULTILINE, size=(-1, 100))
+        eq_status_sizer.Add(StatusLabel(eq_tab, "eqhost.txt Content:"), 0, wx.ALL, 5)
+        eq_status_sizer.Add(self.eqhost_contents, 1, wx.ALL | wx.EXPAND, 5)
+        
+        # eqhost.txt action buttons
+        eqhost_btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        
+        self.save_eqhost_btn = wx.Button(eq_tab, label="Save")
+        self.save_eqhost_btn.Bind(wx.EVT_BUTTON, self.on_save_eqhost)
+        eqhost_btn_sizer.Add(self.save_eqhost_btn, 0, wx.ALL, 5)
+        
+        self.reset_eqhost_btn = wx.Button(eq_tab, label="Reset")
+        self.reset_eqhost_btn.Bind(wx.EVT_BUTTON, self.on_reset_eqhost)
+        eqhost_btn_sizer.Add(self.reset_eqhost_btn, 0, wx.ALL, 5)
+        
+        eq_status_sizer.Add(eqhost_btn_sizer, 0, wx.ALL | wx.CENTER, 5)
+        
+        eq_sizer.Add(eq_status_sizer, 1, wx.ALL | wx.EXPAND, 10)
+        
+        # UI Options section
+        ui_options_box = wx.StaticBox(eq_tab, label="UI Options")
+        ui_options_sizer = wx.StaticBoxSizer(ui_options_box, wx.VERTICAL)
+        
+        # Always on top checkbox
+        self.always_on_top_cb = wx.CheckBox(eq_tab, label="Always On Top")
+        self.always_on_top_cb.SetValue(config.ALWAYS_ON_TOP)  # Default to value in config
+        if config.ALWAYS_ON_TOP:
+            # Set the window to be always on top
+            self.SetWindowStyle(self.GetWindowStyle() | wx.STAY_ON_TOP)
+        self.always_on_top_cb.Bind(wx.EVT_CHECKBOX, self.on_always_on_top)
+        ui_options_sizer.Add(self.always_on_top_cb, 0, wx.ALL, 5)
+        
+        eq_sizer.Add(ui_options_sizer, 0, wx.ALL | wx.EXPAND, 10)
+        
+        # Set the EQ tab sizer
+        eq_tab.SetSizer(eq_sizer)
+        
+        # Add tabs to notebook
+        notebook.AddPage(proxy_tab, "Proxy Status")
+        notebook.AddPage(eq_tab, "Debug Info")
+        
+        # Add notebook to main sizer
+        main_sizer.Add(notebook, 1, wx.EXPAND | wx.ALL, 10)
+        
+        # Buttons at the bottom
+        button_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        
+        # Launch EverQuest button
+        self.launch_eq_btn = wx.Button(panel, label="Launch EverQuest")
+        self.launch_eq_btn.Bind(wx.EVT_BUTTON, self.on_launch_eq)
+        button_sizer.Add(self.launch_eq_btn, 0, wx.ALL, 5)
+        
+        # Add some space between buttons
+        button_sizer.AddSpacer(60)
+        
+        # Exit button
+        self.exit_btn = wx.Button(panel, label="Exit")
+        self.exit_btn.Bind(wx.EVT_BUTTON, self.on_exit_button)
+        button_sizer.Add(self.exit_btn, 0, wx.ALL, 5)
+        
+        main_sizer.Add(button_sizer, 0, wx.ALL | wx.CENTER, 5)
+        
+        panel.SetSizer(main_sizer)
+        
+        # Center the window
+        self.Centre()
+    
+    # Handle launch EverQuest button click
+    def on_launch_eq(self, event):
+        # Get the EverQuest directory
+        eq_dir = eq_config.find_eq_directory()
+        
+        if not eq_dir:
+            wx.MessageBox("EverQuest directory not found.", "Error", wx.OK | wx.ICON_ERROR)
+            return
+        
+        # Path to eqgame.exe
+        eqgame_path = os.path.join(eq_dir, "eqgame.exe")
+        
+        if not os.path.exists(eqgame_path):
+            wx.MessageBox(f"EverQuest executable not found at {eqgame_path}", "Error", wx.OK | wx.ICON_ERROR)
+            return
+        
+        try:
+            # Launch EverQuest with elevated privileges using ShellExecute
+            win32api.ShellExecute(
+                self.GetHandle(),
+                "runas",  # This verb requests elevation
+                eqgame_path,
+                "patchme",  # No parameters
+                eq_dir,  # Working directory
+                win32con.SW_SHOWNORMAL
+            )
+            
+            # Minimize the proxy to tray after launching EQ
+            # self.Hide()
+            # if hasattr(self, 'tray_icon'):
+            #     self.tray_icon.ShowBalloon(
+            #         config.APP_NAME,
+            #         f"{config.APP_NAME} is still running in the system tray.",
+            #         2000
+            #     )
+        except Exception as e:
+            wx.MessageBox(f"Failed to launch EverQuest: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
+    
+    # Handle minimize to tray button click (kept for reference but not used)
+    def on_minimize(self, event):
+        self.Hide()
+        if hasattr(self, 'tray_icon'):
+            self.tray_icon.ShowBalloon(
+                config.APP_NAME,
+                f"{config.APP_NAME} is still running in the system tray.",
+                2000  # Show for 2 seconds
+            )
+    
+    # Refresh EverQuest configuration status
+    def on_refresh_eq_status(self, event):
+        self.update_eq_status()
+    
+    # Enable proxy in EverQuest configuration
+    def on_enable_proxy(self, event):
+        success = eq_config.enable_proxy()
+        if not success:
+            wx.MessageBox("Failed to enable proxy. EverQuest directory or eqhost.txt not found.", 
+                         "Error", wx.OK | wx.ICON_ERROR)
+        self.update_eq_status()
+    
+    # Disable proxy in EverQuest configuration
+    def on_disable_proxy(self, event):
+        success = eq_config.disable_proxy()
+        if not success:
+            wx.MessageBox("Failed to disable proxy. EverQuest directory or eqhost.txt not found.", 
+                         "Error", wx.OK | wx.ICON_ERROR)
+        self.update_eq_status()
+    
+    # Save eqhost.txt content
+    def on_save_eqhost(self, event):
+        # Get the EverQuest directory
+        eq_dir = eq_config.find_eq_directory()
+        
+        if not eq_dir:
+            logging.error("EverQuest directory not found when trying to save eqhost.txt")
+            return
+        
+        # Path to eqhost.txt
+        eqhost_path = os.path.join(eq_dir, "eqhost.txt")
+        
+        # Get content from text control
+        content = self.eqhost_contents.GetValue()
+        
+        try:
+            # Write content to file
+            with open(eqhost_path, 'w') as f:
+                f.write(content)
+            
+            logging.info(f"Successfully wrote to eqhost.txt at {eqhost_path}")
+            # Update status after save
+            self.update_eq_status()
+        except Exception as e:
+            logging.error(f"Failed to save eqhost.txt: {str(e)}")
+    
+    # Reset eqhost.txt content from disk
+    def on_reset_eqhost(self, event):
+        # Simply update the status which will reload the file content
+        self.update_eq_status()
+    
+    # Handle Always On Top checkbox
+    def on_always_on_top(self, event):
+        # Get the checkbox state
+        is_checked = self.always_on_top_cb.GetValue()
+        
+        # Set the window style
+        if is_checked:
+            # Set the window to be always on top
+            self.SetWindowStyle(self.GetWindowStyle() | wx.STAY_ON_TOP)
+        else:
+            # Remove the always on top style
+            self.SetWindowStyle(self.GetWindowStyle() & ~wx.STAY_ON_TOP)
+            
+        # Update the checkbox state in the config
+        config.set_always_on_top(is_checked)
+    
+    # Handle exit button click
+    def on_exit_button(self, event):
+        """Exit the application when the exit button is clicked"""
+        self.close_application()
+        
+    # Set the application icon
+    def set_icon(self):
+        # Try multiple possible locations for the icon file
+        icon_paths = [
+            # When running from source
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "../tray_icon.png"),
+            # When running from PyInstaller bundle
+            os.path.join(os.path.dirname(sys.executable), "tray_icon.png"),
+            # Current directory
+            "tray_icon.png"
+        ]
+        
+        icon = None
+        for path in icon_paths:
+            if os.path.exists(path):
+                try:
+                    icon = wx.Icon(path, wx.BITMAP_TYPE_ANY)
+                    break
+                except Exception as e:
+                    print(f"Failed to load icon from {path}: {e}")
+        
+        if icon:
+            self.SetIcon(icon)
+            # Also set the taskbar icon explicitly
+            if hasattr(self, 'tray_icon'):
+                self.tray_icon.SetIcon(icon, config.APP_NAME)
+    
+    # Update EverQuest configuration status display
+    def update_eq_status(self):
+        """Update the EverQuest configuration status display"""
+
+        # Get current status
+        status = eq_config.get_eq_status()
+        
+        # Update EQ directory status
+        if status["eq_directory_found"]:
+            self.eq_dir_text.SetLabel(f"{status['eq_directory']}")
+            self.eq_dir_text.SetForegroundColour(wx.Colour(0, 128, 0))  # Green
+        else:
+            self.eq_dir_text.SetLabel("Not Found")
+            self.eq_dir_text.SetForegroundColour(wx.Colour(255, 0, 0))  # Red
+        
+        # Update eqhost.txt status
+        if status["eqhost_found"]:
+            self.eqhost_text.SetLabel(f"{status['eqhost_path']}")
+            self.eqhost_text.SetForegroundColour(wx.Colour(0, 128, 0))  # Green
+        else:
+            self.eqhost_text.SetLabel("Not Found")
+            self.eqhost_text.SetForegroundColour(wx.Colour(255, 0, 0))  # Red
+        
+        # Update proxy status
+        if status["using_proxy"]:
+            self.proxy_status_text.SetLabel("Enabled")
+            self.proxy_status_text.SetForegroundColour(wx.Colour(0, 128, 0))  # Green
+        else:
+            self.proxy_status_text.SetLabel("Disabled")
+            self.proxy_status_text.SetForegroundColour(wx.Colour(128, 0, 0))  # Red
+        
+        # Update eqhost.txt contents
+        self.eqhost_contents.Clear()
+        if status["eqhost_contents"]:
+            self.eqhost_contents.AppendText("\n".join(status["eqhost_contents"]))
+        
+        # Update button states
+        self.enable_btn.Enable(not status["using_proxy"])
+        self.disable_btn.Enable(status["using_proxy"])
+        
+        # Update tray icon based on proxy status
+        if hasattr(self, 'tray_icon'):
+            self.tray_icon.update_icon(status["using_proxy"])
+
+
+class TaskBarIcon(wx.adv.TaskBarIcon):
+    def __init__(self, frame):
+        super().__init__()
+        self.frame = frame
+        self.using_proxy = True  # Default state
+        
+        # Set initial icon
+        self.update_icon()
+        
+        # Bind events
+        self.Bind(wx.adv.EVT_TASKBAR_LEFT_DCLICK, self.on_left_dclick)
+    
+    # Handle double-click on the taskbar icon
+    def on_left_dclick(self, event):
+        if not self.frame.IsShown():
+            self.frame.Show()
+            self.frame.Raise()
+    
+    # Create the popup menu for the taskbar icon
+    def CreatePopupMenu(self):
+        menu = wx.Menu()
+        
+        # Show/Hide application menu item
+        if self.frame.IsShown():
+            visibility_item = menu.Append(wx.ID_ANY, "Hide Application")
+            self.Bind(wx.EVT_MENU, self.on_hide, visibility_item)
+        else:
+            visibility_item = menu.Append(wx.ID_ANY, "Show Application")
+            self.Bind(wx.EVT_MENU, self.on_show, visibility_item)
+        
+        # Add update menu item
+        update_item = menu.Append(wx.ID_ANY, "Check for Updates")
+        self.Bind(wx.EVT_MENU, self.on_check_updates, update_item)
+        
+        menu.AppendSeparator()
+        
+        exit_item = menu.Append(wx.ID_ANY, "Exit")
+        self.Bind(wx.EVT_MENU, self.on_exit, exit_item)
+        
+        return menu
+    
+    # Update the menu (called when update status changes)
+    def update_menu(self):
+        # Force the menu to be rebuilt next time it's shown
+        if wx.Platform == '__WXMSW__':
+            self.PopupMenu(self.CreatePopupMenu())
+            # Hide the menu immediately
+            wx.CallAfter(self.PopupMenu, None)
+    
+    # Update the tray icon based on proxy status
+    def update_icon(self, using_proxy=True):
+        self.using_proxy = using_proxy
+        
+        # Choose the appropriate icon filename
+        icon_filename = "tray_icon.png" if using_proxy else "tray_icon_disabled.png"
+        tooltip = f"{config.APP_NAME} - {'Enabled' if using_proxy else 'Disabled'}"
+        
+        # Try multiple possible locations for the icon file
+        icon_paths = [
+            # When running from source
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), f"../{icon_filename}"),
+            # When running from PyInstaller bundle
+            os.path.join(os.path.dirname(sys.executable), icon_filename),
+            # Current directory
+            icon_filename
+        ]
+        
+        # Try to load the icon from each possible path
+        for path in icon_paths:
+            if os.path.exists(path):
+                try:
+                    icon = wx.Icon(path, wx.BITMAP_TYPE_ANY)
+                    self.SetIcon(icon, tooltip)
+                    return  # Successfully set the icon
+                except Exception as e:
+                    print(f"Failed to load icon from {path}: {e}")
+        
+        # If we get here, we couldn't find or load the icon
+        print(f"Warning: Could not find or load icon {icon_filename}")
+        # Try to use a default icon
+        try:
+            icon = wx.Icon(wx.ArtProvider.GetBitmap(wx.ART_INFORMATION, wx.ART_OTHER, (16, 16)))
+            self.SetIcon(icon, tooltip)
+        except:
+            pass  # Last resort - just don't set an icon
+    
+    # Show the main window
+    def on_show(self, event):
+        if not self.frame.IsShown():
+            self.frame.Show()
+            self.frame.Raise()
+    
+    # Hide the main window
+    def on_hide(self, event):
+        if self.frame.IsShown():
+            self.frame.Hide()
+            # Show notification when hiding
+            self.ShowBalloon(
+                config.APP_NAME,
+                f"{config.APP_NAME} is still running in the system tray.",
+                2000  # Show for 2 seconds
+            )
+    
+    def on_check_updates(self, event):
+        """Check for updates"""
+        updater.check_update()
+    
+    # These methods are used by the tray icon menu
+    def on_exit(self, event):
+        """Exit the application"""
+        self.frame.close_application()
+    
+    def ShowBalloon(self, title, text, msec=0):
+        """Show a balloon notification"""
+        if wx.Platform == '__WXMSW__':
+            # Only available on Windows
+            super().ShowBalloon(title, text, msec)
+        else:
+            # For other platforms, we could implement a custom notification
+            pass
+
+
+def start_ui():
+    """Initialize and start the UI"""
+    # Create the wxPython application
+    app = wx.App(False)
+    app.SetVendorName("Toald (P99 Green)")
+    
+    # Create and show the main window
+    main_window = ProxyUI()
+    main_window.Show()
+    
+    # Bind the close handler
+    main_window.Bind(wx.EVT_CLOSE, main_window.on_close)
+    
+    return app, main_window

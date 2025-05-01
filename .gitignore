@@ -4,3 +4,9 @@ __pycache__
 *.log
 *.bin
 old/
+venv/
+*.exe
+.eggs
+*.egg-info
+dist
+build

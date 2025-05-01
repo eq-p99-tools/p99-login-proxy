@@ -1,1 +1,7 @@
-PyCryptodome
+pycryptodomex>=3.15.0
+wxPython>=4.2.0
+pystray>=0.19.4
+pillow>=9.5.0
+requests>=2.31.0
+pywin32>=306
+semver>=3.0.1
