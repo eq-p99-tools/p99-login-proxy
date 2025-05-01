@@ -23,7 +23,7 @@ def check_sso_login(username: str, password: str) -> tuple[str, str]:
         "username": username,
         "password": password
     }, timeout=config.SSO_TIMEOUT, verify=verify)
-    print(f"[SSO] Login response: {response.json()}")
+
     if response.status_code != 200:
         return None, None
 

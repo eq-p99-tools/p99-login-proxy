@@ -84,7 +84,7 @@ class LoginProxy(asyncio.DatagramProtocol):
         """
         if len(buf) < 30:
             return buf
-        if buf.startswith(b'\x00\x03\x04\x00\x15\x00'):
+        elif buf.startswith(b'\x00\x03\x04\x00\x15\x00'):
             # LOGIN packet
             data = buf[14 + structs.SIZE_OF_LOGIN_BASE_MESSAGE:]
             cipher = DES.new(config.ENCRYPTION_KEY, DES.MODE_CBC, config.iv())
@@ -94,11 +94,19 @@ class LoginProxy(asyncio.DatagramProtocol):
             # Notify UI about user login
             username = user.decode()
             password = password.decode()
+            ui.proxy_stats.user_login(username)
+            if config.PROXY_ONLY:
+                print(f"[CHECK REWRITE] Proxy only mode enabled, skipping SSO API call.")
+                return buf
+            if username in config.SKIP_SSO_ACCOUNTS:
+                print(f"[CHECK REWRITE] Skipping SSO check for {username} (in skip list)")
+                return buf
 
             try:
                 if config.DEBUG_PASSWORD:
                     print(f"[CHECK REWRITE] Overwriting client supplied password with configured password.")
                     password = config.DEBUG_PASSWORD
+
                 new_user, new_pass = sso_api.check_sso_login(username, password)
                 if new_user and new_pass:
                     print(f"[CHECK REWRITE] CHECK SUCCESSFUL: {username} found with valid token, replacing password.")
@@ -113,7 +121,6 @@ class LoginProxy(asyncio.DatagramProtocol):
             except Exception as e:
                 print(f"[CHECK REWRITE] FAILED TO CHECK LOGIN: {username}, error: {str(e)}")
 
-        ui.proxy_stats.user_login(username)
         return buf
 
     def handle_client_packet(self, data: bytearray, addr: tuple[str, int]):
@@ -166,13 +173,15 @@ class LoginProxy(asyncio.DatagramProtocol):
         if not data or not self.client_addr:
             print("[SEND TO CLIENT] Empty data or no client address, not sending to client")
             return
-        print(f"[SEND TO CLIENT] Sending data to client {self.client_addr}: {data}")
+        print(f"[SEND TO CLIENT] Sending data to client {self.client_addr}.")
+        # print(f"[SEND TO CLIENT] Sending data to client {self.client_addr}: {data}")
         self.transport.sendto(data, self.client_addr)
     def send_to_loginserver(self, data: bytearray):
         if not data:
             print("[SEND TO LOGINSERVER] Empty data, not sending to loginserver")
             return
-        print(f"[SEND TO LOGINSERVER] Sending data to loginserver: {data}")
+        print(f"[SEND TO LOGINSERVER] Sending data to loginserver.")
+        # print(f"[SEND TO LOGINSERVER] Sending data to loginserver: {data}")
         self.transport.sendto(data, config.EQEMU_ADDR)
     def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
         """Called when a datagram is received"""
@@ -189,7 +198,8 @@ class LoginProxy(asyncio.DatagramProtocol):
             length = len(data)
         # debug_write_packet(data, True)
         data = bytearray(data)
-        print(f"[SERVER PACKET] Received message from login server: {data}")
+        print(f"[SERVER PACKET] Received message from login server.")
+        # print(f"[SERVER PACKET] Received message from login server: {data}")
         opcode = structs.get_protocol_opcode(data[start_index:])
 
         print(f"[SERVER PACKET] Processing packet with opcode: {opcode}")

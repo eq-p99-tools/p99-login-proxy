@@ -456,14 +456,23 @@ class ProxyUI(wx.Frame):
         self.always_on_top_cb.Bind(wx.EVT_CHECKBOX, self.on_always_on_top)
         
         # Add checkbox to the options row
-        options_row_sizer.Add(self.always_on_top_cb, 0, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 5)
+        options_row_sizer.Add(self.always_on_top_cb, 0, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 0)
+        
+        # Add some spacing between checkboxes
+        options_row_sizer.AddSpacer(20)
+        
+        # Proxy Only checkbox
+        self.proxy_only_cb = wx.CheckBox(eq_tab, label="Proxy Only")
+        self.proxy_only_cb.SetValue(config.PROXY_ONLY)  # Default to value in config
+        self.proxy_only_cb.Bind(wx.EVT_CHECKBOX, self.on_proxy_only)
+        options_row_sizer.Add(self.proxy_only_cb, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 5)
         
         # Add the options row to the main options sizer
-        ui_options_sizer.Add(options_row_sizer, 1, wx.EXPAND | wx.ALL, 5)
+        ui_options_sizer.Add(options_row_sizer, 1, wx.EXPAND | wx.ALL, 2)
 
         # Add the options sizer to the eq_sizer with expand flag
         eq_sizer.Add(ui_options_sizer, 0, wx.ALL | wx.EXPAND, 10)
-
+        
         # Set the EQ tab sizer
         eq_tab.SetSizer(eq_sizer)
         
@@ -611,6 +620,17 @@ class ProxyUI(wx.Frame):
             
         # Update the checkbox state in the config
         config.set_always_on_top(is_checked)
+    
+    # Handle Proxy Only checkbox
+    def on_proxy_only(self, event):
+        # Get the checkbox state
+        is_checked = self.proxy_only_cb.GetValue()
+        
+        # Update the checkbox state in the config
+        config.set_proxy_only(is_checked)
+
+        # Update the proxy status to reflect the new setting
+        proxy_stats.update_status("Proxy Only Mode" if is_checked else "Running")
     
     # Handle saving the password on typing
     def on_save_debug_password(self, event):
