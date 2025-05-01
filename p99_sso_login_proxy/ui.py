@@ -229,7 +229,7 @@ class ProxyUI(wx.Frame):
         self.on_close = on_close.__get__(self)
         self.close_application = close_application.__get__(self)
     
-    def __init__(self, parent=None, id=wx.ID_ANY, title=config.APP_NAME):
+    def __init__(self, parent=None, id=wx.ID_ANY, title=f"{config.APP_NAME} v{config.APP_VERSION}"):
         super().__init__(parent, id, title, size=(550, 500))
         
         # Initialize event handlers
