@@ -1,3 +1,5 @@
+# Based in large part on the original work by Zaela:
+# https://github.com/Zaela/p99-login-middlemand
 import ctypes
 
 import enum

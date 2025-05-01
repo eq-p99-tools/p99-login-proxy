@@ -1,8 +1,9 @@
+# Based in large part on the original work by Zaela:
+# https://github.com/Zaela/p99-login-middlemand
 from __future__ import annotations
 import asyncio
 import functools
 import time
-import sys
 
 from Crypto.Cipher import DES
 
