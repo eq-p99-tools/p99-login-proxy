@@ -3,8 +3,6 @@ import os
 import sys
 import time
 import threading
-import win32api
-import win32con
 
 import wx
 import wx.adv
@@ -231,7 +229,7 @@ class ProxyUI(wx.Frame):
     
     def __init__(self, parent=None, id=wx.ID_ANY, title=f"{config.APP_NAME} v{config.APP_VERSION}"):
         super().__init__(parent, id, title, size=(550, 500))
-        
+
         # Initialize event handlers
         self.__init_event_handlers()
         
@@ -517,42 +515,32 @@ class ProxyUI(wx.Frame):
         
         # Path to eqgame.exe
         eqgame_path = os.path.join(eq_dir, "eqgame.exe")
-        
-        if not os.path.exists(eqgame_path):
-            wx.MessageBox(f"EverQuest executable not found at {eqgame_path}", "Error", wx.OK | wx.ICON_ERROR)
-            return
-        
+        # launch_bat = os.path.join(eq_dir, "Launch Titanium.bat")
         try:
             # Launch EverQuest with elevated privileges using ShellExecute
-            win32api.ShellExecute(
-                self.GetHandle(),
-                "runas",  # This verb requests elevation
-                eqgame_path,
-                "patchme",  # No parameters
-                eq_dir,  # Working directory
-                win32con.SW_SHOWNORMAL
-            )
-            
-            # Minimize the proxy to tray after launching EQ
-            # self.Hide()
-            # if hasattr(self, 'tray_icon'):
-            #     self.tray_icon.ShowBalloon(
-            #         config.APP_NAME,
-            #         f"{config.APP_NAME} is still running in the system tray.",
-            #         2000
-            #     )
+            # if os.path.exists(launch_bat):
+                # subprocess.Popen(
+                #     ["powershell.exe", "-Command", "& { Start-Process eqgame.exe -ArgumentList @('patchme') -Verb RunAs }"],
+                #     cwd=eq_dir, start_new_session=True, shell=True, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
+                # )
+                # self.start_eq_func(eq_dir)
+            if os.path.exists(eqgame_path):
+                # import win32api
+                # import win32con
+                # win32api.ShellExecute(
+                #     self.GetHandle(),
+                #     "runas",  # This verb requests elevation
+                #     eqgame_path,
+                #     "patchme",  # Parameters
+                #     eq_dir,  # Working directory
+                #     win32con.SW_SHOWNORMAL
+                # )
+                self.start_eq_func(eq_dir)
+            else:
+                wx.MessageBox(f"EverQuest executable not found in {eq_dir}", "Error", wx.OK | wx.ICON_ERROR)
+
         except Exception as e:
             wx.MessageBox(f"Failed to launch EverQuest: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
-    
-    # Handle minimize to tray button click (kept for reference but not used)
-    def on_minimize(self, event):
-        self.Hide()
-        if hasattr(self, 'tray_icon'):
-            self.tray_icon.ShowBalloon(
-                config.APP_NAME,
-                f"{config.APP_NAME} is still running in the system tray.",
-                2000  # Show for 2 seconds
-            )
     
     # Refresh EverQuest configuration status
     def on_refresh_eq_status(self, event):
@@ -841,9 +829,6 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
 
 def start_ui():
     """Initialize and start the UI"""
-    # Create the wxPython application
-    app = wx.App(False)
-    app.SetVendorName("Toald (P99 Green)")
     
     # Create and show the main window
     main_window = ProxyUI()
@@ -852,4 +837,4 @@ def start_ui():
     # Bind the close handler
     main_window.Bind(wx.EVT_CLOSE, main_window.on_close)
     
-    return app, main_window
+    return main_window

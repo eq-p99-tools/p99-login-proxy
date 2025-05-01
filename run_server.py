@@ -80,9 +80,18 @@ class WxAsyncApp(wx.App):
 def main():
     # Create the wxPython application with asyncio integration
     wx_app = WxAsyncApp()
+
+    def start_eq(eq_dir):
+        print("Starting EverQuest...")
+        import subprocess
+        subprocess.Popen(
+            ["powershell.exe", "-Command", "& { Start-Process eqgame.exe -ArgumentList @('patchme') -Verb RunAs }"],
+            cwd=eq_dir, start_new_session=True, shell=True, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+        )
     
     # Initialize the UI
-    app, main_window = ui.start_ui()
+    main_window = ui.start_ui()
+    main_window.start_eq_func = start_eq
     
     # Check for updates on startup
     updater.check_update()

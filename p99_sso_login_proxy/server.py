@@ -5,7 +5,7 @@ import asyncio
 import functools
 import time
 
-from Crypto.Cipher import DES
+from Cryptodome.Cipher import DES
 
 from p99_sso_login_proxy import config
 from p99_sso_login_proxy import sequence
@@ -176,6 +176,7 @@ class LoginProxy(asyncio.DatagramProtocol):
         print(f"[SEND TO CLIENT] Sending data to client {self.client_addr}.")
         # print(f"[SEND TO CLIENT] Sending data to client {self.client_addr}: {data}")
         self.transport.sendto(data, self.client_addr)
+
     def send_to_loginserver(self, data: bytearray):
         if not data:
             print("[SEND TO LOGINSERVER] Empty data, not sending to loginserver")
@@ -183,6 +184,7 @@ class LoginProxy(asyncio.DatagramProtocol):
         print(f"[SEND TO LOGINSERVER] Sending data to loginserver.")
         # print(f"[SEND TO LOGINSERVER] Sending data to loginserver: {data}")
         self.transport.sendto(data, config.EQEMU_ADDR)
+
     def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
         """Called when a datagram is received"""
         if addr == config.EQEMU_ADDR:
@@ -248,8 +250,9 @@ async def main():
     ui.proxy_stats.update_status("Starting")
     
     loop = asyncio.get_running_loop()
-    transport, _ = await loop.create_datagram_endpoint(
+    coro = await loop.create_datagram_endpoint(
         LoginProxy, local_addr=(config.LISTEN_HOST, config.LISTEN_PORT))
+    transport, _ = loop.run_until_complete(coro)
     print(f"Started UDP proxy, listening on {config.LISTEN_HOST}:{config.LISTEN_PORT}")
     ui.proxy_stats.reset_uptime()
     
