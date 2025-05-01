@@ -1,4 +1,4 @@
-from eqemu_sso_login_proxy import structs
+from p99_sso_login_proxy import structs
 
 
 class Packet:

@@ -1,6 +1,6 @@
 import requests
 
-from eqemu_sso_login_proxy import config
+from p99_sso_login_proxy import config
 
 
 def check_sso_login(username: str, password: str) -> tuple[str, str]:

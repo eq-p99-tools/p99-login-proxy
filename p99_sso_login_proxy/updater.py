@@ -10,7 +10,7 @@ import requests
 import semver
 import wx
 import logging
-from eqemu_sso_login_proxy.config import APP_VERSION
+from p99_sso_login_proxy.config import APP_VERSION
 
 # Set up logging
 logging.basicConfig(

@@ -6,11 +6,11 @@ import sys
 
 from Crypto.Cipher import DES
 
-from eqemu_sso_login_proxy import config
-from eqemu_sso_login_proxy import sequence
-from eqemu_sso_login_proxy import sso_api
-from eqemu_sso_login_proxy import structs
-from eqemu_sso_login_proxy import ui
+from p99_sso_login_proxy import config
+from p99_sso_login_proxy import sequence
+from p99_sso_login_proxy import sso_api
+from p99_sso_login_proxy import structs
+from p99_sso_login_proxy import ui
 
 # import faulthandler
 # faulthandler.enable()

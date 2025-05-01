@@ -2,11 +2,10 @@ import asyncio
 import sys
 import wx
 import threading
-import os
 
-from eqemu_sso_login_proxy import server
-from eqemu_sso_login_proxy import ui
-from eqemu_sso_login_proxy import updater
+from p99_sso_login_proxy import server
+from p99_sso_login_proxy import ui
+from p99_sso_login_proxy import updater
 
 # Class to integrate wxPython with asyncio
 class WxAsyncApp(wx.App):

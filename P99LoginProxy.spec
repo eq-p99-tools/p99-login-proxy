@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-from eqemu_sso_login_proxy import config
+from p99_sso_login_proxy import config
 
 block_cipher = None
 

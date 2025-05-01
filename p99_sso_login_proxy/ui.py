@@ -9,9 +9,9 @@ import win32con
 import wx
 import wx.adv
 
-from eqemu_sso_login_proxy import config
-from eqemu_sso_login_proxy import eq_config
-from eqemu_sso_login_proxy import updater
+from p99_sso_login_proxy import config
+from p99_sso_login_proxy import eq_config
+from p99_sso_login_proxy import updater
 
 # Define custom event IDs
 EVT_STATS_UPDATED = wx.NewEventType()
