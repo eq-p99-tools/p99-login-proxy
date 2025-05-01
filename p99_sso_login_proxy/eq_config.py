@@ -7,12 +7,8 @@ the eqhost.txt file which controls which login server the game connects to.
 
 import os
 import logging
-import winreg
 import string
-import glob
-import re
 import subprocess
-from pathlib import Path
 from typing import Optional, Tuple, List, Set
 
 # Set up logging
@@ -46,6 +42,7 @@ DEFAULT_EQ_PATHS = [
     r"C:\Program Files\Sony\EverQuest",
     r"D:\Program Files (x86)\Sony\EverQuest",
     r"D:\Program Files\Sony\EverQuest",
+    os.getcwd(),
 ]
 
 # Default login server address and proxy address
