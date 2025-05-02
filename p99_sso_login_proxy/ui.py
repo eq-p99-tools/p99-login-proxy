@@ -343,19 +343,12 @@ class ProxyUI(wx.Frame):
         # Add the statistics box to the main proxy sizer
         proxy_sizer.Add(stats_box_sizer, 0, wx.EXPAND | wx.ALL, 10)
         
-        # EQ Configuration Actions section
-        action_box = wx.StaticBox(proxy_tab, label="Actions")
+        # EQ Configuration Settings section
+        action_box = wx.StaticBox(proxy_tab, label="Settings")
         action_sizer = wx.StaticBoxSizer(action_box, wx.VERTICAL)
         
         # Controls row
         controls_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        
-        self.refresh_btn = wx.Button(proxy_tab, label="Refresh Status")
-        self.refresh_btn.Bind(wx.EVT_BUTTON, self.on_refresh_eq_status)
-        controls_sizer.Add(self.refresh_btn, 0, wx.ALL, 5)
-        
-        # Add some spacing between button and dropdown
-        controls_sizer.AddSpacer(10)
         
         # Add Proxy Mode dropdown selector
         mode_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -370,7 +363,8 @@ class ProxyUI(wx.Frame):
         ])
         
         # Set the initial selection based on current config
-        if not eq_config.get_eq_status()["using_proxy"]:
+        using_proxy, _ = eq_config.is_using_proxy()
+        if not using_proxy:
             self.proxy_mode_choice.SetSelection(2)  # Disabled
         elif config.PROXY_ONLY:
             self.proxy_mode_choice.SetSelection(1)  # Enabled (Proxy Only)
@@ -389,7 +383,23 @@ class ProxyUI(wx.Frame):
         mode_sizer.Add(self.proxy_mode_choice, 0, wx.ALIGN_CENTER_VERTICAL, 0)
         controls_sizer.Add(mode_sizer, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 5)
         
-        action_sizer.Add(controls_sizer, 0, wx.ALL | wx.CENTER, 5)
+        # Add some spacing between the dropdown and checkbox
+        controls_sizer.AddSpacer(140)
+        
+        # Always on top checkbox (moved from Settings tab)
+        self.always_on_top_cb = wx.CheckBox(proxy_tab, label="Always On Top")
+        self.always_on_top_cb.SetValue(config.ALWAYS_ON_TOP)  # Default to value in config
+        if config.ALWAYS_ON_TOP:
+            # Set the window to be always on top
+            self.SetWindowStyle(self.GetWindowStyle() | wx.STAY_ON_TOP)
+
+        self.always_on_top_cb.Bind(wx.EVT_CHECKBOX, self.on_always_on_top)
+        self.always_on_top_cb.SetToolTip("Keep the application window on top of other windows")
+        
+        # Add checkbox to the controls row
+        controls_sizer.Add(self.always_on_top_cb, 0, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 0)
+        
+        action_sizer.Add(controls_sizer, 0, wx.ALL | wx.LEFT, 0)
         
         proxy_sizer.Add(action_sizer, 0, wx.ALL | wx.EXPAND, 10)
         
@@ -438,49 +448,26 @@ class ProxyUI(wx.Frame):
         
         eq_status_sizer.Add(eqhost_btn_sizer, 0, wx.ALL | wx.CENTER, 5)
         
-        eq_sizer.Add(eq_status_sizer, 1, wx.ALL | wx.EXPAND, 10)
+        # Add a separator line
+        separator = wx.StaticLine(eq_tab)
+        eq_status_sizer.Add(separator, 0, wx.EXPAND | wx.ALL, 10)
         
-        # UI Options section
-        ui_options_box = wx.StaticBox(eq_tab, label="Options")
-        ui_options_sizer = wx.StaticBoxSizer(ui_options_box, wx.VERTICAL)
-        
-        # Create a horizontal sizer for all options
-        options_row_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        
-        # Password field
+        # Password field (moved from Options section)
         password_field_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        password_label = StatusLabel(eq_tab, "Password:")
+        password_label = StatusLabel(eq_tab, "API Token:")
         self.password_field = wx.TextCtrl(eq_tab, style=wx.TE_PASSWORD)
         self.password_field.SetValue(config.DEBUG_PASSWORD)  # Set to decrypted value from config
+        self.password_field.SetToolTip("API Token for auto-authentication. When this is set, "
+                                       "the password entered in the EQ UI will be ignored.")
         password_field_sizer.Add(password_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         password_field_sizer.Add(self.password_field, 1, wx.EXPAND, 0)
         self.password_field.Bind(wx.EVT_TEXT, self.on_save_debug_password)
         
-        # Add password field to the options row with proportion=1 to make it expand
-        options_row_sizer.Add(password_field_sizer, 1, wx.EXPAND | wx.ALL, 5)
-
-        # Add some spacing between the password field and checkbox
-        options_row_sizer.AddSpacer(20)
+        # Add password field to the EQ status section
+        eq_status_sizer.Add(password_field_sizer, 0, wx.EXPAND | wx.ALL, 5)
         
-        # Always on top checkbox
-        self.always_on_top_cb = wx.CheckBox(eq_tab, label="Always On Top")
-        self.always_on_top_cb.SetValue(config.ALWAYS_ON_TOP)  # Default to value in config
-        if config.ALWAYS_ON_TOP:
-            # Set the window to be always on top
-            self.SetWindowStyle(self.GetWindowStyle() | wx.STAY_ON_TOP)
-
-        self.always_on_top_cb.Bind(wx.EVT_CHECKBOX, self.on_always_on_top)
-        
-        # Add checkbox to the options row
-        options_row_sizer.Add(self.always_on_top_cb, 0, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 0)
-        
-        # No additional checkbox here after moving Proxy Only to the Actions box
-        
-        # Add the options row to the main options sizer
-        ui_options_sizer.Add(options_row_sizer, 1, wx.EXPAND | wx.ALL, 2)
-
-        # Add the options sizer to the eq_sizer with expand flag
-        eq_sizer.Add(ui_options_sizer, 0, wx.ALL | wx.EXPAND, 10)
+        # Add the EQ status sizer to the main EQ tab sizer
+        eq_sizer.Add(eq_status_sizer, 1, wx.ALL | wx.EXPAND, 10)
         
         # Set the EQ tab sizer
         eq_tab.SetSizer(eq_sizer)
@@ -552,22 +539,17 @@ class ProxyUI(wx.Frame):
 
         except Exception as e:
             wx.MessageBox(f"Failed to launch EverQuest: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
-    
-    # Refresh EverQuest configuration status
-    def on_refresh_eq_status(self, event):
-        self.update_eq_status()
-    
+
     # Handle proxy mode selection change
     def on_proxy_mode_changed(self, event):
         selection = self.proxy_mode_choice.GetSelection()
-        
+
         # Get current status to avoid unnecessary changes
-        status = eq_config.get_eq_status()
-        current_proxy_enabled = status["using_proxy"]
-        
+        using_proxy, _ = eq_config.is_using_proxy()
+
         if selection == 0:  # Enabled (SSO)
             # Enable proxy if it's not already enabled
-            if not current_proxy_enabled:
+            if not using_proxy:
                 success = eq_config.enable_proxy()
                 if not success:
                     wx.MessageBox("Failed to enable proxy. EverQuest directory or eqhost.txt not found.", 
@@ -575,14 +557,14 @@ class ProxyUI(wx.Frame):
                     # Revert selection if failed
                     self.proxy_mode_choice.SetSelection(2)
                     return
-            
+
             # Set PROXY_ONLY to False
             if config.PROXY_ONLY:
                 config.set_proxy_only(False)
-        
+
         elif selection == 1:  # Enabled (Proxy Only)
             # Enable proxy if it's not already enabled
-            if not current_proxy_enabled:
+            if not using_proxy:
                 success = eq_config.enable_proxy()
                 if not success:
                     wx.MessageBox("Failed to enable proxy. EverQuest directory or eqhost.txt not found.", 
@@ -597,7 +579,7 @@ class ProxyUI(wx.Frame):
         
         elif selection == 2:  # Disabled
             # Disable proxy if it's currently enabled
-            if current_proxy_enabled:
+            if using_proxy:
                 success = eq_config.disable_proxy()
                 if not success:
                     wx.MessageBox("Failed to disable proxy. EverQuest directory or eqhost.txt not found.", 
@@ -743,7 +725,6 @@ class ProxyUI(wx.Frame):
         
         # Update tray icon based on proxy status
         if hasattr(self, 'tray_icon'):
-            self.tray_icon.using_proxy = status["using_proxy"]
             self.tray_icon.update_icon()
 
 
@@ -751,7 +732,6 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
     def __init__(self, frame):
         super().__init__()
         self.frame = frame
-        self.using_proxy = False  # Default state
         self.last_tooltip = f"{config.APP_NAME}"
         
         # Set initial icon
@@ -800,10 +780,13 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
     # Update the tray icon based on proxy status
     def update_icon(self, tooltip=None):
         self.last_tooltip = tooltip = tooltip or self.last_tooltip
+        # Get current proxy status directly from eq_config
+        using_proxy, _ = eq_config.is_using_proxy()
+        
         # Choose the appropriate icon filename
-        if self.using_proxy and not config.PROXY_ONLY:
+        if using_proxy and not config.PROXY_ONLY:
             icon_filename = "tray_icon.png"
-        elif self.using_proxy and config.PROXY_ONLY:
+        elif using_proxy and config.PROXY_ONLY:
             icon_filename = "tray_icon_proxy_only.png"
         else:
             icon_filename = "tray_icon_disabled.png"

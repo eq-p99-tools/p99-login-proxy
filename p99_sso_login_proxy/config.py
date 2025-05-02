@@ -15,7 +15,7 @@ APP_VERSION = semver.Version(
     major=1,
     minor=0,
     patch=0,
-    prerelease="rc6"
+    prerelease="rc7"
 )
 
 # Ensure the app data directory exists
