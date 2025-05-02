@@ -216,7 +216,7 @@ class Sequence:
                 b''.join(servers)
             ]
         )
-        print(f"filter_server_list: {servers}")
+        # print(f"[SEQUENCE] filter_server_list: {servers}")
 
         self.seq_to_local += 1
         self.seq_from_remote = self.frag_start + 1

@@ -167,22 +167,13 @@ class ProxyUI(wx.Frame):
             self.total_value.SetLabel(str(proxy_stats.total_connections))
             self.active_value.SetLabel(str(proxy_stats.active_connections))
             self.completed_value.SetLabel(str(proxy_stats.completed_connections))
-            
-            # Update tray tooltip with basic stats if tray icon exists
-            if hasattr(self, 'tray_icon'):
+
+            if self.tray_icon:
+                # Update tray tooltip with basic stats if tray icon exists
                 tooltip = f"{config.APP_NAME}\nStatus: {proxy_stats.proxy_status}\n"
                 tooltip += f"Connections: {proxy_stats.active_connections} active, "
                 tooltip += f"{proxy_stats.total_connections} total"
-                
-                # The icon itself is managed by update_icon, we just update the tooltip here
-                if self.tray_icon.using_proxy:
-                    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../tray_icon.png")
-                else:
-                    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../tray_icon_disabled.png")
-                    
-                if os.path.exists(icon_path):
-                    icon = wx.Icon(icon_path)
-                    self.tray_icon.SetIcon(icon, tooltip)
+                self.tray_icon.update_icon(tooltip=tooltip)
         
         def show_user_connected_notification(self, username):
             """Show a tray notification when a user connects"""
@@ -216,9 +207,7 @@ class ProxyUI(wx.Frame):
             
             # This will close the UI, but the main event loop needs to be stopped separately
             self.Destroy()
-        
 
-        
         # Add the methods to the class
         self.on_stats_updated = on_stats_updated.__get__(self)
         self.on_user_connected = on_user_connected.__get__(self)
@@ -476,7 +465,7 @@ class ProxyUI(wx.Frame):
         
         # Add tabs to notebook
         notebook.AddPage(proxy_tab, "Proxy Status")
-        notebook.AddPage(eq_tab, "Debug Info")
+        notebook.AddPage(eq_tab, "Settings")
         
         # Add notebook to main sizer
         main_sizer.Add(notebook, 1, wx.EXPAND | wx.ALL, 10)
@@ -638,7 +627,7 @@ class ProxyUI(wx.Frame):
         # Try multiple possible locations for the icon file
         icon_paths = [
             # When running from source
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "../tray_icon.png"),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tray_icon.png"),
             # When running from PyInstaller bundle
             os.path.join(os.path.dirname(sys.executable), "tray_icon.png"),
             # Current directory
@@ -654,6 +643,7 @@ class ProxyUI(wx.Frame):
                 except Exception as e:
                     print(f"Failed to load icon from {path}: {e}")
         
+        # TODO: Revisit for cleanup
         if icon:
             self.SetIcon(icon)
             # Also set the taskbar icon explicitly
@@ -702,14 +692,16 @@ class ProxyUI(wx.Frame):
         
         # Update tray icon based on proxy status
         if hasattr(self, 'tray_icon'):
-            self.tray_icon.update_icon(status["using_proxy"])
+            self.tray_icon.using_proxy = status["using_proxy"]
+            self.tray_icon.update_icon()
 
 
 class TaskBarIcon(wx.adv.TaskBarIcon):
     def __init__(self, frame):
         super().__init__()
         self.frame = frame
-        self.using_proxy = True  # Default state
+        self.using_proxy = False  # Default state
+        self.last_tooltip = f"{config.APP_NAME}"
         
         # Set initial icon
         self.update_icon()
@@ -755,17 +747,20 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
             wx.CallAfter(self.PopupMenu, None)
     
     # Update the tray icon based on proxy status
-    def update_icon(self, using_proxy=True):
-        self.using_proxy = using_proxy
-        
+    def update_icon(self, tooltip=None):
+        self.last_tooltip = tooltip = tooltip or self.last_tooltip
         # Choose the appropriate icon filename
-        icon_filename = "tray_icon.png" if using_proxy else "tray_icon_disabled.png"
-        tooltip = f"{config.APP_NAME} - {'Enabled' if using_proxy else 'Disabled'}"
+        if self.using_proxy and not config.PROXY_ONLY:
+            icon_filename = "tray_icon.png"
+        elif self.using_proxy and config.PROXY_ONLY:
+            icon_filename = "tray_icon_proxy_only.png"
+        else:
+            icon_filename = "tray_icon_disabled.png"
         
         # Try multiple possible locations for the icon file
         icon_paths = [
             # When running from source
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), f"../{icon_filename}"),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", icon_filename),
             # When running from PyInstaller bundle
             os.path.join(os.path.dirname(sys.executable), icon_filename),
             # Current directory
@@ -776,20 +771,15 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
         for path in icon_paths:
             if os.path.exists(path):
                 try:
-                    icon = wx.Icon(path, wx.BITMAP_TYPE_ANY)
+                    icon = wx.Icon(path)
                     self.SetIcon(icon, tooltip)
+                    self.frame.SetIcon(icon)
                     return  # Successfully set the icon
                 except Exception as e:
                     print(f"Failed to load icon from {path}: {e}")
         
         # If we get here, we couldn't find or load the icon
         print(f"Warning: Could not find or load icon {icon_filename}")
-        # Try to use a default icon
-        try:
-            icon = wx.Icon(wx.ArtProvider.GetBitmap(wx.ART_INFORMATION, wx.ART_OTHER, (16, 16)))
-            self.SetIcon(icon, tooltip)
-        except:
-            pass  # Last resort - just don't set an icon
     
     # Show the main window
     def on_show(self, event):

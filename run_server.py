@@ -74,6 +74,7 @@ class WxAsyncApp(wx.App):
 
     def stop_event_loop(self):
         """Stop the event loop"""
+        print("[RUN SERVER] Stopping event loop in WxAsyncApp")
         self.exit_event.set()
         self.ExitMainLoop()
 

@@ -9,6 +9,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ('tray_icon.png', '.'),
+        ('tray_icon_proxy_only.png', '.'),
         ('tray_icon_disabled.png', '.'),
     ],
     hiddenimports=[],

@@ -54,8 +54,7 @@ class LoginProxy(asyncio.DatagramProtocol):
     def sequence_free(self):
         if not self.sequence.packets:
             return
-        for packet in self.sequence.packets:
-            packet.data = None
+        self.sequence.packets.clear()
         self.sequence = sequence.Sequence()
 
     def connection_made(self, transport):
@@ -233,12 +232,15 @@ class LoginProxy(asyncio.DatagramProtocol):
                 # Don't forward, whole point is to filter this
                 print("[SERVER PACKET] Fragment part of server list, not forwarding individually")
                 return
+        elif opcode == structs.OPCodes.OP_Ack:
+            print("[SERVER PACKET] Skipping server ACK packet")
+            return
         print("[SERVER PACKET] Forwarding processed packet to client")
         self.send_to_client(data)
 
 
 async def shutdown(transport):
-    print("Shutting down proxy...")
+    print("[SERVER SHUTDOWN] Shutting down proxy...")
     ui.proxy_stats.update_status("Shutting down")
     transport.close()
     loop = asyncio.get_running_loop()
@@ -248,11 +250,11 @@ async def shutdown(transport):
 async def main():
     # Update UI status
     ui.proxy_stats.update_status("Starting")
+    print("[SERVER] Starting proxy server main function")
     
     loop = asyncio.get_running_loop()
-    coro = await loop.create_datagram_endpoint(
+    transport, _ = await loop.create_datagram_endpoint(
         LoginProxy, local_addr=(config.LISTEN_HOST, config.LISTEN_PORT))
-    transport, _ = loop.run_until_complete(coro)
     print(f"Started UDP proxy, listening on {config.LISTEN_HOST}:{config.LISTEN_PORT}")
     ui.proxy_stats.reset_uptime()
     
