@@ -217,7 +217,9 @@ class ProxyUI(wx.Frame):
         self.close_application = close_application.__get__(self)
     
     def __init__(self, parent=None, id=wx.ID_ANY, title=f"{config.APP_NAME} v{config.APP_VERSION}"):
-        super().__init__(parent, id, title, size=(550, 500))
+        # Create a frame with a fixed size (non-resizable)
+        style = wx.DEFAULT_FRAME_STYLE & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX)
+        super().__init__(parent, id, title, size=(550, 500), style=style)
 
         # Initialize event handlers
         self.__init_event_handlers()
@@ -345,22 +347,49 @@ class ProxyUI(wx.Frame):
         action_box = wx.StaticBox(proxy_tab, label="Actions")
         action_sizer = wx.StaticBoxSizer(action_box, wx.VERTICAL)
         
-        # Buttons
-        button_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        # Controls row
+        controls_sizer = wx.BoxSizer(wx.HORIZONTAL)
         
         self.refresh_btn = wx.Button(proxy_tab, label="Refresh Status")
         self.refresh_btn.Bind(wx.EVT_BUTTON, self.on_refresh_eq_status)
-        button_sizer.Add(self.refresh_btn, 0, wx.ALL, 5)
+        controls_sizer.Add(self.refresh_btn, 0, wx.ALL, 5)
         
-        self.enable_btn = wx.Button(proxy_tab, label="Enable Proxy")
-        self.enable_btn.Bind(wx.EVT_BUTTON, self.on_enable_proxy)
-        button_sizer.Add(self.enable_btn, 0, wx.ALL, 5)
+        # Add some spacing between button and dropdown
+        controls_sizer.AddSpacer(10)
         
-        self.disable_btn = wx.Button(proxy_tab, label="Disable Proxy")
-        self.disable_btn.Bind(wx.EVT_BUTTON, self.on_disable_proxy)
-        button_sizer.Add(self.disable_btn, 0, wx.ALL, 5)
+        # Add Proxy Mode dropdown selector
+        mode_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        mode_label = StatusLabel(proxy_tab, "Proxy Mode:")
+        mode_sizer.Add(mode_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         
-        action_sizer.Add(button_sizer, 0, wx.ALL | wx.CENTER, 5)
+        # Create the dropdown with the three options
+        self.proxy_mode_choice = wx.Choice(proxy_tab, choices=[
+            "Enabled (SSO)",
+            "Enabled (Proxy Only)",
+            "Disabled"
+        ])
+        
+        # Set the initial selection based on current config
+        if not eq_config.get_eq_status()["using_proxy"]:
+            self.proxy_mode_choice.SetSelection(2)  # Disabled
+        elif config.PROXY_ONLY:
+            self.proxy_mode_choice.SetSelection(1)  # Enabled (Proxy Only)
+        else:
+            self.proxy_mode_choice.SetSelection(0)  # Enabled (SSO)
+        
+        # Bind the event handler
+        self.proxy_mode_choice.Bind(wx.EVT_CHOICE, self.on_proxy_mode_changed)
+        
+        # Add a tooltip to explain the options
+        self.proxy_mode_choice.SetToolTip(
+            "Enabled (SSO): Full proxy with SSO authentication\n"
+            "Enabled (Proxy Only): Proxy active but no SSO interaction ('middlemand' mode)\n"
+            "Disabled: Proxy inactive, direct connection to server")
+        
+        mode_sizer.Add(self.proxy_mode_choice, 0, wx.ALIGN_CENTER_VERTICAL, 0)
+        controls_sizer.Add(mode_sizer, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 5)
+        
+        action_sizer.Add(controls_sizer, 0, wx.ALL | wx.CENTER, 5)
         
         proxy_sizer.Add(action_sizer, 0, wx.ALL | wx.EXPAND, 10)
         
@@ -445,14 +474,7 @@ class ProxyUI(wx.Frame):
         # Add checkbox to the options row
         options_row_sizer.Add(self.always_on_top_cb, 0, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 0)
         
-        # Add some spacing between checkboxes
-        options_row_sizer.AddSpacer(20)
-        
-        # Proxy Only checkbox
-        self.proxy_only_cb = wx.CheckBox(eq_tab, label="Proxy Only")
-        self.proxy_only_cb.SetValue(config.PROXY_ONLY)  # Default to value in config
-        self.proxy_only_cb.Bind(wx.EVT_CHECKBOX, self.on_proxy_only)
-        options_row_sizer.Add(self.proxy_only_cb, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 5)
+        # No additional checkbox here after moving Proxy Only to the Actions box
         
         # Add the options row to the main options sizer
         ui_options_sizer.Add(options_row_sizer, 1, wx.EXPAND | wx.ALL, 2)
@@ -535,20 +557,56 @@ class ProxyUI(wx.Frame):
     def on_refresh_eq_status(self, event):
         self.update_eq_status()
     
-    # Enable proxy in EverQuest configuration
-    def on_enable_proxy(self, event):
-        success = eq_config.enable_proxy()
-        if not success:
-            wx.MessageBox("Failed to enable proxy. EverQuest directory or eqhost.txt not found.", 
-                         "Error", wx.OK | wx.ICON_ERROR)
-        self.update_eq_status()
-    
-    # Disable proxy in EverQuest configuration
-    def on_disable_proxy(self, event):
-        success = eq_config.disable_proxy()
-        if not success:
-            wx.MessageBox("Failed to disable proxy. EverQuest directory or eqhost.txt not found.", 
-                         "Error", wx.OK | wx.ICON_ERROR)
+    # Handle proxy mode selection change
+    def on_proxy_mode_changed(self, event):
+        selection = self.proxy_mode_choice.GetSelection()
+        
+        # Get current status to avoid unnecessary changes
+        status = eq_config.get_eq_status()
+        current_proxy_enabled = status["using_proxy"]
+        
+        if selection == 0:  # Enabled (SSO)
+            # Enable proxy if it's not already enabled
+            if not current_proxy_enabled:
+                success = eq_config.enable_proxy()
+                if not success:
+                    wx.MessageBox("Failed to enable proxy. EverQuest directory or eqhost.txt not found.", 
+                                "Error", wx.OK | wx.ICON_ERROR)
+                    # Revert selection if failed
+                    self.proxy_mode_choice.SetSelection(2)
+                    return
+            
+            # Set PROXY_ONLY to False
+            if config.PROXY_ONLY:
+                config.set_proxy_only(False)
+        
+        elif selection == 1:  # Enabled (Proxy Only)
+            # Enable proxy if it's not already enabled
+            if not current_proxy_enabled:
+                success = eq_config.enable_proxy()
+                if not success:
+                    wx.MessageBox("Failed to enable proxy. EverQuest directory or eqhost.txt not found.", 
+                                "Error", wx.OK | wx.ICON_ERROR)
+                    # Revert selection if failed
+                    self.proxy_mode_choice.SetSelection(2)
+                    return
+            
+            # Set PROXY_ONLY to True
+            if not config.PROXY_ONLY:
+                config.set_proxy_only(True)
+        
+        elif selection == 2:  # Disabled
+            # Disable proxy if it's currently enabled
+            if current_proxy_enabled:
+                success = eq_config.disable_proxy()
+                if not success:
+                    wx.MessageBox("Failed to disable proxy. EverQuest directory or eqhost.txt not found.", 
+                                "Error", wx.OK | wx.ICON_ERROR)
+                    # Revert selection if failed
+                    self.proxy_mode_choice.SetSelection(0 if not config.PROXY_ONLY else 1)
+                    return
+        
+        # Update UI to reflect new status
         self.update_eq_status()
     
     # Save eqhost.txt content
@@ -597,17 +655,6 @@ class ProxyUI(wx.Frame):
             
         # Update the checkbox state in the config
         config.set_always_on_top(is_checked)
-    
-    # Handle Proxy Only checkbox
-    def on_proxy_only(self, event):
-        # Get the checkbox state
-        is_checked = self.proxy_only_cb.GetValue()
-        
-        # Update the checkbox state in the config
-        config.set_proxy_only(is_checked)
-
-        # Update the proxy status to reflect the new setting
-        proxy_stats.update_status("Proxy Only Mode" if is_checked else "Running")
     
     # Handle saving the password on typing
     def on_save_debug_password(self, event):
@@ -686,9 +733,13 @@ class ProxyUI(wx.Frame):
         if status["eqhost_contents"]:
             self.eqhost_contents.AppendText("\n".join(status["eqhost_contents"]))
         
-        # Update button states
-        self.enable_btn.Enable(not status["using_proxy"])
-        self.disable_btn.Enable(status["using_proxy"])
+        # Update proxy mode dropdown based on current state
+        if not status["using_proxy"]:
+            self.proxy_mode_choice.SetSelection(2)  # Disabled
+        elif config.PROXY_ONLY:
+            self.proxy_mode_choice.SetSelection(1)  # Enabled (Proxy Only)
+        else:
+            self.proxy_mode_choice.SetSelection(0)  # Enabled (SSO)
         
         # Update tray icon based on proxy status
         if hasattr(self, 'tray_icon'):
