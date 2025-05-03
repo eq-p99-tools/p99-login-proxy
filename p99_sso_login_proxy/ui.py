@@ -219,7 +219,7 @@ class ProxyUI(wx.Frame):
     def __init__(self, parent=None, id=wx.ID_ANY, title=f"{config.APP_NAME} v{config.APP_VERSION}"):
         # Create a frame with a fixed size (non-resizable)
         style = wx.DEFAULT_FRAME_STYLE & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX)
-        super().__init__(parent, id, title, size=(550, 500), style=style)
+        super().__init__(parent, id, title, size=(550, 520), style=style)
 
         # Initialize event handlers
         self.__init_event_handlers()
@@ -386,7 +386,7 @@ class ProxyUI(wx.Frame):
         # Add some spacing between the dropdown and checkbox
         controls_sizer.AddSpacer(140)
         
-        # Always on top checkbox (moved from Settings tab)
+        # Always on top checkbox
         self.always_on_top_cb = wx.CheckBox(proxy_tab, label="Always On Top")
         self.always_on_top_cb.SetValue(config.ALWAYS_ON_TOP)  # Default to value in config
         if config.ALWAYS_ON_TOP:
@@ -400,6 +400,20 @@ class ProxyUI(wx.Frame):
         controls_sizer.Add(self.always_on_top_cb, 0, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 0)
         
         action_sizer.Add(controls_sizer, 0, wx.ALL | wx.LEFT, 0)
+        
+        # API Token field (moved from Advanced tab)
+        token_field_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        token_label = StatusLabel(proxy_tab, "API Token:")
+        self.password_field = wx.TextCtrl(proxy_tab, style=wx.TE_PASSWORD)
+        self.password_field.SetValue(config.USER_API_TOKEN)  # Set to value from config
+        self.password_field.SetToolTip("API Token for auto-authentication. When this is set, "
+                                      "the password entered in the EQ UI will be ignored.")
+        token_field_sizer.Add(token_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        token_field_sizer.Add(self.password_field, 1, wx.EXPAND, 0)
+        self.password_field.Bind(wx.EVT_TEXT, self.on_save_debug_password)
+        
+        # Add token field to the action section
+        action_sizer.Add(token_field_sizer, 0, wx.EXPAND | wx.ALL, 5)
         
         proxy_sizer.Add(action_sizer, 0, wx.ALL | wx.EXPAND, 10)
         
@@ -448,23 +462,7 @@ class ProxyUI(wx.Frame):
         
         eq_status_sizer.Add(eqhost_btn_sizer, 0, wx.ALL | wx.CENTER, 5)
         
-        # Add a separator line
-        separator = wx.StaticLine(eq_tab)
-        eq_status_sizer.Add(separator, 0, wx.EXPAND | wx.ALL, 10)
-        
-        # Password field (moved from Options section)
-        password_field_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        password_label = StatusLabel(eq_tab, "API Token:")
-        self.password_field = wx.TextCtrl(eq_tab, style=wx.TE_PASSWORD)
-        self.password_field.SetValue(config.USER_API_TOKEN)  # Set to decrypted value from config
-        self.password_field.SetToolTip("API Token for auto-authentication. When this is set, "
-                                       "the password entered in the EQ UI will be ignored.")
-        password_field_sizer.Add(password_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
-        password_field_sizer.Add(self.password_field, 1, wx.EXPAND, 0)
-        self.password_field.Bind(wx.EVT_TEXT, self.on_save_debug_password)
-        
-        # Add password field to the EQ status section
-        eq_status_sizer.Add(password_field_sizer, 0, wx.EXPAND | wx.ALL, 5)
+        # The API Token field has been moved to the Proxy Status tab
         
         # Add the EQ status sizer to the main EQ tab sizer
         eq_sizer.Add(eq_status_sizer, 1, wx.ALL | wx.EXPAND, 10)
@@ -473,8 +471,8 @@ class ProxyUI(wx.Frame):
         eq_tab.SetSizer(eq_sizer)
         
         # Add tabs to notebook
-        notebook.AddPage(proxy_tab, "Proxy Status")
-        notebook.AddPage(eq_tab, "Settings")
+        notebook.AddPage(proxy_tab, "Proxy")
+        notebook.AddPage(eq_tab, "Advanced")
         
         # Add notebook to main sizer
         main_sizer.Add(notebook, 1, wx.EXPAND | wx.ALL, 10)
