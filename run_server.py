@@ -1,11 +1,10 @@
 import asyncio
 import sys
-import wx
 import threading
 
-from p99_sso_login_proxy import server
-from p99_sso_login_proxy import ui
-from p99_sso_login_proxy import updater
+import wx
+
+from p99_sso_login_proxy import server, ui, updater, sso_api
 
 # Class to integrate wxPython with asyncio
 class WxAsyncApp(wx.App):
@@ -96,6 +95,9 @@ def main():
     
     # Check for updates on startup
     updater.check_update()
+    
+    # Fetch user accounts if API token is available
+    sso_api.fetch_user_accounts()
     
     # Set up exit handler
     def handle_exit():

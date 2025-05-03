@@ -1,6 +1,7 @@
 import configparser
 import socket
 import semver
+import datetime
 
 from p99_sso_login_proxy import utils
 
@@ -35,8 +36,13 @@ ALWAYS_ON_TOP = CONFIG.getboolean("DEFAULT", "always_on_top", fallback=False)
 # Whether to run in proxy-only mode (no SSO authentication)
 PROXY_ONLY = CONFIG.getboolean("DEFAULT", "proxy_only", fallback=False)
 
-# Get the encrypted debug password from config
+# Get the user API token from config
 USER_API_TOKEN = CONFIG.get("DEFAULT", "user_api_token", fallback="")
+
+# Variables to store account list and timestamp
+ACCOUNTS_CACHE = []
+ACCOUNTS_CACHE_REAL_COUNT = 0
+ACCOUNTS_CACHE_TIMESTAMP = datetime.datetime.min
 
 # Allow the user to provide a list of accounts to never SSO check
 SKIP_SSO_ACCOUNTS = CONFIG.get("DEFAULT", "skip_sso_accounts", fallback="")
@@ -64,10 +70,10 @@ def set_proxy_only(value: bool):
         CONFIG.write(configfile)
 
 
-def set_user_api_token(password: str):
-    """Encrypt and store the debug password"""
+def set_user_api_token(token: str):
+    """Store the user API token"""
     global USER_API_TOKEN
-    USER_API_TOKEN = password
-    CONFIG.set("DEFAULT", "user_api_token", password)
+    USER_API_TOKEN = token
+    CONFIG.set("DEFAULT", "user_api_token", token)
     with open("proxyconfig.ini", "w") as configfile:
         CONFIG.write(configfile)
