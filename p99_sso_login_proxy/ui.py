@@ -3,6 +3,7 @@ import os
 import sys
 import time
 import threading
+import datetime
 
 import wx
 import wx.adv
@@ -12,6 +13,7 @@ import win32con
 from p99_sso_login_proxy import config
 from p99_sso_login_proxy import eq_config
 from p99_sso_login_proxy import updater
+from p99_sso_login_proxy import sso_api
 
 # Define custom event IDs
 EVT_STATS_UPDATED = wx.NewEventType()
@@ -242,6 +244,7 @@ class ProxyUI(wx.Frame):
         # Update stats periodically
         self.timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.update_stats, self.timer)
+        self.Bind(wx.EVT_TIMER, self.update_account_cache_time, self.timer)
         self.timer.Start(1000)  # Update every second
         
         # Set icon
@@ -471,7 +474,38 @@ class ProxyUI(wx.Frame):
         # The API Token field has been moved to the Proxy Status tab
         
         # Add the EQ status sizer to the main EQ tab sizer
-        eq_sizer.Add(eq_status_sizer, 1, wx.ALL | wx.EXPAND, 10)
+        eq_sizer.Add(eq_status_sizer, 0, wx.ALL | wx.EXPAND, 10)
+        
+        # Account Cache section
+        account_cache_box = wx.StaticBox(eq_tab, label="Account Cache")
+        account_cache_sizer = wx.StaticBoxSizer(account_cache_box, wx.VERTICAL)
+        
+        # Cache Time field
+        cache_time_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        cache_time_label = StatusLabel(eq_tab, "Cache Time:")
+        self.cache_time_text = ValueLabel(eq_tab, self.update_account_cache_time())
+        cache_time_sizer.Add(cache_time_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        cache_time_sizer.Add(self.cache_time_text, 1, wx.ALIGN_CENTER_VERTICAL)
+        account_cache_sizer.Add(cache_time_sizer, 0, wx.ALL | wx.EXPAND, 5)
+        
+        # Accounts Cached field
+        accounts_cached_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        accounts_cached_label = StatusLabel(eq_tab, "Accounts Cached:")
+        self.accounts_cached_text = ValueLabel(eq_tab, "0")
+        accounts_cached_sizer.Add(accounts_cached_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        accounts_cached_sizer.Add(self.accounts_cached_text, 1, wx.ALIGN_CENTER_VERTICAL)
+        account_cache_sizer.Add(accounts_cached_sizer, 0, wx.ALL | wx.EXPAND, 5)
+        
+        # Refresh button
+        refresh_btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.refresh_cache_btn = wx.Button(eq_tab, label="Refresh Cache")
+        self.refresh_cache_btn.Bind(wx.EVT_BUTTON, self.on_refresh_account_cache)
+        self.refresh_cache_btn.SetToolTip("Refresh the account cache from the SSO server")
+        refresh_btn_sizer.Add(self.refresh_cache_btn, 0, wx.ALL, 5)
+        account_cache_sizer.Add(refresh_btn_sizer, 0, wx.ALL | wx.CENTER, 5)
+        
+        # Add the account cache sizer to the main EQ tab sizer
+        eq_sizer.Add(account_cache_sizer, 0, wx.ALL | wx.EXPAND, 10)
         
         # Set the EQ tab sizer
         eq_tab.SetSizer(eq_sizer)
@@ -677,6 +711,37 @@ class ProxyUI(wx.Frame):
             win32api.SendMessage(handle, win32con.EM_SETPASSWORDCHAR, 0x25cf, 0)
         # Ensure the event propagates
         event.Skip()
+        
+    # Handle refresh account cache button click
+    def on_refresh_account_cache(self, event):
+        """Refresh the account cache from the SSO server"""
+        try:
+            # Show a busy cursor
+            wx.BeginBusyCursor()
+            
+            # Refresh the account cache
+            accounts, real_count = sso_api.fetch_user_accounts()
+            
+            # Update the UI
+            self.update_account_cache_display()
+            
+            # Show success message
+            wx.MessageBox(
+                f"Successfully refreshed account cache.\n\n{real_count} accounts and {len(accounts) - real_count} aliases/tags cached.",
+                "Account Cache Refreshed",
+                wx.OK | wx.ICON_INFORMATION
+            )
+        except Exception as e:
+            # Show error message
+            wx.MessageBox(
+                f"Failed to refresh account cache: {str(e)}",
+                "Error",
+                wx.OK | wx.ICON_ERROR
+            )
+        finally:
+            # Restore the cursor
+            if wx.IsBusy():
+                wx.EndBusyCursor()
     
     # Handle exit button click
     def on_exit_button(self, event):
@@ -711,12 +776,46 @@ class ProxyUI(wx.Frame):
             if hasattr(self, 'tray_icon'):
                 self.tray_icon.SetIcon(icon, config.APP_NAME)
     
+    def update_account_cache_time(self, event=None):
+        """Update the account cache time display"""
+        if not hasattr(self, 'cache_time_text'):
+            return ""
+        if config.ACCOUNTS_CACHE_TIMESTAMP == datetime.datetime.min:
+            self.cache_time_text.SetForegroundColour(wx.Colour(255, 0, 0))  # Red
+            self.cache_time_text.SetLabel("Not cached yet")
+            return "Not cached yet"
+        else:
+            cache_time = config.ACCOUNTS_CACHE_TIMESTAMP.strftime("%Y-%m-%d %H:%M:%S")
+            time_diff = datetime.datetime.now() - config.ACCOUNTS_CACHE_TIMESTAMP
+            self.cache_time_text.SetLabel(cache_time)
+            # print(f"Updating account cache time: {cache_time} ({time_diff})")
+            if time_diff.seconds > 24 * 60 * 60:  # 6 hours
+                self.cache_time_text.SetForegroundColour(wx.Colour(255, 0, 0))  # Red
+                if config.USER_API_TOKEN:
+                    sso_api.fetch_user_accounts()
+            elif time_diff.seconds > 12 * 60 * 60:  # 12 hours
+                self.cache_time_text.SetForegroundColour(wx.Colour(255, 165, 0))  # Orange
+            else:
+                self.cache_time_text.SetForegroundColour(wx.Colour(0, 128, 0))  # Green
+            self.cache_time_text.Refresh()
+            return cache_time
+
     # Update EverQuest configuration status display
+    def update_account_cache_display(self):
+        """Update the account cache display"""
+        # Update accounts cached
+        total_accounts = len(config.ACCOUNTS_CACHE)
+        real_accounts = config.ACCOUNTS_CACHE_REAL_COUNT
+        self.accounts_cached_text.SetLabel(f"{real_accounts} accounts, {total_accounts - real_accounts} aliases/tags")
+        
     def update_eq_status(self):
         """Update the EverQuest configuration status display"""
 
         # Get current status
         status = eq_config.get_eq_status()
+        
+        # Update account cache display
+        self.update_account_cache_display()
         
         # Update EQ directory status
         if status["eq_directory_found"]:
