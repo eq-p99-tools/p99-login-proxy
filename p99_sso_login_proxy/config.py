@@ -13,7 +13,7 @@ APP_VERSION = semver.Version(
     major=1,
     minor=0,
     patch=0,
-    prerelease="rc8"
+    prerelease="rc9"
 )
 
 LISTEN_HOST = CONFIG.get("DEFAULT", "listen_host", fallback="0.0.0.0")

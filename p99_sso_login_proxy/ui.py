@@ -242,11 +242,12 @@ class ProxyUI(wx.Frame):
         self.tray_icon = TaskBarIcon(self)
         
         # Update stats periodically
-        self.timer = wx.Timer(self)
-        self.Bind(wx.EVT_TIMER, self.update_stats, self.timer)
-        self.Bind(wx.EVT_TIMER, self.update_account_cache_time, self.timer)
-        self.timer.Start(1000)  # Update every second
-        
+        self.uptime_timer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self.update_stats, self.uptime_timer)
+        self.uptime_timer.Start(1000)  # Update every second
+        self.cache_timer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self.update_account_cache_time, self.cache_timer)
+        self.cache_timer.Start(10 * 60 * 1000)  # Update every 10 minutes
         # Set icon
         self.set_icon()
         
@@ -480,29 +481,43 @@ class ProxyUI(wx.Frame):
         account_cache_box = wx.StaticBox(eq_tab, label="Account Cache")
         account_cache_sizer = wx.StaticBoxSizer(account_cache_box, wx.VERTICAL)
         
+        # Create a horizontal sizer for the cache controls section
+        cache_controls_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        
+        # Create a vertical sizer for the cache info (time and accounts)
+        cache_info_sizer = wx.BoxSizer(wx.VERTICAL)
+        
         # Cache Time field
         cache_time_sizer = wx.BoxSizer(wx.HORIZONTAL)
         cache_time_label = StatusLabel(eq_tab, "Cache Time:")
         self.cache_time_text = ValueLabel(eq_tab, self.update_account_cache_time())
+        self.cache_time_text.SetToolTip("Time when account data was last fetched from the SSO server")
         cache_time_sizer.Add(cache_time_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         cache_time_sizer.Add(self.cache_time_text, 1, wx.ALIGN_CENTER_VERTICAL)
-        account_cache_sizer.Add(cache_time_sizer, 0, wx.ALL | wx.EXPAND, 5)
+        cache_info_sizer.Add(cache_time_sizer, 0, wx.ALL | wx.EXPAND, 5)
         
         # Accounts Cached field
         accounts_cached_sizer = wx.BoxSizer(wx.HORIZONTAL)
         accounts_cached_label = StatusLabel(eq_tab, "Accounts Cached:")
         self.accounts_cached_text = ValueLabel(eq_tab, "0")
+        self.accounts_cached_text.SetToolTip("Number of accounts and aliases/tags stored in the cache")
         accounts_cached_sizer.Add(accounts_cached_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         accounts_cached_sizer.Add(self.accounts_cached_text, 1, wx.ALIGN_CENTER_VERTICAL)
-        account_cache_sizer.Add(accounts_cached_sizer, 0, wx.ALL | wx.EXPAND, 5)
+        cache_info_sizer.Add(accounts_cached_sizer, 0, wx.ALL | wx.EXPAND, 5)
+        
+        # Add the cache info sizer to the controls sizer
+        cache_controls_sizer.Add(cache_info_sizer, 1, wx.EXPAND, 0)
         
         # Refresh button
-        refresh_btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
         self.refresh_cache_btn = wx.Button(eq_tab, label="Refresh Cache")
         self.refresh_cache_btn.Bind(wx.EVT_BUTTON, self.on_refresh_account_cache)
         self.refresh_cache_btn.SetToolTip("Refresh the account cache from the SSO server")
-        refresh_btn_sizer.Add(self.refresh_cache_btn, 0, wx.ALL, 5)
-        account_cache_sizer.Add(refresh_btn_sizer, 0, wx.ALL | wx.CENTER, 5)
+        
+        # Add the button directly to the controls sizer
+        cache_controls_sizer.Add(self.refresh_cache_btn, 0, wx.ALL | wx.ALIGN_CENTER, 5)
+        
+        # Add the controls sizer to the account cache sizer
+        account_cache_sizer.Add(cache_controls_sizer, 0, wx.ALL | wx.EXPAND, 5)
         
         # Add the account cache sizer to the main EQ tab sizer
         eq_sizer.Add(account_cache_sizer, 0, wx.ALL | wx.EXPAND, 10)
@@ -720,24 +735,12 @@ class ProxyUI(wx.Frame):
             wx.BeginBusyCursor()
             
             # Refresh the account cache
-            accounts, real_count = sso_api.fetch_user_accounts()
+            sso_api.fetch_user_accounts()
             
             # Update the UI
             self.update_account_cache_display()
-            
-            # Show success message
-            wx.MessageBox(
-                f"Successfully refreshed account cache.\n\n{real_count} accounts and {len(accounts) - real_count} aliases/tags cached.",
-                "Account Cache Refreshed",
-                wx.OK | wx.ICON_INFORMATION
-            )
         except Exception as e:
-            # Show error message
-            wx.MessageBox(
-                f"Failed to refresh account cache: {str(e)}",
-                "Error",
-                wx.OK | wx.ICON_ERROR
-            )
+            logging.error(f"Failed to refresh account cache: {str(e)}")
         finally:
             # Restore the cursor
             if wx.IsBusy():
@@ -806,8 +809,15 @@ class ProxyUI(wx.Frame):
         # Update accounts cached
         total_accounts = len(config.ACCOUNTS_CACHE)
         real_accounts = config.ACCOUNTS_CACHE_REAL_COUNT
-        self.accounts_cached_text.SetLabel(f"{real_accounts} accounts, {total_accounts - real_accounts} aliases/tags")
         
+        # Update the text with account counts
+        if total_accounts == 0:
+            self.accounts_cached_text.SetLabel("None")
+            self.accounts_cached_text.SetForegroundColour(wx.Colour(128, 128, 128))  # Gray
+        else:
+            self.accounts_cached_text.SetLabel(f"{real_accounts} accounts, {total_accounts - real_accounts} aliases/tags")
+            self.accounts_cached_text.SetForegroundColour(wx.Colour(0, 128, 0))  # Green
+
     def update_eq_status(self):
         """Update the EverQuest configuration status display"""
 
