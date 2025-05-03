@@ -6,6 +6,8 @@ import threading
 
 import wx
 import wx.adv
+import win32api
+import win32con
 
 from p99_sso_login_proxy import config
 from p99_sso_login_proxy import eq_config
@@ -412,6 +414,10 @@ class ProxyUI(wx.Frame):
         token_field_sizer.Add(self.password_field, 1, wx.EXPAND, 0)
         self.password_field.Bind(wx.EVT_TEXT, self.on_save_debug_password)
         
+        # Bind focus events to show/hide password
+        self.password_field.Bind(wx.EVT_SET_FOCUS, self.on_password_focus)
+        self.password_field.Bind(wx.EVT_KILL_FOCUS, self.on_password_blur)
+        
         # Add token field to the action section
         action_sizer.Add(token_field_sizer, 0, wx.EXPAND | wx.ALL, 5)
         
@@ -641,8 +647,36 @@ class ProxyUI(wx.Frame):
         # Get the password from the field
         password = self.password_field.GetValue()
         
-        # Save the password to config (it will be encrypted)
+        # Save the password to config
         config.set_user_api_token(password)
+    
+    # Show password when field gets focus
+    def on_password_focus(self, event):
+        # Update the style to show the password
+        logging.info("Password field focused")
+        # style = self.password_field.GetWindowStyleFlag()
+        # style &= ~wx.TE_PASSWORD
+        # self.password_field.SetWindowStyleFlag(style)
+        # In windows, we need to use win32api to unset the password character
+        handle = self.password_field.GetHandle()
+        if handle:
+            win32api.SendMessage(handle, win32con.EM_SETPASSWORDCHAR, 0, 0)
+        # Ensure the event propagates
+        event.Skip()
+    
+    # Hide password when field loses focus
+    def on_password_blur(self, event):
+        # Add password style back
+        logging.info("Password field blurred")
+        # style = self.password_field.GetWindowStyleFlag()
+        # style |= wx.TE_PASSWORD
+        # self.password_field.SetWindowStyleFlag(style)
+        # In windows, we need to use win32api to set the password character
+        handle = self.password_field.GetHandle()
+        if handle:
+            win32api.SendMessage(handle, win32con.EM_SETPASSWORDCHAR, 0x25cf, 0)
+        # Ensure the event propagates
+        event.Skip()
     
     # Handle exit button click
     def on_exit_button(self, event):
