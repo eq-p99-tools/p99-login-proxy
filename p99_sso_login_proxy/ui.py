@@ -834,7 +834,15 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
     
     def on_check_updates(self, event):
         """Check for updates"""
-        updater.check_update()
+        try:
+            updater.check_update()
+        except Exception as e:
+            print(f"[UI] Failed to check for updates: {e}")
+            wx.MessageBox(
+                f"Failed to check for updates: {e}",
+                "Error",
+                wx.OK | wx.ICON_ERROR
+            )
     
     # These methods are used by the tray icon menu
     def on_exit(self, event):

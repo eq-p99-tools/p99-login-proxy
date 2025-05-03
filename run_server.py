@@ -94,10 +94,16 @@ def main():
     main_window.start_eq_func = start_eq
     
     # Check for updates on startup
-    updater.check_update()
+    try:
+        updater.check_update()
+    except Exception as e:
+        print(f"[RUN SERVER] Failed to check for updates: {e}")
     
     # Fetch user accounts if API token is available
-    sso_api.fetch_user_accounts()
+    try:
+        sso_api.fetch_user_accounts()
+    except Exception as e:
+        print(f"[RUN SERVER] Failed to fetch user accounts: {e}")
     
     # Set up exit handler
     def handle_exit():
