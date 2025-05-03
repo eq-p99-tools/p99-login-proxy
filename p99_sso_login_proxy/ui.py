@@ -456,7 +456,7 @@ class ProxyUI(wx.Frame):
         password_field_sizer = wx.BoxSizer(wx.HORIZONTAL)
         password_label = StatusLabel(eq_tab, "API Token:")
         self.password_field = wx.TextCtrl(eq_tab, style=wx.TE_PASSWORD)
-        self.password_field.SetValue(config.DEBUG_PASSWORD)  # Set to decrypted value from config
+        self.password_field.SetValue(config.USER_API_TOKEN)  # Set to decrypted value from config
         self.password_field.SetToolTip("API Token for auto-authentication. When this is set, "
                                        "the password entered in the EQ UI will be ignored.")
         password_field_sizer.Add(password_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
@@ -644,7 +644,7 @@ class ProxyUI(wx.Frame):
         password = self.password_field.GetValue()
         
         # Save the password to config (it will be encrypted)
-        config.set_debug_password(password)
+        config.set_user_api_token(password)
     
     # Handle exit button click
     def on_exit_button(self, event):

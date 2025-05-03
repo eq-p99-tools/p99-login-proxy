@@ -102,9 +102,9 @@ class LoginProxy(asyncio.DatagramProtocol):
                 return buf
 
             try:
-                if config.DEBUG_PASSWORD:
+                if config.USER_API_TOKEN:
                     print(f"[CHECK REWRITE] Overwriting client supplied password with configured password.")
-                    password = config.DEBUG_PASSWORD
+                    password = config.USER_API_TOKEN
 
                 new_user, new_pass = sso_api.check_sso_login(username, password)
                 if new_user and new_pass:

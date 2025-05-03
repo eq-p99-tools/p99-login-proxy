@@ -2,10 +2,7 @@ import configparser
 import socket
 import semver
 
-
-
 from p99_sso_login_proxy import utils
-
 
 CONFIG = configparser.ConfigParser()
 CONFIG.read("proxyconfig.ini")
@@ -17,16 +14,6 @@ APP_VERSION = semver.Version(
     patch=0,
     prerelease="rc7"
 )
-
-# Ensure the app data directory exists
-app_data_dir = utils.get_app_data_dir()
-app_data_dir.mkdir(parents=True, exist_ok=True)
-
-# Path to the encryption keys file
-keys_file = app_data_dir / 'encryption_keys.json'
-
-# Get the encryption keys
-PASSWORD_ENCRYPTION_KEY, PASSWORD_ENCRYPTION_IV = utils.get_encryption_keys(keys_file)
 
 LISTEN_HOST = CONFIG.get("DEFAULT", "listen_host", fallback="0.0.0.0")
 LISTEN_PORT = CONFIG.getint("DEFAULT", "listen_port", fallback=5998)
@@ -49,16 +36,16 @@ ALWAYS_ON_TOP = CONFIG.getboolean("DEFAULT", "always_on_top", fallback=False)
 PROXY_ONLY = CONFIG.getboolean("DEFAULT", "proxy_only", fallback=False)
 
 # Get the encrypted debug password from config
-ENCRYPTED_DEBUG_PASSWORD = CONFIG.get("DEFAULT", "debug_password", fallback="")
-
-# Decrypt the password for use
-DEBUG_PASSWORD = utils.decrypt_password(ENCRYPTED_DEBUG_PASSWORD, PASSWORD_ENCRYPTION_KEY, PASSWORD_ENCRYPTION_IV)
+USER_API_TOKEN = CONFIG.get("DEFAULT", "user_api_token", fallback="")
 
 # Allow the user to provide a list of accounts to never SSO check
 SKIP_SSO_ACCOUNTS = CONFIG.get("DEFAULT", "skip_sso_accounts", fallback="")
 SKIP_SSO_ACCOUNTS = [account.strip() for account in SKIP_SSO_ACCOUNTS.split(",")]
 
-iv = lambda: utils.iv(ENCRYPTION_IV)
+
+def iv(encryption_iv):
+    return encryption_iv[:]
+
 
 def set_always_on_top(value: bool):
     CONFIG.set("DEFAULT", "always_on_top", str(value))
@@ -66,6 +53,7 @@ def set_always_on_top(value: bool):
     ALWAYS_ON_TOP = value
     with open("proxyconfig.ini", "w") as configfile:
         CONFIG.write(configfile)
+
 
 def set_proxy_only(value: bool):
     """Set whether to run in proxy-only mode"""
@@ -76,13 +64,10 @@ def set_proxy_only(value: bool):
         CONFIG.write(configfile)
 
 
-def set_debug_password(password: str):
+def set_user_api_token(password: str):
     """Encrypt and store the debug password"""
-    encrypted = utils.encrypt_password(password, PASSWORD_ENCRYPTION_KEY, PASSWORD_ENCRYPTION_IV)
-    CONFIG.set("DEFAULT", "debug_password", encrypted)
-    global ENCRYPTED_DEBUG_PASSWORD, DEBUG_PASSWORD
-    ENCRYPTED_DEBUG_PASSWORD = encrypted
-    DEBUG_PASSWORD = password
+    global USER_API_TOKEN
+    USER_API_TOKEN = password
+    CONFIG.set("DEFAULT", "user_api_token", password)
     with open("proxyconfig.ini", "w") as configfile:
-        CONFIG.write(configfile)
         CONFIG.write(configfile)
