@@ -490,11 +490,12 @@ class ProxyUI(wx.Frame):
         # Cache Time field
         cache_time_sizer = wx.BoxSizer(wx.HORIZONTAL)
         cache_time_label = StatusLabel(eq_tab, "Cache Time:")
-        self.cache_time_text = ValueLabel(eq_tab, self.update_account_cache_time())
+        self.cache_time_text = ValueLabel(eq_tab, "Unset")
         self.cache_time_text.SetToolTip("Time when account data was last fetched from the SSO server")
         cache_time_sizer.Add(cache_time_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         cache_time_sizer.Add(self.cache_time_text, 1, wx.ALIGN_CENTER_VERTICAL)
         cache_info_sizer.Add(cache_time_sizer, 0, wx.ALL | wx.EXPAND, 5)
+        self.update_account_cache_time()
         
         # Accounts Cached field
         accounts_cached_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -740,7 +741,7 @@ class ProxyUI(wx.Frame):
             # Update the UI
             self.update_account_cache_display()
         except Exception as e:
-            logging.error(f"Failed to refresh account cache: {str(e)}")
+            logging.error(f"[UI] Failed to refresh account cache: {str(e)}")
         finally:
             # Restore the cursor
             if wx.IsBusy():
@@ -779,29 +780,30 @@ class ProxyUI(wx.Frame):
             if hasattr(self, 'tray_icon'):
                 self.tray_icon.SetIcon(icon, config.APP_NAME)
     
-    def update_account_cache_time(self, event=None):
+    def update_account_cache_time(self, event=None) -> None:
         """Update the account cache time display"""
-        if not hasattr(self, 'cache_time_text'):
-            return ""
+        cache_text_color = wx.Colour(0, 128, 0)  # Green
         if config.ACCOUNTS_CACHE_TIMESTAMP == datetime.datetime.min:
-            self.cache_time_text.SetForegroundColour(wx.Colour(255, 0, 0))  # Red
-            self.cache_time_text.SetLabel("Not cached yet")
-            return "Not cached yet"
+            cache_time = "Not cached yet"
+            cache_text_color = wx.RED
         else:
             cache_time = config.ACCOUNTS_CACHE_TIMESTAMP.strftime("%Y-%m-%d %H:%M:%S")
             time_diff = datetime.datetime.now() - config.ACCOUNTS_CACHE_TIMESTAMP
-            self.cache_time_text.SetLabel(cache_time)
-            # print(f"Updating account cache time: {cache_time} ({time_diff})")
-            if time_diff.seconds > 24 * 60 * 60:  # 6 hours
-                self.cache_time_text.SetForegroundColour(wx.Colour(255, 0, 0))  # Red
-                if config.USER_API_TOKEN:
-                    sso_api.fetch_user_accounts()
+
+            if time_diff.seconds > 24 * 60 * 60:  # 24 hours
+                print(f"Account cache is stale, updating: {time_diff}")
+                cache_text_color = wx.RED
+                sso_api.fetch_user_accounts()
+                self.update_account_cache_time()
             elif time_diff.seconds > 12 * 60 * 60:  # 12 hours
-                self.cache_time_text.SetForegroundColour(wx.Colour(255, 165, 0))  # Orange
-            else:
-                self.cache_time_text.SetForegroundColour(wx.Colour(0, 128, 0))  # Green
+                # print(f"Account cache is getting stale: {time_diff}")
+                cache_text_color = wx.Colour(255, 130, 0)  # Orange
+            # print(f"Updating account cache time: {cache_time} ({time_diff})")
+
+        if hasattr(self, 'cache_time_text'):
+            self.cache_time_text.SetForegroundColour(cache_text_color)
+            self.cache_time_text.SetLabel(cache_time)
             self.cache_time_text.Refresh()
-            return cache_time
 
     # Update EverQuest configuration status display
     def update_account_cache_display(self):

@@ -89,6 +89,12 @@ def main():
             cwd=eq_dir, start_new_session=True, shell=True, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
         )
     
+    # Fetch user accounts if API token is available
+    try:
+        sso_api.fetch_user_accounts()
+    except Exception as e:
+        print(f"[RUN SERVER] Failed to fetch user accounts: {e}")
+
     # Initialize the UI
     main_window = ui.start_ui()
     main_window.start_eq_func = start_eq
@@ -98,12 +104,6 @@ def main():
         updater.check_update()
     except Exception as e:
         print(f"[RUN SERVER] Failed to check for updates: {e}")
-    
-    # Fetch user accounts if API token is available
-    try:
-        sso_api.fetch_user_accounts()
-    except Exception as e:
-        print(f"[RUN SERVER] Failed to fetch user accounts: {e}")
     
     # Set up exit handler
     def handle_exit():
