@@ -703,7 +703,7 @@ class ProxyUI(wx.Frame):
     # Show password when field gets focus
     def on_password_focus(self, event):
         # Update the style to show the password
-        logging.info("Password field focused")
+        print("Password field focused")
         # style = self.password_field.GetWindowStyleFlag()
         # style &= ~wx.TE_PASSWORD
         # self.password_field.SetWindowStyleFlag(style)
@@ -717,7 +717,7 @@ class ProxyUI(wx.Frame):
     # Hide password when field loses focus
     def on_password_blur(self, event):
         # Add password style back
-        logging.info("Password field blurred")
+        print("Password field blurred")
         # style = self.password_field.GetWindowStyleFlag()
         # style |= wx.TE_PASSWORD
         # self.password_field.SetWindowStyleFlag(style)
@@ -741,7 +741,7 @@ class ProxyUI(wx.Frame):
             # Update the UI
             self.update_account_cache_display()
         except Exception as e:
-            logging.error(f"[UI] Failed to refresh account cache: {str(e)}")
+            print(f"[UI] Failed to refresh account cache: {str(e)}")
         finally:
             # Restore the cursor
             if wx.IsBusy():
