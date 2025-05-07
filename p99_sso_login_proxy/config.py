@@ -13,7 +13,7 @@ APP_VERSION = semver.Version(
     major=1,
     minor=0,
     patch=0,
-    prerelease="rca10"
+    prerelease="rca11"
 )
 
 LISTEN_HOST = CONFIG.get("DEFAULT", "listen_host", fallback="0.0.0.0")
@@ -49,8 +49,8 @@ SKIP_SSO_ACCOUNTS = CONFIG.get("DEFAULT", "skip_sso_accounts", fallback="")
 SKIP_SSO_ACCOUNTS = [account.strip() for account in SKIP_SSO_ACCOUNTS.split(",")]
 
 
-def iv(encryption_iv):
-    return encryption_iv[:]
+def iv():
+    return ENCRYPTION_IV[:]
 
 
 def set_always_on_top(value: bool):
