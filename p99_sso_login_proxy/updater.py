@@ -1,6 +1,7 @@
-import io
 import functools
+import io
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -9,20 +10,32 @@ import zipfile
 import requests
 import semver
 import wx
-import logging
+
 from p99_sso_login_proxy.config import APP_VERSION
 
 # Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(f"updater.log"),
-        logging.StreamHandler()
-    ]
-)
-
-LOG = logging.getLogger("updater")
+try:
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(f"updater.log"),
+            logging.StreamHandler()
+        ]
+    )
+    LOG = logging.getLogger("updater")
+except Exception as e:
+    class PrintLogger:
+        def info(self, msg, *args):
+            print(msg % args)
+        def error(self, msg, *args):
+            print(msg % args)
+        def warning(self, msg, *args):
+            print(msg % args)
+        def debug(self, msg, *args):
+            print(msg % args)
+    LOG = PrintLogger()
+    LOG.warning("Failed to set up logging: %s", e)
 
 GITHUB_API_LATEST_RELEASE_URL = (
     "https://api.github.com/repos/rm-you/middlemand-python/releases/latest")
