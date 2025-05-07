@@ -91,7 +91,7 @@ class LoginProxy(asyncio.DatagramProtocol):
             user, password = decrypted_text.rstrip(b'\x00').split(b'\x00')
 
             # Notify UI about user login
-            username = user.decode()
+            username = user.decode().lower()
             password = password.decode()
             ui.proxy_stats.user_login(username)
             if config.PROXY_ONLY:

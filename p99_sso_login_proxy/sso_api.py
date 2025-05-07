@@ -24,6 +24,7 @@ def fetch_user_accounts() -> list[str]:
 
         if response.status_code == 200:
             accounts = response.json().get("accounts", [])
+            accounts = [account.lower() for account in accounts]
             real_account_count = response.json().get("count", 0)
             print(f"[SSO] Successfully fetched {real_account_count} accounts (and {len(accounts) - real_account_count} aliases/tags)")
         else:

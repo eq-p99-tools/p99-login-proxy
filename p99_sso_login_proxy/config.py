@@ -13,7 +13,7 @@ APP_VERSION = semver.Version(
     major=1,
     minor=0,
     patch=0,
-    prerelease="rca12"
+    prerelease="rca13"
 )
 
 LISTEN_HOST = CONFIG.get("DEFAULT", "listen_host", fallback="0.0.0.0")
@@ -46,7 +46,7 @@ ACCOUNTS_CACHE_TIMESTAMP = datetime.datetime.min
 
 # Allow the user to provide a list of accounts to never SSO check
 SKIP_SSO_ACCOUNTS = CONFIG.get("DEFAULT", "skip_sso_accounts", fallback="")
-SKIP_SSO_ACCOUNTS = [account.strip() for account in SKIP_SSO_ACCOUNTS.split(",")]
+SKIP_SSO_ACCOUNTS = [account.strip().lower() for account in SKIP_SSO_ACCOUNTS.split(",")]
 
 
 def iv():
