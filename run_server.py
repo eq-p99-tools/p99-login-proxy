@@ -96,7 +96,7 @@ def main():
         # or make it configurable because it likely is different on different distros
         import subprocess
         subprocess.Popen(
-            ["./eqgame", "patchme"],
+            ["wine", "eqgame", "patchme"],
             cwd=eq_dir, start_new_session=True, shell=True, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
         )
     
