@@ -36,6 +36,9 @@ ALWAYS_ON_TOP = CONFIG.getboolean("DEFAULT", "always_on_top", fallback=False)
 # Whether to run in proxy-only mode (no SSO authentication)
 PROXY_ONLY = CONFIG.getboolean("DEFAULT", "proxy_only", fallback=False)
 
+# Whether to run in proxy mode
+PROXY_ENABLED = CONFIG.getboolean("DEFAULT", "proxy_enabled", fallback=False)
+
 # Get the user API token from config
 USER_API_TOKEN = CONFIG.get("DEFAULT", "user_api_token", fallback="")
 
@@ -75,5 +78,14 @@ def set_user_api_token(token: str):
     global USER_API_TOKEN
     USER_API_TOKEN = token
     CONFIG.set("DEFAULT", "user_api_token", token)
+    with open("proxyconfig.ini", "w") as configfile:
+        CONFIG.write(configfile)
+
+
+def set_proxy_enabled(value: bool):
+    """Set whether to run in proxy mode"""
+    CONFIG.set("DEFAULT", "proxy_enabled", str(value))
+    global PROXY_ENABLED
+    PROXY_ENABLED = value
     with open("proxyconfig.ini", "w") as configfile:
         CONFIG.write(configfile)

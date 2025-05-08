@@ -8,8 +8,7 @@ the eqhost.txt file which controls which login server the game connects to.
 import os
 import logging
 import string
-import subprocess
-from typing import Optional, Tuple, List, Set
+from typing import Optional, Tuple, List
 
 # Set up logging
 logger = logging.getLogger("eq_config")

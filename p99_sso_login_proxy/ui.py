@@ -205,6 +205,10 @@ class ProxyUI(wx.Frame):
             if hasattr(self, 'tray_icon'):
                 self.tray_icon.RemoveIcon()
                 self.tray_icon.Destroy()
+
+            # Disable the proxy if it's enabled
+            if eq_config.is_using_proxy():
+                eq_config.disable_proxy()
             
             # Set the exit event to notify the main application to exit
             self.exit_event.set()
@@ -251,6 +255,10 @@ class ProxyUI(wx.Frame):
         # Set icon
         self.set_icon()
         
+        # Enable the proxy if it's enabled in the config
+        if config.PROXY_ENABLED and eq_config.find_eq_directory():
+            eq_config.enable_proxy()
+
         # Update EQ status
         wx.CallAfter(self.update_eq_status)
 
@@ -612,9 +620,10 @@ class ProxyUI(wx.Frame):
                     self.proxy_mode_choice.SetSelection(2)
                     return
 
-            # Set PROXY_ONLY to False
             if config.PROXY_ONLY:
                 config.set_proxy_only(False)
+            if not config.PROXY_ENABLED:
+                config.set_proxy_enabled(True)
 
         elif selection == 1:  # Enabled (Proxy Only)
             # Enable proxy if it's not already enabled
@@ -627,9 +636,10 @@ class ProxyUI(wx.Frame):
                     self.proxy_mode_choice.SetSelection(2)
                     return
             
-            # Set PROXY_ONLY to True
             if not config.PROXY_ONLY:
                 config.set_proxy_only(True)
+            if not config.PROXY_ENABLED:
+                config.set_proxy_enabled(True)
         
         elif selection == 2:  # Disabled
             # Disable proxy if it's currently enabled
@@ -641,6 +651,11 @@ class ProxyUI(wx.Frame):
                     # Revert selection if failed
                     self.proxy_mode_choice.SetSelection(0 if not config.PROXY_ONLY else 1)
                     return
+            
+            if config.PROXY_ONLY:
+                config.set_proxy_only(False)
+            if config.PROXY_ENABLED:
+                config.set_proxy_enabled(False)
         
         # Update UI to reflect new status
         self.update_eq_status()
