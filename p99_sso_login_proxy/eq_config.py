@@ -22,27 +22,12 @@ _cache = {
 
 # Default EverQuest installation paths to check
 DEFAULT_EQ_PATHS = [
-    r"C:\Program Files (x86)\Project1999",
-    r"C:\Program Files\Project1999",
-    r"D:\Program Files (x86)\Project1999",
-    r"D:\Program Files\Project1999",
-    r"C:\Project1999",
-    r"D:\Project1999",
-    r"C:\Games\Project1999",
-    r"D:\Games\Project1999",
-    r"C:\Program Files (x86)\EverQuest",
-    r"C:\Program Files\EverQuest",
-    r"D:\Program Files (x86)\EverQuest",
-    r"D:\Program Files\EverQuest",
-    r"C:\EverQuest",
-    r"D:\EverQuest",
-    r"C:\Games\EverQuest",
-    r"D:\Games\EverQuest",
-    r"C:\Program Files (x86)\Sony\EverQuest",
-    r"C:\Program Files\Sony\EverQuest",
-    r"D:\Program Files (x86)\Sony\EverQuest",
-    r"D:\Program Files\Sony\EverQuest",
-    os.getcwd(),
+    r"Program Files (x86)\EverQuest",
+    r"Program Files\EverQuest",
+    r"EverQuest",
+    r"Games\EverQuest",
+    r"Program Files (x86)\Sony\EverQuest",
+    r"Program Files\Sony\EverQuest",
 ]
 
 # Default login server address and proxy address
@@ -61,7 +46,7 @@ def get_available_drives() -> List[str]:
     for drive in string.ascii_uppercase:
         drive_path = f"{drive}:\\"
         if os.path.exists(drive_path):
-            available_drives.append(f"{drive}:")
+            available_drives.append(drive_path)
     return available_drives
 
 
@@ -86,114 +71,6 @@ def is_valid_eq_directory(path: str) -> bool:
     return False
 
 
-def find_eq_in_program_files() -> Set[str]:
-    """
-    Search for EverQuest in Program Files directories.
-    
-    Returns:
-        Set[str]: Set of potential EverQuest installation paths
-    """
-    potential_paths = set()
-    drives = get_available_drives()
-    
-    # Common directory patterns to search in
-    program_dirs = [
-        "Program Files",
-        "Program Files (x86)",
-        "Games",
-        "",  # Root of drive
-    ]
-    
-    # Common subdirectory names
-    eq_dirs = [
-        "EverQuest",
-        "Project1999",
-        "Sony\\EverQuest",
-        "Sony Online Entertainment\\EverQuest",
-    ]
-    
-    for drive in drives:
-        for prog_dir in program_dirs:
-            base_path = os.path.join(drive, prog_dir)
-            if not os.path.exists(base_path):
-                continue
-                
-            # Check specific EQ directory names
-            for eq_dir in eq_dirs:
-                full_path = os.path.join(base_path, eq_dir)
-                if os.path.exists(full_path) and is_valid_eq_directory(full_path):
-                    logger.info(f"Found EverQuest directory in Program Files via Common Name: {full_path}")
-                    potential_paths.add(full_path)
-            
-            # Also check for any directory containing "everquest" or "eq" in the name
-            try:
-                for item in os.listdir(base_path):
-                    item_path = os.path.join(base_path, item)
-                    if os.path.isdir(item_path) and (
-                        "everquest" in item.lower() or 
-                        "eq" in item.lower() or 
-                        "project" in item.lower()
-                    ):
-                        if is_valid_eq_directory(item_path):
-                            logger.info(f"Found EverQuest directory in Program Files via Name: {item_path}")
-                            potential_paths.add(item_path)
-            except (PermissionError, FileNotFoundError):
-                pass
-    
-    return potential_paths
-
-
-def find_eq_from_shortcuts() -> Set[str]:
-    """
-    Find EverQuest installation by checking shortcuts in the Start Menu.
-    
-    Returns:
-        Set[str]: Set of potential EverQuest installation paths
-    """
-    potential_paths = set()
-    
-    # Common Start Menu locations
-    start_menu_paths = [
-        os.path.join(os.environ["PROGRAMDATA"], "Microsoft", "Windows", "Start Menu", "Programs"),
-        os.path.join(os.environ["APPDATA"], "Microsoft", "Windows", "Start Menu", "Programs")
-    ]
-    
-    # Find all .lnk files in Start Menu
-    for start_menu in start_menu_paths:
-        if not os.path.exists(start_menu):
-            continue
-            
-        for root, dirs, files in os.walk(start_menu):
-            for file in files:
-                if file.lower().endswith(".lnk") and (
-                    "everquest" in file.lower() or 
-                    "eq" in file.lower() or 
-                    "project" in file.lower()
-                ):
-                    shortcut_path = os.path.join(root, file)
-                    try:
-                        # Use PowerShell to resolve the shortcut target
-                        cmd = f'powershell -command "(New-Object -ComObject WScript.Shell).CreateShortcut(\"{shortcut_path}\").TargetPath"'
-                        result = subprocess.run(cmd, capture_output=True, text=True, shell=True)
-                        target_path = result.stdout.strip()
-                        
-                        if target_path and os.path.exists(target_path):
-                            # Get the directory containing the target executable
-                            if os.path.isfile(target_path):
-                                target_dir = os.path.dirname(target_path)
-                            else:
-                                target_dir = target_path
-                                
-                            if is_valid_eq_directory(target_dir):
-                                potential_paths.add(target_dir)
-                            elif os.path.basename(target_path).lower() == "eqgame.exe":
-                                potential_paths.add(os.path.dirname(target_path))
-                    except Exception as e:
-                        logger.warning(f"Error resolving shortcut {shortcut_path}: {e}")
-    
-    return potential_paths
-
-
 def find_eq_directory() -> Optional[str]:
     """
     Find the EverQuest installation directory using multiple methods.
@@ -206,27 +83,21 @@ def find_eq_directory() -> Optional[str]:
         logger.debug(f"Using cached EverQuest directory: {_cache['eq_directory']}")
         return _cache["eq_directory"]
     
-    potential_paths = set()
-    
-    # Method 1: Check common installation paths
+    # First check the current directory:
+    current_dir = os.getcwd()
+    if is_valid_eq_directory(current_dir):
+        logger.info(f"Found EverQuest in the current directory: {current_dir}")
+        _cache["eq_directory"] = current_dir
+        return current_dir
+
+    # Check common installation paths
     for path in DEFAULT_EQ_PATHS:
-        if os.path.exists(path) and is_valid_eq_directory(path):
-            logger.info(f"Found EverQuest directory in a default path: {path}")
-            return path
-    
-    # Method 2: Search Program Files directories
-    potential_paths.update(find_eq_in_program_files())
-    
-    # Method 3: Search Start Menu shortcuts
-    potential_paths.update(find_eq_from_shortcuts())
-    
-    # If we found any potential paths, return the first one
-    if potential_paths:
-        eq_dir = next(iter(potential_paths))
-        logger.info(f"Found EverQuest directory: {eq_dir}")
-        # Update cache
-        _cache["eq_directory"] = eq_dir
-        return eq_dir
+        for drive in get_available_drives():
+            check_dir = os.path.join(drive, path)
+            if os.path.exists(check_dir) and is_valid_eq_directory(check_dir):
+                logger.info(f"Found EverQuest directory in a default path: {check_dir}")
+                _cache["eq_directory"] = check_dir
+                return check_dir
     
     # Not found
     logger.warning("EverQuest directory not found")
