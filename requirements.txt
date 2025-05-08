@@ -3,5 +3,5 @@ wxPython>=4.2.0
 # pystray>=0.19.4
 # pillow>=9.5.0
 requests>=2.31.0
-pywin32>=306
+pywin32>=306; sys_platform == 'win32'
 semver>=3.0.1

@@ -4,11 +4,10 @@ import sys
 import time
 import threading
 import datetime
+import platform
 
 import wx
 import wx.adv
-import win32api
-import win32con
 
 from p99_sso_login_proxy import config
 from p99_sso_login_proxy import eq_config
@@ -226,8 +225,13 @@ class ProxyUI(wx.Frame):
     
     def __init__(self, parent=None, id=wx.ID_ANY, title=f"{config.APP_NAME} v{config.APP_VERSION}"):
         # Create a frame with a fixed size (non-resizable)
-        style = wx.DEFAULT_FRAME_STYLE & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX)
-        super().__init__(parent, id, title, size=(550, 520), style=style)
+        if platform.system() == "Windows":
+            style = wx.DEFAULT_FRAME_STYLE & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX)
+            size = (550, 520)
+        else:
+            style = wx.DEFAULT_FRAME_STYLE
+            size = (700, 640)
+        super().__init__(parent, id, title, size=size, style=style)
 
         # Initialize event handlers
         self.__init_event_handlers()
@@ -398,7 +402,11 @@ class ProxyUI(wx.Frame):
         controls_sizer.Add(mode_sizer, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 5)
         
         # Add some spacing between the dropdown and checkbox
-        controls_sizer.AddSpacer(140)
+        if platform.system() == "Windows":
+            aot_spacer_size = 140
+        else:
+            aot_spacer_size = 60
+        controls_sizer.AddSpacer(aot_spacer_size)
         
         # Always on top checkbox
         self.always_on_top_cb = wx.CheckBox(proxy_tab, label="Always On Top")
@@ -719,13 +727,18 @@ class ProxyUI(wx.Frame):
     def on_password_focus(self, event):
         # Update the style to show the password
         print("Password field focused")
-        # style = self.password_field.GetWindowStyleFlag()
-        # style &= ~wx.TE_PASSWORD
-        # self.password_field.SetWindowStyleFlag(style)
-        # In windows, we need to use win32api to unset the password character
+
         handle = self.password_field.GetHandle()
         if handle:
-            win32api.SendMessage(handle, win32con.EM_SETPASSWORDCHAR, 0, 0)
+            # In windows, we need to use win32api to unset the password character
+            if platform.system() == "Windows":
+                import win32api
+                import win32con
+                win32api.SendMessage(handle, win32con.EM_SETPASSWORDCHAR, 0, 0)
+            else:
+                style = self.password_field.GetWindowStyleFlag()
+                style &= ~wx.TE_PASSWORD
+                self.password_field.SetWindowStyleFlag(style)
         # Ensure the event propagates
         event.Skip()
     
@@ -733,13 +746,17 @@ class ProxyUI(wx.Frame):
     def on_password_blur(self, event):
         # Add password style back
         print("Password field blurred")
-        # style = self.password_field.GetWindowStyleFlag()
-        # style |= wx.TE_PASSWORD
-        # self.password_field.SetWindowStyleFlag(style)
-        # In windows, we need to use win32api to set the password character
         handle = self.password_field.GetHandle()
         if handle:
-            win32api.SendMessage(handle, win32con.EM_SETPASSWORDCHAR, 0x25cf, 0)
+            # In windows, we need to use win32api to set the password character
+            if platform.system() == "Windows":
+                import win32api
+                import win32con
+                win32api.SendMessage(handle, win32con.EM_SETPASSWORDCHAR, 0x25cf, 0)
+            else:
+                style = self.password_field.GetWindowStyleFlag()
+                style |= wx.TE_PASSWORD
+                self.password_field.SetWindowStyleFlag(style)
         # Ensure the event propagates
         event.Skip()
         

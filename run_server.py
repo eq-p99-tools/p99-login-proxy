@@ -1,6 +1,7 @@
 import asyncio
 import sys
 import threading
+import platform
 
 import wx
 
@@ -81,11 +82,21 @@ def main():
     # Create the wxPython application with asyncio integration
     wx_app = WxAsyncApp()
 
-    def start_eq(eq_dir):
+    def start_eq_windows(eq_dir):
         print("Starting EverQuest...")
         import subprocess
         subprocess.Popen(
             ["powershell.exe", "-Command", "& { Start-Process eqgame.exe -ArgumentList @('patchme') -Verb RunAs }"],
+            cwd=eq_dir, start_new_session=True, shell=True, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+        )
+    
+    def start_eq_linux(eq_dir):
+        print("Starting EverQuest...")
+        # This is absolutely not accurate, need to get a real command from someone who knows...
+        # or make it configurable because it likely is different on different distros
+        import subprocess
+        subprocess.Popen(
+            ["./eqgame", "patchme"],
             cwd=eq_dir, start_new_session=True, shell=True, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
         )
     
@@ -97,7 +108,10 @@ def main():
 
     # Initialize the UI
     main_window = ui.start_ui()
-    main_window.start_eq_func = start_eq
+    if platform.system() == "Windows":
+        main_window.start_eq_func = start_eq_windows
+    else:
+        main_window.start_eq_func = start_eq_linux
     
     # Check for updates on startup
     try:
