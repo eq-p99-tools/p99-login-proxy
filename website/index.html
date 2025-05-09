@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>P99 Login Proxy - EverQuest SSO Login Proxy</title>
+    <link rel="icon" href="images/favicon.png" sizes="32x32">
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <div class="logo">
+                <img src="images/logo.svg" alt="P99 Login Proxy Logo" width="30" height="30">
+                <h1>P99 Login Proxy</h1>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="#features">Features</a></li>
+                    <li><a href="#download">Download</a></li>
+                    <li><a href="#setup">Setup</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <section class="hero">
+        <div class="container">
+            <div class="hero-content">
+                <h1>EverQuest Project1999 Single Sign On Login Proxy</h1>
+                <p>A lightweight, cross-platform login proxy for Project 1999 EverQuest servers. Drop in replacement for <b>middlemand</b> while adding groundbreaking login management features.</p>
+                <a href="https://github.com/eq-p99-tools/p99-login-proxy/releases/latest" class="btn btn-primary">Download Now</a>
+            </div>
+            <div class="hero-image">
+                <img src="images/screenshot.png" alt="P99 Login Proxy Screenshot" class="screenshot">
+            </div>
+        </div>
+    </section>
+
+    <section id="features" class="features">
+        <div class="container">
+            <h2>Features</h2>
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🔒</div>
+                    <h3>Secure</h3>
+                    <p>Safely manage your guild shared EverQuest credentials with encrypted storage and SSO login.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔄</div>
+                    <h3>Auto-Updates</h3>
+                    <p>Always stay current with automatic updates.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">⚡</div>
+                    <h3>Lightning-Fast</h3>
+                    <p>Quickly log in to any account without looking up usernames or passwords!</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">💻</div>
+                    <h3>Cross-Platform</h3>
+                    <p>Works on both Windows and Linux.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔍</div>
+                    <h3>System Tray</h3>
+                    <p>Finally be rid of that annoying blank terminal window -- minimizes to system tray!</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📊</div>
+                    <h3>Statistics</h3>
+                    <p>Guild officers can view detailed login statistics and historical account access details.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="download" class="download">
+        <div class="container">
+            <h2>Download</h2>
+            <p>Get the latest version of P99 Login Proxy for your platform:</p>
+            <div class="download-options">
+                <a href="https://github.com/eq-p99-tools/p99-login-proxy/releases/latest" class="btn btn-download">
+                    <span class="platform">Windows</span>
+                    <span class="version">Latest Release</span>
+                </a>
+                <a href="https://github.com/eq-p99-tools/p99-login-proxy/README_LINUX.md" class="btn btn-download">
+                    <span class="platform">Linux</span>
+                    <span class="version">Setup Instructions</span>
+                </a>
+            </div>
+            <div class="github-link">
+                <p>View the project on <a href="https://github.com/eq-p99-tools/p99-login-proxy">GitHub</a></p>
+            </div>
+        </div>
+    </section>
+
+    <section id="setup" class="setup">
+        <div class="container">
+            <h2>Setup Instructions</h2>
+            <div class="setup-steps">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h3>Download & Install</h3>
+                        <p>Download the latest version from the link above and extract it to your preferred location. It will attempt to locate your EverQuest directory automatically, but if it is non-standard then you may need to put the application executable inside the EverQuest directory.</p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h3>Configuration</h3>
+                        <p>Run the application and paste your API Token (in Discord, run "/sso get"). You may need to go to the Advanced tab and click Refresh Cache the first time.</p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h3>Start Playing</h3>
+                        <p>Click the "Launch EQ" button (or start the game however you normally do) and simply log in with guild bot's name or role with <i>any password</i>, even just a single letter. Passwords don't matter anymore! For example:</p>
+                        <img src="images/login_screenshot.png" class="screenshot" alt="Login Example">
+                    </div>
+                </div>
+            </div>
+            <div class="detailed-instructions">
+                <h3>Support & Troubleshooting</h3>
+                <p>For support, please file an issue on the <a href="https://github.com/eq-p99-tools/p99-login-proxy/issues">GitHub repository</a> or contact @Toald in almost any P99 related Discord server.</p>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <p>Not affiliated with the EQEmu Project, Project 1999 or Daybreak Games.</p>
+        </div>
+    </footer>
+
+    <script src="js/main.js"></script>
+</body>
+</html>
