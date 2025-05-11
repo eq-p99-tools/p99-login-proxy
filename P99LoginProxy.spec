@@ -4,7 +4,7 @@ from p99_sso_login_proxy import config
 block_cipher = None
 
 a = Analysis(
-    ['run_server.py'],
+    ['p99loginproxy.py'],
     pathex=[],
     binaries=[],
     datas=[

@@ -1,20 +1,15 @@
 import configparser
 import socket
-import semver
 import datetime
 
+from p99_sso_login_proxy import __version_semver__
 from p99_sso_login_proxy import utils
 
 CONFIG = configparser.ConfigParser()
 CONFIG.read("proxyconfig.ini")
 
 APP_NAME = "P99 Login Proxy"
-APP_VERSION = semver.Version(
-    major=1,
-    minor=0,
-    patch=0,
-    prerelease="rca14"
-)
+APP_VERSION = __version_semver__
 
 LISTEN_HOST = CONFIG.get("DEFAULT", "listen_host", fallback="0.0.0.0")
 LISTEN_PORT = CONFIG.getint("DEFAULT", "listen_port", fallback=5998)
