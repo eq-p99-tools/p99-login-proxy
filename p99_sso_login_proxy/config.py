@@ -32,7 +32,7 @@ ALWAYS_ON_TOP = CONFIG.getboolean("DEFAULT", "always_on_top", fallback=False)
 PROXY_ONLY = CONFIG.getboolean("DEFAULT", "proxy_only", fallback=False)
 
 # Whether to run in proxy mode
-PROXY_ENABLED = CONFIG.getboolean("DEFAULT", "proxy_enabled", fallback=False)
+PROXY_ENABLED = CONFIG.getboolean("DEFAULT", "proxy_enabled", fallback=True)
 
 # Get the user API token from config
 USER_API_TOKEN = CONFIG.get("DEFAULT", "user_api_token", fallback="")
