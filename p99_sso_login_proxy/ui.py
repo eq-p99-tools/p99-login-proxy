@@ -13,6 +13,7 @@ from p99_sso_login_proxy import config
 from p99_sso_login_proxy import eq_config
 from p99_sso_login_proxy import updater
 from p99_sso_login_proxy import sso_api
+from p99_sso_login_proxy import utils
 
 # Define custom event IDs
 EVT_STATS_UPDATED = wx.NewEventType()
@@ -861,7 +862,7 @@ class ProxyUI(wx.Frame):
             sso_api.fetch_user_accounts()
             
             # Reload local accounts
-            config.LOCAL_ACCOUNTS = utils.load_local_accounts(config.LOCAL_ACCOUNTS_FILE)
+            config.LOCAL_ACCOUNTS, config.LOCAL_ACCOUNT_NAME_MAP = utils.load_local_accounts(config.LOCAL_ACCOUNTS_FILE)
             
             # Update the UI
             self.update_account_cache_display()

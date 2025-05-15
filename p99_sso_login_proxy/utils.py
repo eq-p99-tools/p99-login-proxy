@@ -36,7 +36,7 @@ def load_local_accounts(file_path) -> tuple[dict[str, dict[str, str]], dict[str,
                             all_names[alias] = row[0]
                     else:
                         accounts[row[0]]["aliases"] = []
-                    print(f"Loaded account: `{row[0]}` with aliases: {accounts[row[0]]["aliases"]}")
+                    print(f"Loaded account: `{row[0]}` with aliases: {accounts[row[0]]['aliases']}")
                 except IndexError as e:
                     print(f"Invalid row format at row `{row}`: {e}")
                 row_num += 1
