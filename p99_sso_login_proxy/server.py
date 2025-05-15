@@ -94,24 +94,35 @@ class LoginProxy(asyncio.DatagramProtocol):
             username = user.decode().lower()
             password = password.decode()
             ui.proxy_stats.user_login(username)
+
+            # No SSO at all, just return the packet
             if config.PROXY_ONLY:
                 print(f"[CHECK REWRITE] Proxy only mode enabled, skipping SSO API call.")
                 return buf
+
+            # First skip processing any explicitly called out account names
             if username in config.SKIP_SSO_ACCOUNTS:
                 print(f"[CHECK REWRITE] Skipping SSO check for {username} (in skip list)")
                 return buf
-            if username not in config.ALL_CACHED_NAMES:
+
+            # Next skip processing any accounts that are not in the cached account list or local account list
+            if username not in config.ALL_CACHED_NAMES and username not in config.LOCAL_ACCOUNT_NAME_MAP:
                 print(f"[CHECK REWRITE] Skipping SSO check for {username} (not in cached account list)")
                 return buf
 
             try:
-                if config.USER_API_TOKEN:
-                    print(f"[CHECK REWRITE] Overwriting client supplied password with configured password.")
-                    password = config.USER_API_TOKEN
+                # If this is a local account, just use that
+                if username in config.LOCAL_ACCOUNT_NAME_MAP:
+                    new_user = config.LOCAL_ACCOUNT_NAME_MAP[username]
+                    new_pass = config.LOCAL_ACCOUNTS[new_user]["password"]
+                    print(f"[CHECK REWRITE] Overwriting client supplied password with local account for {username}: {new_user}")
+                # If a user API token is provided, use it instead of the password
+                elif config.USER_API_TOKEN:
+                    new_user, new_pass = sso_api.check_sso_login(username, config.USER_API_TOKEN)
+                    print(f"[CHECK REWRITE] Overwriting client supplied password with SSO password for {username}: {new_user}")
 
-                new_user, new_pass = sso_api.check_sso_login(username, password)
                 if new_user and new_pass:
-                    print(f"[CHECK REWRITE] CHECK SUCCESSFUL: {username} found with valid token, replacing password.")
+                    print(f"[CHECK REWRITE] CHECK SUCCESSFUL: {username} found, replacing password.")
                     cipher = DES.new(config.ENCRYPTION_KEY, DES.MODE_CBC, config.iv())
                     plaintext = new_user.encode() + b'\x00' + new_pass.encode() + b'\x00'
                     padded_plaintext = plaintext.ljust((int(len(plaintext) / 8) + 1) * 8, b'\x00')

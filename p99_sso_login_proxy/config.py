@@ -43,6 +43,9 @@ ACCOUNTS_CACHED = {}
 ACCOUNTS_CACHE_REAL_COUNT = 0
 ACCOUNTS_CACHE_TIMESTAMP = datetime.datetime.min
 
+LOCAL_ACCOUNTS_FILE = CONFIG.get("DEFAULT", "local_accounts_file", fallback="local_accounts.csv")
+LOCAL_ACCOUNTS, LOCAL_ACCOUNT_NAME_MAP = utils.load_local_accounts(LOCAL_ACCOUNTS_FILE)
+
 # Allow the user to provide a list of accounts to never SSO check
 SKIP_SSO_ACCOUNTS = CONFIG.get("DEFAULT", "skip_sso_accounts", fallback="")
 SKIP_SSO_ACCOUNTS = [account.strip().lower() for account in SKIP_SSO_ACCOUNTS.split(",")]

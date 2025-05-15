@@ -583,16 +583,30 @@ class ProxyUI(wx.Frame):
         # Create a list control for the tags
         self.tags_list = wx.ListCtrl(tags_tab, style=wx.LC_REPORT | wx.BORDER_SUNKEN)
         self.tags_list.InsertColumn(0, "Tag", width=150)
-        self.tags_list.InsertColumn(1, "Accounts", width=250)
+        self.tags_list.InsertColumn(1, "Account Names", width=250)
         
         # Add the list control to the tags tab
         tags_sizer.Add(self.tags_list, 1, wx.ALL | wx.EXPAND, 5)
         tags_tab.SetSizer(tags_sizer)
         
+        # Local accounts tab
+        local_tab = wx.Panel(sso_notebook)
+        local_sizer = wx.BoxSizer(wx.VERTICAL)
+        
+        # Create a list control for the local accounts
+        self.local_accounts_list = wx.ListCtrl(local_tab, style=wx.LC_REPORT | wx.BORDER_SUNKEN)
+        self.local_accounts_list.InsertColumn(0, "Account Name", width=150)
+        self.local_accounts_list.InsertColumn(1, "Aliases", width=250)
+        
+        # Add the list control to the local tab
+        local_sizer.Add(self.local_accounts_list, 1, wx.ALL | wx.EXPAND, 5)
+        local_tab.SetSizer(local_sizer)
+        
         # Add the tabs to the nested notebook
         sso_notebook.AddPage(accounts_tab, "Accounts")
         sso_notebook.AddPage(aliases_tab, "Aliases")
         sso_notebook.AddPage(tags_tab, "Tags")
+        sso_notebook.AddPage(local_tab, "Local")
         
         # Add the nested notebook to the main SSO tab sizer
         sso_sizer.Add(sso_notebook, 1, wx.ALL | wx.EXPAND, 5)
@@ -838,6 +852,9 @@ class ProxyUI(wx.Frame):
             # Refresh the account cache
             sso_api.fetch_user_accounts()
             
+            # Reload local accounts
+            config.LOCAL_ACCOUNTS = utils.load_local_accounts(config.LOCAL_ACCOUNTS_FILE)
+            
             # Update the UI
             self.update_account_cache_display()
             
@@ -923,6 +940,19 @@ class ProxyUI(wx.Frame):
         else:
             self.accounts_cached_text.SetLabel(f"{real_accounts} accounts, {total_accounts - real_accounts} aliases/tags")
             self.accounts_cached_text.SetForegroundColour(wx.Colour(0, 128, 0))  # Green
+            
+        # Update the local accounts list
+        if hasattr(self, 'local_accounts_list'):
+            self.local_accounts_list.DeleteAllItems()
+            
+            # Add each local account to the list
+            for i, (account, data) in enumerate(sorted(config.LOCAL_ACCOUNTS.items())):
+                self.local_accounts_list.InsertItem(i, account)
+                
+                # Add aliases as comma-separated list
+                aliases = data.get("aliases", [])
+                if aliases:
+                    self.local_accounts_list.SetItem(i, 1, ", ".join(sorted(aliases)))
         
         # Update the accounts list in the SSO tab
         if hasattr(self, 'accounts_list'):
