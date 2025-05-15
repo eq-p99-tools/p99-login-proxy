@@ -1118,6 +1118,10 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
             visibility_item = menu.Append(wx.ID_ANY, "Show Application")
             self.Bind(wx.EVT_MENU, self.on_show, visibility_item)
         
+        # Add Launch EverQuest menu item
+        launch_eq_item = menu.Append(wx.ID_ANY, "Launch EverQuest")
+        self.Bind(wx.EVT_MENU, self.frame.on_launch_eq, launch_eq_item)
+        
         # Add update menu item
         update_item = menu.Append(wx.ID_ANY, "Check for Updates")
         self.Bind(wx.EVT_MENU, self.on_check_updates, update_item)
@@ -1195,7 +1199,14 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
     def on_check_updates(self, event):
         """Check for updates"""
         try:
-            updater.check_update()
+            if not updater.check_update():
+                dlg = wx.MessageDialog(
+                    self.frame,
+                    f"Version: {config.APP_VERSION}\n\n"
+                    "There is no update available, you are running the latest version.",
+                    "No Update Available", wx.OK | wx.ICON_INFORMATION)
+                dlg.ShowModal()
+                dlg.Destroy()
         except Exception as e:
             print(f"[UI] Failed to check for updates: {e}")
             wx.MessageBox(

@@ -141,3 +141,7 @@ def check_update():
                     "Update Error", wx.OK | wx.ICON_ERROR)
                 dlg.ShowModal()
                 dlg.Destroy()
+        return True
+    else:
+        LOG.info("No update available.")
+        return False
