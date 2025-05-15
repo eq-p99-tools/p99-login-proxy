@@ -554,10 +554,12 @@ class ProxyUI(wx.Frame):
         accounts_sizer = wx.BoxSizer(wx.VERTICAL)
         
         # Create a list control for the accounts
-        self.accounts_list = wx.ListCtrl(accounts_tab, style=wx.LC_REPORT | wx.BORDER_SUNKEN)
+        self.accounts_list = wx.ListCtrl(accounts_tab, style=wx.LC_REPORT | wx.BORDER_SUNKEN | wx.LC_HRULES | wx.LC_VRULES)
         self.accounts_list.InsertColumn(0, "Account Name", width=150)
         self.accounts_list.InsertColumn(1, "Aliases", width=150)
         self.accounts_list.InsertColumn(2, "Tags", width=150)
+        
+        # We'll set alternating row colors in the update_account_cache_display method
         
         # Add the list control to the accounts tab
         accounts_sizer.Add(self.accounts_list, 1, wx.ALL | wx.EXPAND, 5)
@@ -568,9 +570,11 @@ class ProxyUI(wx.Frame):
         aliases_sizer = wx.BoxSizer(wx.VERTICAL)
         
         # Create a list control for the aliases
-        self.aliases_list = wx.ListCtrl(aliases_tab, style=wx.LC_REPORT | wx.BORDER_SUNKEN)
+        self.aliases_list = wx.ListCtrl(aliases_tab, style=wx.LC_REPORT | wx.BORDER_SUNKEN | wx.LC_HRULES | wx.LC_VRULES)
         self.aliases_list.InsertColumn(0, "Alias", width=150)
-        self.aliases_list.InsertColumn(1, "Account Name", width=150)
+        self.aliases_list.InsertColumn(1, "Account Name", width=300)
+        
+        # We'll set alternating row colors in the update_account_cache_display method
         
         # Add the list control to the aliases tab
         aliases_sizer.Add(self.aliases_list, 1, wx.ALL | wx.EXPAND, 5)
@@ -581,9 +585,11 @@ class ProxyUI(wx.Frame):
         tags_sizer = wx.BoxSizer(wx.VERTICAL)
         
         # Create a list control for the tags
-        self.tags_list = wx.ListCtrl(tags_tab, style=wx.LC_REPORT | wx.BORDER_SUNKEN)
+        self.tags_list = wx.ListCtrl(tags_tab, style=wx.LC_REPORT | wx.BORDER_SUNKEN | wx.LC_HRULES | wx.LC_VRULES)
         self.tags_list.InsertColumn(0, "Tag", width=150)
-        self.tags_list.InsertColumn(1, "Account Names", width=250)
+        self.tags_list.InsertColumn(1, "Account Names", width=300)
+        
+        # We'll set alternating row colors in the update_account_cache_display method
         
         # Add the list control to the tags tab
         tags_sizer.Add(self.tags_list, 1, wx.ALL | wx.EXPAND, 5)
@@ -594,9 +600,11 @@ class ProxyUI(wx.Frame):
         local_sizer = wx.BoxSizer(wx.VERTICAL)
         
         # Create a list control for the local accounts
-        self.local_accounts_list = wx.ListCtrl(local_tab, style=wx.LC_REPORT | wx.BORDER_SUNKEN)
-        self.local_accounts_list.InsertColumn(0, "Account Name", width=150)
+        self.local_accounts_list = wx.ListCtrl(local_tab, style=wx.LC_REPORT | wx.BORDER_SUNKEN | wx.LC_HRULES | wx.LC_VRULES)
+        self.local_accounts_list.InsertColumn(0, "Account Name", width=200)
         self.local_accounts_list.InsertColumn(1, "Aliases", width=250)
+        
+        # We'll set alternating row colors in the update_account_cache_display method
         
         # Add the list control to the local tab
         local_sizer.Add(self.local_accounts_list, 1, wx.ALL | wx.EXPAND, 5)
@@ -953,6 +961,10 @@ class ProxyUI(wx.Frame):
                 aliases = data.get("aliases", [])
                 if aliases:
                     self.local_accounts_list.SetItem(i, 1, ", ".join(sorted(aliases)))
+                
+                # Set alternating row colors
+                if i % 2 == 1:
+                    self.local_accounts_list.SetItemBackgroundColour(i, wx.Colour(240, 245, 250))
         
         # Update the accounts list in the SSO tab
         if hasattr(self, 'accounts_list'):
@@ -967,12 +979,16 @@ class ProxyUI(wx.Frame):
                 # Add aliases as comma-separated list
                 aliases = data.get("aliases", [])
                 if aliases:
-                    self.accounts_list.SetItem(index, 1, ", ".join(aliases))
+                    self.accounts_list.SetItem(index, 1, ", ".join(sorted(aliases)))
                 
                 # Add tags as comma-separated list
                 tags = data.get("tags", [])
                 if tags:
-                    self.accounts_list.SetItem(index, 2, ", ".join(tags))
+                    self.accounts_list.SetItem(index, 2, ", ".join(sorted(tags)))
+                
+                # Set alternating row colors
+                if index % 2 == 1:
+                    self.accounts_list.SetItemBackgroundColour(index, wx.Colour(240, 245, 250))
                 
                 index += 1
         
@@ -994,6 +1010,10 @@ class ProxyUI(wx.Frame):
             for i, (alias, account) in enumerate(all_aliases):
                 self.aliases_list.InsertItem(i, alias)
                 self.aliases_list.SetItem(i, 1, account)
+                
+                # Set alternating row colors
+                if i % 2 == 1:
+                    self.aliases_list.SetItemBackgroundColour(i, wx.Colour(240, 245, 250))
         
         # Update the tags list
         if hasattr(self, 'tags_list'):
@@ -1012,6 +1032,10 @@ class ProxyUI(wx.Frame):
             for i, (tag, accounts) in enumerate(sorted(tag_to_accounts.items())):
                 self.tags_list.InsertItem(i, tag)
                 self.tags_list.SetItem(i, 1, ", ".join(sorted(accounts)))
+                
+                # Set alternating row colors
+                if i % 2 == 1:
+                    self.tags_list.SetItemBackgroundColour(i, wx.Colour(240, 245, 250))
 
     def update_eq_status(self):
         """Update the EverQuest configuration status display"""
