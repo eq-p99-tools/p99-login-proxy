@@ -4,14 +4,15 @@ import requests
 from p99_sso_login_proxy import config
 
 
-def fetch_user_accounts() -> list[str]:
+def fetch_user_accounts():
     """
     Fetch the list of accounts associated with the provided API token.
 
     Returns:
         list[str]: A list of account names.
     """
-    accounts = []
+    accounts = {}
+    all_account_names = []
     real_account_count = 0
 
     if config.USER_API_TOKEN:
@@ -23,17 +24,30 @@ def fetch_user_accounts() -> list[str]:
         }, timeout=config.SSO_TIMEOUT, verify=verify)
 
         if response.status_code == 200:
-            accounts = response.json().get("accounts", [])
-            accounts = [account.lower() for account in accounts]
-            real_account_count = response.json().get("count", 0)
-            print(f"[SSO] Successfully fetched {real_account_count} accounts (and {len(accounts) - real_account_count} aliases/tags)")
+            accounts = response.json().get("account_tree", {})
+            real_account_names = accounts.keys()
+            real_account_count = len(real_account_names)
+            aliases = []
+            tags = []
+            for account_data in accounts.values():
+                if account_data.get("aliases"):
+                    aliases.extend(account_data.get("aliases"))
+                if account_data.get("tags"):
+                    tags.extend(account_data.get("tags"))
+
+            print(f"[SSO] Successfully fetched {real_account_count} accounts (and {len(aliases) + len(tags)} aliases/tags)")
+
+            # Add real accounts, aliases, and tags to the flat login list
+            all_account_names.extend(real_account_names)
+            all_account_names.extend(aliases)
+            all_account_names.extend(tags)
         else:
             print(f"[SSO] Failed to fetch account list: {response.status_code} {response.text}")
 
-    config.ACCOUNTS_CACHE = accounts
+    config.ALL_CACHED_NAMES = all_account_names
     config.ACCOUNTS_CACHE_REAL_COUNT = real_account_count
     config.ACCOUNTS_CACHE_TIMESTAMP = datetime.datetime.now()
-    return accounts, real_account_count
+    config.ACCOUNTS_CACHED = accounts
 
 
 def check_sso_login(username: str, password: str) -> tuple[str, str]:

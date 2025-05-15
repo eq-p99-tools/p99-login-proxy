@@ -100,7 +100,7 @@ class LoginProxy(asyncio.DatagramProtocol):
             if username in config.SKIP_SSO_ACCOUNTS:
                 print(f"[CHECK REWRITE] Skipping SSO check for {username} (in skip list)")
                 return buf
-            if username not in config.ACCOUNTS_CACHE:
+            if username not in config.ALL_CACHED_NAMES:
                 print(f"[CHECK REWRITE] Skipping SSO check for {username} (not in cached account list)")
                 return buf
 

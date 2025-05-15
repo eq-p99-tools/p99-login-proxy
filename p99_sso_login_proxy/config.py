@@ -38,7 +38,8 @@ PROXY_ENABLED = CONFIG.getboolean("DEFAULT", "proxy_enabled", fallback=True)
 USER_API_TOKEN = CONFIG.get("DEFAULT", "user_api_token", fallback="")
 
 # Variables to store account list and timestamp
-ACCOUNTS_CACHE = []
+ALL_CACHED_NAMES = []
+ACCOUNTS_CACHED = {}
 ACCOUNTS_CACHE_REAL_COUNT = 0
 ACCOUNTS_CACHE_TIMESTAMP = datetime.datetime.min
 

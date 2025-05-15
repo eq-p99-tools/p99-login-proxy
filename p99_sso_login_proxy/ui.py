@@ -542,8 +542,76 @@ class ProxyUI(wx.Frame):
         # Set the EQ tab sizer
         eq_tab.SetSizer(eq_sizer)
         
+        # SSO Accounts tab
+        sso_tab = wx.Panel(notebook)
+        sso_sizer = wx.BoxSizer(wx.VERTICAL)
+        
+        # Create a nested notebook for the different account views
+        sso_notebook = wx.Notebook(sso_tab)
+        
+        # Accounts tab
+        accounts_tab = wx.Panel(sso_notebook)
+        accounts_sizer = wx.BoxSizer(wx.VERTICAL)
+        
+        # Create a list control for the accounts
+        self.accounts_list = wx.ListCtrl(accounts_tab, style=wx.LC_REPORT | wx.BORDER_SUNKEN)
+        self.accounts_list.InsertColumn(0, "Account Name", width=150)
+        self.accounts_list.InsertColumn(1, "Aliases", width=150)
+        self.accounts_list.InsertColumn(2, "Tags", width=150)
+        
+        # Add the list control to the accounts tab
+        accounts_sizer.Add(self.accounts_list, 1, wx.ALL | wx.EXPAND, 5)
+        accounts_tab.SetSizer(accounts_sizer)
+        
+        # Aliases tab
+        aliases_tab = wx.Panel(sso_notebook)
+        aliases_sizer = wx.BoxSizer(wx.VERTICAL)
+        
+        # Create a list control for the aliases
+        self.aliases_list = wx.ListCtrl(aliases_tab, style=wx.LC_REPORT | wx.BORDER_SUNKEN)
+        self.aliases_list.InsertColumn(0, "Alias", width=150)
+        self.aliases_list.InsertColumn(1, "Account Name", width=150)
+        
+        # Add the list control to the aliases tab
+        aliases_sizer.Add(self.aliases_list, 1, wx.ALL | wx.EXPAND, 5)
+        aliases_tab.SetSizer(aliases_sizer)
+        
+        # Tags tab
+        tags_tab = wx.Panel(sso_notebook)
+        tags_sizer = wx.BoxSizer(wx.VERTICAL)
+        
+        # Create a list control for the tags
+        self.tags_list = wx.ListCtrl(tags_tab, style=wx.LC_REPORT | wx.BORDER_SUNKEN)
+        self.tags_list.InsertColumn(0, "Tag", width=150)
+        self.tags_list.InsertColumn(1, "Accounts", width=250)
+        
+        # Add the list control to the tags tab
+        tags_sizer.Add(self.tags_list, 1, wx.ALL | wx.EXPAND, 5)
+        tags_tab.SetSizer(tags_sizer)
+        
+        # Add the tabs to the nested notebook
+        sso_notebook.AddPage(accounts_tab, "Accounts")
+        sso_notebook.AddPage(aliases_tab, "Aliases")
+        sso_notebook.AddPage(tags_tab, "Tags")
+        
+        # Add the nested notebook to the main SSO tab sizer
+        sso_sizer.Add(sso_notebook, 1, wx.ALL | wx.EXPAND, 5)
+        
+        # Add refresh button below the notebook
+        refresh_btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.refresh_accounts_btn = wx.Button(sso_tab, label="Refresh SSO Account List")
+        self.refresh_accounts_btn.Bind(wx.EVT_BUTTON, self.on_refresh_account_cache)
+        self.refresh_accounts_btn.SetToolTip("Refresh the account cache from the SSO server")
+        refresh_btn_sizer.Add(self.refresh_accounts_btn, 0, wx.ALL, 5)
+        
+        sso_sizer.Add(refresh_btn_sizer, 0, wx.ALL | wx.CENTER, 5)
+        
+        # Set the SSO tab sizer
+        sso_tab.SetSizer(sso_sizer)
+        
         # Add tabs to notebook
         notebook.AddPage(proxy_tab, "Proxy")
+        notebook.AddPage(sso_tab, "SSO")
         notebook.AddPage(eq_tab, "Advanced")
         
         # Add notebook to main sizer
@@ -772,8 +840,12 @@ class ProxyUI(wx.Frame):
             
             # Update the UI
             self.update_account_cache_display()
+            
+            # Update the cache time
+            self.update_account_cache_time()
         except Exception as e:
             print(f"[UI] Failed to refresh account cache: {str(e)}")
+            wx.MessageBox(f"Failed to refresh account cache: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
         finally:
             # Restore the cursor
             if wx.IsBusy():
@@ -841,7 +913,7 @@ class ProxyUI(wx.Frame):
     def update_account_cache_display(self):
         """Update the account cache display"""
         # Update accounts cached
-        total_accounts = len(config.ACCOUNTS_CACHE)
+        total_accounts = len(config.ALL_CACHED_NAMES)
         real_accounts = config.ACCOUNTS_CACHE_REAL_COUNT
         
         # Update the text with account counts
@@ -851,6 +923,65 @@ class ProxyUI(wx.Frame):
         else:
             self.accounts_cached_text.SetLabel(f"{real_accounts} accounts, {total_accounts - real_accounts} aliases/tags")
             self.accounts_cached_text.SetForegroundColour(wx.Colour(0, 128, 0))  # Green
+        
+        # Update the accounts list in the SSO tab
+        if hasattr(self, 'accounts_list'):
+            self.accounts_list.DeleteAllItems()
+            
+            # Add each account to the list
+            index = 0
+            for account, data in sorted(config.ACCOUNTS_CACHED.items()):
+                # Add the account
+                self.accounts_list.InsertItem(index, account)
+                
+                # Add aliases as comma-separated list
+                aliases = data.get("aliases", [])
+                if aliases:
+                    self.accounts_list.SetItem(index, 1, ", ".join(aliases))
+                
+                # Add tags as comma-separated list
+                tags = data.get("tags", [])
+                if tags:
+                    self.accounts_list.SetItem(index, 2, ", ".join(tags))
+                
+                index += 1
+        
+        # Update the aliases list
+        if hasattr(self, 'aliases_list'):
+            self.aliases_list.DeleteAllItems()
+            
+            # Create a list of all aliases with their account names
+            all_aliases = []
+            for account, data in config.ACCOUNTS_CACHED.items():
+                aliases = data.get("aliases", [])
+                for alias in sorted(aliases):
+                    all_aliases.append((alias, account))
+            
+            # Sort by alias name
+            all_aliases.sort()
+            
+            # Add each alias to the list
+            for i, (alias, account) in enumerate(all_aliases):
+                self.aliases_list.InsertItem(i, alias)
+                self.aliases_list.SetItem(i, 1, account)
+        
+        # Update the tags list
+        if hasattr(self, 'tags_list'):
+            self.tags_list.DeleteAllItems()
+            
+            # Create a dictionary of tags to accounts
+            tag_to_accounts = {}
+            for account, data in config.ACCOUNTS_CACHED.items():
+                tags = data.get("tags", [])
+                for tag in sorted(tags):
+                    if tag not in tag_to_accounts:
+                        tag_to_accounts[tag] = []
+                    tag_to_accounts[tag].append(account)
+            
+            # Add each tag to the list
+            for i, (tag, accounts) in enumerate(sorted(tag_to_accounts.items())):
+                self.tags_list.InsertItem(i, tag)
+                self.tags_list.SetItem(i, 1, ", ".join(sorted(accounts)))
 
     def update_eq_status(self):
         """Update the EverQuest configuration status display"""
