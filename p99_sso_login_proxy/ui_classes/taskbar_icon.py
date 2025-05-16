@@ -79,7 +79,7 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
         # Try multiple possible locations for the icon file
         icon_paths = [
             # When running from source
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", icon_filename),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", icon_filename),
             # When running from PyInstaller bundle
             os.path.join(os.path.dirname(sys.executable), icon_filename),
             # Current directory

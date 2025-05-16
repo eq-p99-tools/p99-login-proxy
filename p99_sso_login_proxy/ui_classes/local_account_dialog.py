@@ -61,19 +61,19 @@ class LocalAccountDialog(wx.Dialog):
         
         # Account name field
         name_label = wx.StaticText(panel, label="Account Name:")
-        self.account_name = wx.TextCtrl(panel, value=account_name, size=(250, -1))
+        self.account_name = TextCtrlWithHint(panel, value=account_name, hint="myaccount1", size=(250, -1))
         field_sizer.Add(name_label, 0, wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         field_sizer.Add(self.account_name, 1, wx.EXPAND)
         
         # Password field
         password_label = wx.StaticText(panel, label="Password:")
-        self.password = wx.TextCtrl(panel, value=password, size=(250, -1))
+        self.password = TextCtrlWithHint(panel, value=password, hint="myPassword1", size=(250, -1))
         field_sizer.Add(password_label, 0, wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         field_sizer.Add(self.password, 1, wx.EXPAND)
         
         # Aliases field
         aliases_label = wx.StaticText(panel, label="Aliases:")
-        self.aliases = TextCtrlWithHint(panel, value=aliases, hint="Separate with commas (e.g., alias1, alias2)", size=(250, -1))
+        self.aliases = TextCtrlWithHint(panel, value=aliases, hint="alias1, alias2", size=(250, -1))
         field_sizer.Add(aliases_label, 0, wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         field_sizer.Add(self.aliases, 1, wx.EXPAND)
         
