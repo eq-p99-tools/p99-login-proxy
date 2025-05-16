@@ -10,6 +10,7 @@ CONFIG.read("proxyconfig.ini")
 
 APP_NAME = "P99 Login Proxy"
 APP_VERSION = __version_semver__
+CHANGELOG = ""
 
 LISTEN_HOST = CONFIG.get("DEFAULT", "listen_host", fallback="0.0.0.0")
 LISTEN_PORT = CONFIG.getint("DEFAULT", "listen_port", fallback=5998)

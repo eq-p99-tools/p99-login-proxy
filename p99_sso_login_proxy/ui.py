@@ -6,6 +6,7 @@ import datetime
 import platform
 
 import wx
+import wx.html
 
 from p99_sso_login_proxy import config
 from p99_sso_login_proxy import eq_config
@@ -553,17 +554,29 @@ class ProxyUI(wx.Frame):
         self.refresh_accounts_btn = wx.Button(sso_tab, label="Refresh SSO Account List")
         self.refresh_accounts_btn.Bind(wx.EVT_BUTTON, self.on_refresh_account_cache)
         self.refresh_accounts_btn.SetToolTip("Refresh the account cache from the SSO server")
-        refresh_btn_sizer.Add(self.refresh_accounts_btn, 0, wx.ALL, 5)
+        refresh_btn_sizer.Add(self.refresh_accounts_btn, 0, wx.BOTTOM, 5)
         
         sso_sizer.Add(refresh_btn_sizer, 0, wx.ALL | wx.CENTER, 5)
         
         # Set the SSO tab sizer
         sso_tab.SetSizer(sso_sizer)
         
+        # Create Changelog tab
+        changelog_tab = wx.Panel(notebook)
+        changelog_sizer = wx.BoxSizer(wx.VERTICAL)
+        
+        # Create an HTML window for the changelog
+        self.changelog_html = wx.html.HtmlWindow(changelog_tab)
+
+        # Add the HTML window to the sizer
+        changelog_sizer.Add(self.changelog_html, 1, wx.EXPAND | wx.ALL, 10)
+        changelog_tab.SetSizer(changelog_sizer)
+        
         # Add tabs to notebook
         notebook.AddPage(proxy_tab, "Proxy")
         notebook.AddPage(sso_tab, "SSO")
         notebook.AddPage(eq_tab, "Advanced")
+        notebook.AddPage(changelog_tab, "Changelog")
         
         # Add notebook to main sizer
         main_sizer.Add(notebook, 1, wx.EXPAND | wx.ALL, 10)
@@ -668,6 +681,13 @@ class ProxyUI(wx.Frame):
         # Update UI to reflect new status
         self.update_eq_status()
     
+    def on_updated_changelog(self):
+        # Update the changelog HTML
+        self.changelog_html.SetPage(config.CHANGELOG)
+
+        # Set background color to match the panel background
+        self.changelog_html.SetHTMLBackgroundColour("#f9f9f9")
+
     # Save eqhost.txt content
     def on_save_eqhost(self, event):
         # Get the EverQuest directory
