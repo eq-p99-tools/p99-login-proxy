@@ -43,3 +43,21 @@ def load_local_accounts(file_path) -> tuple[dict[str, dict[str, str]], dict[str,
     except FileNotFoundError:
         print(f"No local accounts file found at {file_path}")
     return accounts, all_names
+
+def save_local_accounts(accounts, file_path):
+    """Save local accounts to the CSV file"""
+    try:
+        with open(file_path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(["name", "password", "aliases"])
+            
+            for account_name, data in accounts.items():
+                aliases = "|".join(data.get("aliases", []))
+                writer.writerow([account_name, data.get("password", ""), aliases])
+        
+        print(f"Saved {len(accounts)} local accounts to {file_path}")
+        return True
+    except Exception as e:
+        print(f"Failed to save local accounts: {e}")
+        return False
+        

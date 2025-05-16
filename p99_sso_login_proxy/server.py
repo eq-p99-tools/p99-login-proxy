@@ -49,7 +49,7 @@ class LoginProxy(asyncio.DatagramProtocol):
         self.last_recv_time = 0
         self.sequence = sequence.Sequence()
         # Update UI stats
-        ui.proxy_stats.update_status("Initializing")
+        ui.PROXY_STATS.update_status("Initializing")
 
     def sequence_free(self):
         if not self.sequence.packets:
@@ -63,8 +63,8 @@ class LoginProxy(asyncio.DatagramProtocol):
         local_addr = transport.get_extra_info('sockname')
         if local_addr:
             host, port = local_addr
-            ui.proxy_stats.update_listening_info(host, port)
-            ui.proxy_stats.update_status("Listening")
+            ui.PROXY_STATS.update_listening_info(host, port)
+            ui.PROXY_STATS.update_status("Listening")
         print(f"Proxy listening on {local_addr}")
 
     def check_rewrite_auth(self, buf: bytearray):
@@ -93,7 +93,7 @@ class LoginProxy(asyncio.DatagramProtocol):
             # Notify UI about user login
             username = user.decode().lower()
             password = password.decode()
-            ui.proxy_stats.user_login(username)
+            ui.PROXY_STATS.user_login(username)
 
             # No SSO at all, just return the packet
             if config.PROXY_ONLY:
@@ -129,7 +129,7 @@ class LoginProxy(asyncio.DatagramProtocol):
                     encrypted_text = cipher.encrypt(padded_plaintext)
                     new_login = buf[:14 + structs.SIZE_OF_LOGIN_BASE_MESSAGE] + encrypted_text
                     new_login[7] = len(new_login) - 8
-                    ui.proxy_stats.user_login(new_user)
+                    ui.PROXY_STATS.user_login(new_user)
                     return new_login
             except Exception as e:
                 print(f"[CHECK REWRITE] FAILED TO CHECK LOGIN: {username}, error: {str(e)}")
@@ -152,7 +152,7 @@ class LoginProxy(asyncio.DatagramProtocol):
             if not self.in_session:
                 # New connection
                 print("[CLIENT PACKET] New connection established, updating stats")
-                ui.proxy_stats.connection_started()
+                ui.PROXY_STATS.connection_started()
 
         # From recv_from_local
         opcode = structs.get_protocol_opcode(data)
@@ -170,7 +170,7 @@ class LoginProxy(asyncio.DatagramProtocol):
             self.in_session = False
             self.sequence_free()
             # Update UI stats for completed connection
-            ui.proxy_stats.connection_completed()
+            ui.PROXY_STATS.connection_completed()
         elif opcode == structs.OPCodes.OP_Ack:
             print("[CLIENT PACKET] Adjusting ACK sequence values")
             # Rewrite client-to-server ack sequence values, since we will be desynchronizing them
@@ -255,7 +255,7 @@ class LoginProxy(asyncio.DatagramProtocol):
 
 async def shutdown(transport):
     print("[SERVER SHUTDOWN] Shutting down proxy...")
-    ui.proxy_stats.update_status("Shutting down")
+    ui.PROXY_STATS.update_status("Shutting down")
     transport.close()
     loop = asyncio.get_running_loop()
     loop.close()
@@ -263,13 +263,13 @@ async def shutdown(transport):
 
 async def main():
     # Update UI status
-    ui.proxy_stats.update_status("Starting")
+    ui.PROXY_STATS.update_status("Starting")
     print("[SERVER] Starting proxy server main function")
     
     loop = asyncio.get_running_loop()
     transport, _ = await loop.create_datagram_endpoint(
         LoginProxy, local_addr=(config.LISTEN_HOST, config.LISTEN_PORT))
     print(f"Started UDP proxy, listening on {config.LISTEN_HOST}:{config.LISTEN_PORT}")
-    ui.proxy_stats.reset_uptime()
+    ui.PROXY_STATS.reset_uptime()
     
     return transport

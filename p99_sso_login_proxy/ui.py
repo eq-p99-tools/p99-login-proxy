@@ -1,122 +1,22 @@
 import logging
 import os
 import sys
-import time
 import threading
 import datetime
 import platform
 
 import wx
-import wx.adv
 
 from p99_sso_login_proxy import config
 from p99_sso_login_proxy import eq_config
-from p99_sso_login_proxy import updater
 from p99_sso_login_proxy import sso_api
 from p99_sso_login_proxy import utils
-
-# Define custom event IDs
-EVT_STATS_UPDATED = wx.NewEventType()
-EVT_USER_CONNECTED = wx.NewEventType()
-
-# Create event binder objects
-EVT_STATS_UPDATED_BINDER = wx.PyEventBinder(EVT_STATS_UPDATED, 1)
-EVT_USER_CONNECTED_BINDER = wx.PyEventBinder(EVT_USER_CONNECTED, 1)
-
-# Custom event classes
-class StatsUpdatedEvent(wx.PyCommandEvent):
-    def __init__(self, etype, eid):
-        wx.PyCommandEvent.__init__(self, etype, eid)
-
-class UserConnectedEvent(wx.PyCommandEvent):
-    def __init__(self, etype, eid, username=""):
-        wx.PyCommandEvent.__init__(self, etype, eid)
-        self._username = username
-        
-    def GetUsername(self):
-        return self._username
-
-# Global connection statistics
-class ProxyStats:
-    """Class to track and update proxy statistics"""
-    def __init__(self):
-        self.total_connections = 0
-        self.active_connections = 0
-        self.completed_connections = 0
-        self.proxy_status = "Initializing..."
-        self.listening_address = "0.0.0.0"
-        self.listening_port = 0
-        self.start_time = time.time()
-        self.listeners = []
-
-    def reset_uptime(self):
-        """Reset the start time for uptime calculation"""
-        self.start_time = time.time()
-
-    def add_listener(self, listener):
-        """Add a listener for events"""
-        if listener not in self.listeners:
-            self.listeners.append(listener)
-    
-    def remove_listener(self, listener):
-        """Remove a listener"""
-        if listener in self.listeners:
-            self.listeners.remove(listener)
-    
-    def notify_stats_updated(self):
-        """Notify all listeners that stats have been updated"""
-        for listener in self.listeners:
-            evt = StatsUpdatedEvent(EVT_STATS_UPDATED, listener.GetId())
-            wx.PostEvent(listener, evt)
-    
-    def notify_user_connected(self, username):
-        """Notify all listeners that a user has connected"""
-        for listener in self.listeners:
-            evt = UserConnectedEvent(EVT_USER_CONNECTED, listener.GetId(), username)
-            wx.PostEvent(listener, evt)
-    
-    def update_status(self, status):
-        """Update the proxy status"""
-        self.proxy_status = status
-        self.notify_stats_updated()
-    
-    def update_listening_info(self, address, port):
-        """Update the listening address and port"""
-        self.listening_address = address
-        self.listening_port = port
-        self.notify_stats_updated()
-    
-    def connection_started(self):
-        """Increment connection counters when a new connection starts"""
-        self.total_connections += 1
-        self.active_connections += 1
-        self.notify_stats_updated()
-    
-    def connection_completed(self):
-        """Update counters when a connection completes"""
-        self.active_connections = max(0, self.active_connections - 1)
-        self.completed_connections += 1
-        self.notify_stats_updated()
-    
-    def get_uptime(self):
-        """Return uptime in human-readable format"""
-        uptime_seconds = int(time.time() - self.start_time)
-        hours, remainder = divmod(uptime_seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        
-        if hours > 0:
-            return f"{hours}h {minutes}m {seconds}s"
-        elif minutes > 0:
-            return f"{minutes}m {seconds}s"
-        else:
-            return f"{seconds}s"
-
-    def user_login(self, username):
-        """Signal that a user has logged in"""
-        self.notify_user_connected(username)
+from p99_sso_login_proxy.ui_classes import local_account_dialog
+from p99_sso_login_proxy.ui_classes import proxy_stats
+from p99_sso_login_proxy.ui_classes import taskbar_icon
 
 # Create a global stats instance
-proxy_stats = ProxyStats()
+PROXY_STATS = proxy_stats.ProxyStats()
 
 
 def warning(message):
@@ -125,11 +25,13 @@ def warning(message):
     dialog.ShowModal()
     dialog.Destroy()
 
+
 def error(message):
     # Display an error popup and wait for the user to click ok
     dialog = wx.MessageDialog(None, message, "Error", wx.OK | wx.ICON_ERROR)
     dialog.ShowModal()
     dialog.Destroy()
+
 
 class StatusLabel(wx.StaticText):
     """Custom styled status label"""
@@ -139,11 +41,13 @@ class StatusLabel(wx.StaticText):
         font.SetWeight(wx.FONTWEIGHT_BOLD)
         self.SetFont(font)
 
+
 class ValueLabel(wx.StaticText):
     """Custom styled value label"""
     def __init__(self, parent, text="", id=wx.ID_ANY):
         super().__init__(parent, id, text)
         self.SetForegroundColour(wx.Colour(44, 62, 80))  # #2c3e50
+
 
 class ProxyUI(wx.Frame):
     """Main UI window for the proxy application"""
@@ -166,17 +70,20 @@ class ProxyUI(wx.Frame):
         def update_stats(self, event=None):
             """Update all statistics in the UI"""
             # self.status_value.SetLabel(proxy_stats.proxy_status)
-            self.address_value.SetLabel(f"{proxy_stats.listening_address}:{proxy_stats.listening_port}")
-            self.uptime_value.SetLabel(proxy_stats.get_uptime())
-            self.total_value.SetLabel(str(proxy_stats.total_connections))
-            self.active_value.SetLabel(str(proxy_stats.active_connections))
-            self.completed_value.SetLabel(str(proxy_stats.completed_connections))
+            self.address_value.SetLabel(f"{PROXY_STATS.listening_address}:{PROXY_STATS.listening_port}")
+            self.uptime_value.SetLabel(PROXY_STATS.get_uptime())
+            self.total_value.SetLabel(str(PROXY_STATS.total_connections))
+            self.active_value.SetLabel(str(PROXY_STATS.active_connections))
+            self.completed_value.SetLabel(str(PROXY_STATS.completed_connections))
 
             if self.tray_icon:
                 # Update tray tooltip with basic stats if tray icon exists
-                tooltip = f"{config.APP_NAME}\nStatus: {proxy_stats.proxy_status}\n"
-                tooltip += f"Connections: {proxy_stats.active_connections} active, "
-                tooltip += f"{proxy_stats.total_connections} total"
+                tooltip = f"{config.APP_NAME}\n"
+                tooltip += f"Status: {PROXY_STATS.proxy_status}\n"
+                tooltip += f"Connections: {PROXY_STATS.active_connections} active, "
+                tooltip += f"{PROXY_STATS.total_connections} total\n"
+                tooltip += f"Local Accounts: {len(config.LOCAL_ACCOUNTS)}\n"
+                tooltip += f"SSO Accounts: {config.ACCOUNTS_CACHE_REAL_COUNT}"
                 self.tray_icon.update_icon(tooltip=tooltip)
         
         def show_user_connected_notification(self, username):
@@ -238,17 +145,17 @@ class ProxyUI(wx.Frame):
         self.__init_event_handlers()
         
         # Register as a listener for proxy stats events
-        proxy_stats.add_listener(self)
+        PROXY_STATS.add_listener(self)
         
         # Bind event handlers
-        self.Bind(EVT_STATS_UPDATED_BINDER, self.on_stats_updated)
-        self.Bind(EVT_USER_CONNECTED_BINDER, self.on_user_connected)
+        self.Bind(proxy_stats.EVT_STATS_UPDATED_BINDER, self.on_stats_updated)
+        self.Bind(proxy_stats.EVT_USER_CONNECTED_BINDER, self.on_user_connected)
         
         # Initialize UI components
         self.init_ui()
         
         # Create a TaskBarIcon
-        self.tray_icon = TaskBarIcon(self)
+        self.tray_icon = taskbar_icon.TaskBarIcon(self)
         
         # Update stats periodically
         self.uptime_timer = wx.Timer(self)
@@ -299,7 +206,7 @@ class ProxyUI(wx.Frame):
         # Listening address
         address_sizer = wx.BoxSizer(wx.HORIZONTAL)
         address_label = StatusLabel(proxy_tab, "Listening on:")
-        self.address_value = ValueLabel(proxy_tab, f"{proxy_stats.listening_address}:{proxy_stats.listening_port}")
+        self.address_value = ValueLabel(proxy_tab, f"{PROXY_STATS.listening_address}:{PROXY_STATS.listening_port}")
         address_sizer.Add(address_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         address_sizer.Add(self.address_value, 1, wx.ALIGN_CENTER_VERTICAL)
         status_box_sizer.Add(address_sizer, 0, wx.EXPAND | wx.ALL, 5)
@@ -323,7 +230,7 @@ class ProxyUI(wx.Frame):
         # Uptime
         uptime_sizer = wx.BoxSizer(wx.HORIZONTAL)
         uptime_label = StatusLabel(proxy_tab, "Uptime:")
-        self.uptime_value = ValueLabel(proxy_tab, proxy_stats.get_uptime())
+        self.uptime_value = ValueLabel(proxy_tab, PROXY_STATS.get_uptime())
         uptime_sizer.Add(uptime_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         uptime_sizer.Add(self.uptime_value, 1, wx.ALIGN_CENTER_VERTICAL)
         status_box_sizer.Add(uptime_sizer, 0, wx.EXPAND | wx.ALL, 5)
@@ -338,7 +245,7 @@ class ProxyUI(wx.Frame):
         # Total connections
         total_sizer = wx.BoxSizer(wx.HORIZONTAL)
         total_label = StatusLabel(proxy_tab, "Total Connections:")
-        self.total_value = ValueLabel(proxy_tab, str(proxy_stats.total_connections))
+        self.total_value = ValueLabel(proxy_tab, str(PROXY_STATS.total_connections))
         total_sizer.Add(total_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         total_sizer.Add(self.total_value, 1, wx.ALIGN_CENTER_VERTICAL)
         stats_box_sizer.Add(total_sizer, 0, wx.EXPAND | wx.ALL, 5)
@@ -346,7 +253,7 @@ class ProxyUI(wx.Frame):
         # Active connections
         active_sizer = wx.BoxSizer(wx.HORIZONTAL)
         active_label = StatusLabel(proxy_tab, "Active Connections:")
-        self.active_value = ValueLabel(proxy_tab, str(proxy_stats.active_connections))
+        self.active_value = ValueLabel(proxy_tab, str(PROXY_STATS.active_connections))
         active_sizer.Add(active_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         active_sizer.Add(self.active_value, 1, wx.ALIGN_CENTER_VERTICAL)
         stats_box_sizer.Add(active_sizer, 0, wx.EXPAND | wx.ALL, 5)
@@ -354,7 +261,7 @@ class ProxyUI(wx.Frame):
         # Completed connections
         completed_sizer = wx.BoxSizer(wx.HORIZONTAL)
         completed_label = StatusLabel(proxy_tab, "Completed Connections:")
-        self.completed_value = ValueLabel(proxy_tab, str(proxy_stats.completed_connections))
+        self.completed_value = ValueLabel(proxy_tab, str(PROXY_STATS.completed_connections))
         completed_sizer.Add(completed_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         completed_sizer.Add(self.completed_value, 1, wx.ALIGN_CENTER_VERTICAL)
         stats_box_sizer.Add(completed_sizer, 0, wx.EXPAND | wx.ALL, 5)
@@ -609,6 +516,27 @@ class ProxyUI(wx.Frame):
         
         # Add the list control to the local tab
         local_sizer.Add(self.local_accounts_list, 1, wx.ALL | wx.EXPAND, 5)
+        
+        # Add buttons for managing local accounts
+        local_buttons_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        
+        # Add account button
+        self.add_local_account_btn = wx.Button(local_tab, label="Add Account")
+        self.add_local_account_btn.Bind(wx.EVT_BUTTON, self.on_add_local_account)
+        local_buttons_sizer.Add(self.add_local_account_btn, 0, wx.ALL, 5)
+        
+        # Edit account button
+        self.edit_local_account_btn = wx.Button(local_tab, label="Edit Account")
+        self.edit_local_account_btn.Bind(wx.EVT_BUTTON, self.on_edit_local_account)
+        local_buttons_sizer.Add(self.edit_local_account_btn, 0, wx.ALL, 5)
+        
+        # Delete account button
+        self.delete_local_account_btn = wx.Button(local_tab, label="Delete Account")
+        self.delete_local_account_btn.Bind(wx.EVT_BUTTON, self.on_delete_local_account)
+        local_buttons_sizer.Add(self.delete_local_account_btn, 0, wx.ALL, 5)
+        
+        # Add the buttons sizer to the local tab
+        local_sizer.Add(local_buttons_sizer, 0, wx.ALL | wx.CENTER, 5)
         local_tab.SetSizer(local_sizer)
         
         # Add the tabs to the nested notebook
@@ -674,30 +602,11 @@ class ProxyUI(wx.Frame):
         
         # Path to eqgame.exe
         eqgame_path = os.path.join(eq_dir, "eqgame.exe")
-        # launch_bat = os.path.join(eq_dir, "Launch Titanium.bat")
         try:
-            # Launch EverQuest with elevated privileges using ShellExecute
-            # if os.path.exists(launch_bat):
-                # subprocess.Popen(
-                #     ["powershell.exe", "-Command", "& { Start-Process eqgame.exe -ArgumentList @('patchme') -Verb RunAs }"],
-                #     cwd=eq_dir, start_new_session=True, shell=True, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
-                # )
-                # self.start_eq_func(eq_dir)
             if os.path.exists(eqgame_path):
-                # import win32api
-                # import win32con
-                # win32api.ShellExecute(
-                #     self.GetHandle(),
-                #     "runas",  # This verb requests elevation
-                #     eqgame_path,
-                #     "patchme",  # Parameters
-                #     eq_dir,  # Working directory
-                #     win32con.SW_SHOWNORMAL
-                # )
                 self.start_eq_func(eq_dir)
             else:
                 wx.MessageBox(f"EverQuest executable not found in {eq_dir}", "Error", wx.OK | wx.ICON_ERROR)
-
         except Exception as e:
             wx.MessageBox(f"Failed to launch EverQuest: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
 
@@ -935,6 +844,156 @@ class ProxyUI(wx.Frame):
             self.cache_time_text.SetLabel(cache_time)
             self.cache_time_text.Refresh()
 
+    # Handle adding a local account
+    def on_add_local_account(self, event):
+        """Add a new local account"""
+        dialog = local_account_dialog.LocalAccountDialog(self, title="Add Local Account")
+        if dialog.ShowModal() == wx.ID_OK:
+            account_name = dialog.account_name.GetValue().strip()
+            password = dialog.password.GetValue().strip()
+            aliases_text = dialog.aliases.GetValue().strip()
+            
+            # Validate input
+            if not account_name:
+                wx.MessageBox("Account name cannot be empty.", "Error", wx.OK | wx.ICON_ERROR)
+                return
+            
+            if not password:
+                wx.MessageBox("Password cannot be empty.", "Error", wx.OK | wx.ICON_ERROR)
+                return
+            
+            # Check if account already exists
+            if account_name in config.LOCAL_ACCOUNTS:
+                wx.MessageBox(f"Account '{account_name}' already exists.", "Error", wx.OK | wx.ICON_ERROR)
+                return
+            
+            # Parse aliases
+            aliases = [alias.strip() for alias in aliases_text.split(",") if alias.strip()]
+            
+            # Add the account
+            config.LOCAL_ACCOUNTS[account_name] = {
+                "password": password,
+                "aliases": aliases
+            }
+            
+            # Update the name map
+            config.LOCAL_ACCOUNT_NAME_MAP[account_name] = account_name
+            for alias in aliases:
+                config.LOCAL_ACCOUNT_NAME_MAP[alias] = account_name
+            
+            # Save to file
+            if not utils.save_local_accounts(config.LOCAL_ACCOUNTS, config.LOCAL_ACCOUNTS_FILE):
+                wx.MessageBox("Failed to save local accounts.", "Error", wx.OK | wx.ICON_ERROR)
+            
+            # Update the UI
+            self.update_account_cache_display()
+        
+        dialog.Destroy()
+    
+    # Handle editing a local account
+    def on_edit_local_account(self, event):
+        """Edit an existing local account"""
+        # Get the selected account
+        selected_index = self.local_accounts_list.GetFirstSelected()
+        if selected_index == -1:
+            wx.MessageBox("Please select an account to edit.", "Error", wx.OK | wx.ICON_ERROR)
+            return
+        
+        account_name = self.local_accounts_list.GetItemText(selected_index, 0)
+        if account_name not in config.LOCAL_ACCOUNTS:
+            wx.MessageBox(f"Account '{account_name}' not found.", "Error", wx.OK | wx.ICON_ERROR)
+            return
+        
+        # Get the current account data
+        account_data = config.LOCAL_ACCOUNTS[account_name]
+        
+        # Create and show the dialog
+        dialog = local_account_dialog.LocalAccountDialog(
+            self, 
+            title="Edit Local Account",
+            account_name=account_name,
+            password=account_data.get("password", ""),
+            aliases=", ".join(account_data.get("aliases", []))
+        )
+        dialog.account_name.Disable()  # Don't allow changing the account name
+        
+        if dialog.ShowModal() == wx.ID_OK:
+            password = dialog.password.GetValue().strip()
+            aliases_text = dialog.aliases.GetValue().strip()
+            
+            # Validate input
+            if not password:
+                wx.MessageBox("Password cannot be empty.", "Error", wx.OK | wx.ICON_ERROR)
+                return
+            
+            # Parse aliases
+            aliases = [alias.strip() for alias in aliases_text.split(",") if alias.strip()]
+            
+            # Remove old aliases from the name map
+            for alias in account_data.get("aliases", []):
+                if alias in config.LOCAL_ACCOUNT_NAME_MAP:
+                    del config.LOCAL_ACCOUNT_NAME_MAP[alias]
+            
+            # Update the account
+            config.LOCAL_ACCOUNTS[account_name] = {
+                "password": password,
+                "aliases": aliases
+            }
+            
+            # Update the name map
+            for alias in aliases:
+                config.LOCAL_ACCOUNT_NAME_MAP[alias] = account_name
+            
+            # Save to file
+            if not utils.save_local_accounts(config.LOCAL_ACCOUNTS, config.LOCAL_ACCOUNTS_FILE):
+                wx.MessageBox("Failed to save local accounts.", "Error", wx.OK | wx.ICON_ERROR)
+            
+            # Update the UI
+            self.update_account_cache_display()
+        
+        dialog.Destroy()
+    
+    # Handle deleting a local account
+    def on_delete_local_account(self, event):
+        """Delete a local account"""
+        # Get the selected account
+        selected_index = self.local_accounts_list.GetFirstSelected()
+        if selected_index == -1:
+            wx.MessageBox("Please select an account to delete.", "Error", wx.OK | wx.ICON_ERROR)
+            return
+        
+        account_name = self.local_accounts_list.GetItemText(selected_index, 0)
+        if account_name not in config.LOCAL_ACCOUNTS:
+            wx.MessageBox(f"Account '{account_name}' not found.", "Error", wx.OK | wx.ICON_ERROR)
+            return
+        
+        # Confirm deletion
+        if wx.MessageBox(f"Are you sure you want to delete the account '{account_name}'?", 
+                        "Confirm Deletion", wx.YES_NO | wx.ICON_QUESTION) != wx.YES:
+            return
+        
+        # Get the account data
+        account_data = config.LOCAL_ACCOUNTS[account_name]
+        
+        # Remove aliases from the name map
+        for alias in account_data.get("aliases", []):
+            if alias in config.LOCAL_ACCOUNT_NAME_MAP:
+                del config.LOCAL_ACCOUNT_NAME_MAP[alias]
+        
+        # Remove the account from the name map
+        if account_name in config.LOCAL_ACCOUNT_NAME_MAP:
+            del config.LOCAL_ACCOUNT_NAME_MAP[account_name]
+        
+        # Remove the account
+        del config.LOCAL_ACCOUNTS[account_name]
+        
+        # Save to file
+        if not utils.save_local_accounts(config.LOCAL_ACCOUNTS, config.LOCAL_ACCOUNTS_FILE):
+            wx.MessageBox("Failed to save local accounts.", "Error", wx.OK | wx.ICON_ERROR)
+        
+        # Update the UI
+        self.update_account_cache_display()
+
     # Update EverQuest configuration status display
     def update_account_cache_display(self):
         """Update the account cache display"""
@@ -1087,148 +1146,6 @@ class ProxyUI(wx.Frame):
         # Update tray icon based on proxy status
         if hasattr(self, 'tray_icon'):
             self.tray_icon.update_icon()
-
-
-class TaskBarIcon(wx.adv.TaskBarIcon):
-    def __init__(self, frame):
-        super().__init__()
-        self.frame = frame
-        self.last_tooltip = f"{config.APP_NAME}"
-        
-        # Set initial icon
-        self.update_icon()
-        
-        # Bind events
-        self.Bind(wx.adv.EVT_TASKBAR_LEFT_DCLICK, self.on_left_dclick)
-    
-    # Handle double-click on the taskbar icon
-    def on_left_dclick(self, event):
-        if not self.frame.IsShown():
-            self.frame.Show()
-            self.frame.Raise()
-    
-    # Create the popup menu for the taskbar icon
-    def CreatePopupMenu(self):
-        menu = wx.Menu()
-        
-        # Show/Hide application menu item
-        if self.frame.IsShown():
-            visibility_item = menu.Append(wx.ID_ANY, "Hide Application")
-            self.Bind(wx.EVT_MENU, self.on_hide, visibility_item)
-        else:
-            visibility_item = menu.Append(wx.ID_ANY, "Show Application")
-            self.Bind(wx.EVT_MENU, self.on_show, visibility_item)
-        
-        # Add Launch EverQuest menu item
-        launch_eq_item = menu.Append(wx.ID_ANY, "Launch EverQuest")
-        self.Bind(wx.EVT_MENU, self.frame.on_launch_eq, launch_eq_item)
-        
-        # Add update menu item
-        update_item = menu.Append(wx.ID_ANY, "Check for Updates")
-        self.Bind(wx.EVT_MENU, self.on_check_updates, update_item)
-        
-        menu.AppendSeparator()
-        
-        exit_item = menu.Append(wx.ID_ANY, "Exit")
-        self.Bind(wx.EVT_MENU, self.on_exit, exit_item)
-        
-        return menu
-    
-    # Update the menu (called when update status changes)
-    def update_menu(self):
-        # Force the menu to be rebuilt next time it's shown
-        if wx.Platform == '__WXMSW__':
-            self.PopupMenu(self.CreatePopupMenu())
-            # Hide the menu immediately
-            wx.CallAfter(self.PopupMenu, None)
-    
-    # Update the tray icon based on proxy status
-    def update_icon(self, tooltip=None):
-        self.last_tooltip = tooltip = tooltip or self.last_tooltip
-        # Get current proxy status directly from eq_config
-        using_proxy, _ = eq_config.is_using_proxy()
-        
-        # Choose the appropriate icon filename
-        if using_proxy and not config.PROXY_ONLY:
-            icon_filename = "tray_icon.png"
-        elif using_proxy and config.PROXY_ONLY:
-            icon_filename = "tray_icon_proxy_only.png"
-        else:
-            icon_filename = "tray_icon_disabled.png"
-        
-        # Try multiple possible locations for the icon file
-        icon_paths = [
-            # When running from source
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", icon_filename),
-            # When running from PyInstaller bundle
-            os.path.join(os.path.dirname(sys.executable), icon_filename),
-            # Current directory
-            icon_filename
-        ]
-        
-        # Try to load the icon from each possible path
-        for path in icon_paths:
-            if os.path.exists(path):
-                try:
-                    icon = wx.Icon(path)
-                    self.SetIcon(icon, tooltip)
-                    self.frame.SetIcon(icon)
-                    return  # Successfully set the icon
-                except Exception as e:
-                    print(f"Failed to load icon from {path}: {e}")
-        
-        # If we get here, we couldn't find or load the icon
-        print(f"Warning: Could not find or load icon {icon_filename}")
-    
-    # Show the main window
-    def on_show(self, event):
-        if not self.frame.IsShown():
-            self.frame.Show()
-            self.frame.Raise()
-    
-    # Hide the main window
-    def on_hide(self, event):
-        if self.frame.IsShown():
-            self.frame.Hide()
-            # Show notification when hiding
-            self.ShowBalloon(
-                config.APP_NAME,
-                f"{config.APP_NAME} is still running in the system tray.",
-                2000  # Show for 2 seconds
-            )
-    
-    def on_check_updates(self, event):
-        """Check for updates"""
-        try:
-            if not updater.check_update():
-                dlg = wx.MessageDialog(
-                    self.frame,
-                    f"Version: {config.APP_VERSION}\n\n"
-                    "There is no update available, you are running the latest version.",
-                    "No Update Available", wx.OK | wx.ICON_INFORMATION)
-                dlg.ShowModal()
-                dlg.Destroy()
-        except Exception as e:
-            print(f"[UI] Failed to check for updates: {e}")
-            wx.MessageBox(
-                f"Failed to check for updates: {e}",
-                "Error",
-                wx.OK | wx.ICON_ERROR
-            )
-    
-    # These methods are used by the tray icon menu
-    def on_exit(self, event):
-        """Exit the application"""
-        self.frame.close_application()
-    
-    def ShowBalloon(self, title, text, msec=0):
-        """Show a balloon notification"""
-        if wx.Platform == '__WXMSW__':
-            # Only available on Windows
-            super().ShowBalloon(title, text, msec)
-        else:
-            # For other platforms, we could implement a custom notification
-            pass
 
 
 def start_ui():
