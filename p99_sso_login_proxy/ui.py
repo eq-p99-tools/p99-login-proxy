@@ -565,11 +565,18 @@ class ProxyUI(wx.Frame):
         changelog_tab = wx.Panel(notebook)
         changelog_sizer = wx.BoxSizer(wx.VERTICAL)
         
+        # Create a static box with the label "Version History"
+        version_history_box = wx.StaticBox(changelog_tab, label="Version History")
+        version_history_sizer = wx.StaticBoxSizer(version_history_box, wx.VERTICAL)
+        
         # Create an HTML window for the changelog
-        self.changelog_html = wx.html.HtmlWindow(changelog_tab)
+        self.changelog_html = wx.html.HtmlWindow(version_history_box)
 
-        # Add the HTML window to the sizer
-        changelog_sizer.Add(self.changelog_html, 1, wx.EXPAND | wx.ALL, 10)
+        # Add the HTML window to the static box sizer
+        version_history_sizer.Add(self.changelog_html, 1, wx.EXPAND | wx.ALL, 10)
+        
+        # Add the static box sizer to the main changelog sizer
+        changelog_sizer.Add(version_history_sizer, 1, wx.EXPAND | wx.ALL, 10)
         changelog_tab.SetSizer(changelog_sizer)
         
         # Add tabs to notebook

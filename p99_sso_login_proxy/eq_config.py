@@ -10,6 +10,8 @@ import logging
 import string
 from typing import Optional, Tuple, List
 
+from p99_sso_login_proxy import config
+
 # Set up logging
 logger = logging.getLogger("eq_config")
 
@@ -30,8 +32,8 @@ DEFAULT_EQ_PATHS = [
 ]
 
 # Default login server address and proxy address
-DEFAULT_LOGIN_SERVER = "Host=login.eqemulator.net:5998"
-DEFAULT_PROXY_ADDRESS = "Host=localhost:5998"
+DEFAULT_LOGIN_SERVER = f"Host={config.EQEMU_LOGIN_HOST}:{config.EQEMU_PORT}"
+DEFAULT_PROXY_ADDRESS = f"Host={config.LISTEN_HOST if config.LISTEN_HOST != '0.0.0.0' else 'localhost'}:{config.LISTEN_PORT}"
 
 
 def get_available_drives() -> List[str]:
