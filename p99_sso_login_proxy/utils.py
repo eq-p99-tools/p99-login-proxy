@@ -26,17 +26,18 @@ def load_local_accounts(file_path) -> tuple[dict[str, dict[str, str]], dict[str,
                         print("Skipping header row")
                         row_num += 1
                         continue
-                    accounts[row[0]] = {
+                    account_name = row[0].strip().lower()
+                    accounts[account_name] = {
                         "password": row[1],
                     }
-                    all_names[row[0]] = row[0]
+                    all_names[account_name] = account_name
                     if len(row) > 2:
-                        accounts[row[0]]["aliases"] = [alias.strip() for alias in row[2].split("|")]
-                        for alias in accounts[row[0]]["aliases"]:
-                            all_names[alias] = row[0]
+                        accounts[account_name]["aliases"] = [alias.strip().lower() for alias in row[2].split("|")]
+                        for alias in accounts[account_name]["aliases"]:
+                            all_names[alias] = account_name
                     else:
-                        accounts[row[0]]["aliases"] = []
-                    print(f"Loaded account: `{row[0]}` with aliases: {accounts[row[0]]['aliases']}")
+                        accounts[account_name]["aliases"] = []
+                    print(f"Loaded account: `{account_name}` with aliases: {accounts[account_name]['aliases']}")
                 except IndexError as e:
                     print(f"Invalid row format at row `{row}`: {e}")
                 row_num += 1
