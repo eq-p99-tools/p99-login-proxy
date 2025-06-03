@@ -96,8 +96,8 @@ def main():
         # or make it configurable because it likely is different on different distros
         import subprocess
         subprocess.Popen(
-            ["wine", "eqgame", "patchme"],
-            cwd=eq_dir, start_new_session=True, shell=True, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+            ["wine", "eqgame.exe", "patchme"],
+            cwd=eq_dir, start_new_session=True
         )
     
     # Fetch user accounts if API token is available
