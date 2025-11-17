@@ -503,7 +503,25 @@ class ProxyUI(wx.Frame):
         # Add the list control to the tags tab
         tags_sizer.Add(self.tags_list, 1, wx.ALL | wx.EXPAND, 5)
         tags_tab.SetSizer(tags_sizer)
-        
+
+        # Characters tab
+        characters_tab = wx.Panel(sso_notebook)
+        characters_sizer = wx.BoxSizer(wx.VERTICAL)
+
+        # Create a list control for the characters
+        self.characters_list = wx.ListCtrl(characters_tab, style=wx.LC_REPORT | wx.BORDER_SUNKEN | wx.LC_HRULES | wx.LC_VRULES)
+        self.characters_list.InsertColumn(0, "Character", width=80)
+        self.characters_list.InsertColumn(1, "Class", width=70)
+        self.characters_list.InsertColumn(2, "Park Location", width=110)
+        self.characters_list.InsertColumn(3, "Bind Location", width=110)
+        self.characters_list.InsertColumn(4, "Account Name", width=100)
+
+        # We'll set alternating row colors in the update_account_cache_display method
+
+        # Add the list control to the characters tab
+        characters_sizer.Add(self.characters_list, 1, wx.ALL | wx.EXPAND, 5)
+        characters_tab.SetSizer(characters_sizer)
+
         # Local accounts tab
         local_tab = wx.Panel(sso_notebook)
         local_sizer = wx.BoxSizer(wx.VERTICAL)
@@ -544,6 +562,7 @@ class ProxyUI(wx.Frame):
         sso_notebook.AddPage(accounts_tab, "Accounts")
         sso_notebook.AddPage(aliases_tab, "Aliases")
         sso_notebook.AddPage(tags_tab, "Tags")
+        sso_notebook.AddPage(characters_tab, "Characters")
         sso_notebook.AddPage(local_tab, "Local")
         
         # Add the nested notebook to the main SSO tab sizer
@@ -1130,6 +1149,32 @@ class ProxyUI(wx.Frame):
                 # Set alternating row colors
                 if i % 2 == 1:
                     self.tags_list.SetItemBackgroundColour(i, wx.Colour(240, 245, 250))
+
+        # Update the characters list
+        if hasattr(self, 'characters_list'):
+            self.characters_list.DeleteAllItems()
+
+            # Create a list of all characters with their account names
+            all_characters = []
+            for account, data in config.ACCOUNTS_CACHED.items():
+                characters = data.get("characters", {})
+                for character in sorted(characters):
+                    all_characters.append((character, account, characters[character]["bind"], characters[character]["park"], characters[character]["class"]))
+
+            # Sort by character name
+            all_characters.sort()
+
+            # Add each character to the list
+            for i, (character, account, bind, park, klass) in enumerate(all_characters):
+                self.characters_list.InsertItem(i, character)
+                self.characters_list.SetItem(i, 1, klass)
+                self.characters_list.SetItem(i, 2, park)
+                self.characters_list.SetItem(i, 3, bind)
+                self.characters_list.SetItem(i, 4, account)
+
+                # Set alternating row colors
+                if i % 2 == 1:
+                    self.characters_list.SetItemBackgroundColour(i, wx.Colour(240, 245, 250))
 
     def update_eq_status(self):
         """Update the EverQuest configuration status display"""

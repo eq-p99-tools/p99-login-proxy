@@ -2,6 +2,7 @@ import datetime
 import requests
 
 from p99_sso_login_proxy import config
+from p99_sso_login_proxy import utils
 
 
 def fetch_user_accounts():
@@ -29,11 +30,19 @@ def fetch_user_accounts():
             real_account_count = len(real_account_names)
             aliases = []
             tags = []
+            characters = []
+
             for account_data in accounts.values():
                 if account_data.get("aliases"):
                     aliases.extend(account_data.get("aliases"))
                 if account_data.get("tags"):
                     tags.extend(account_data.get("tags"))
+                if account_data.get("characters"):
+                    characters.extend(account_data.get("characters"))
+
+            dynamic_tag_zones = response.json().get("dynamic_tag_zones", {})
+            dynamic_tag_classes = response.json().get("dynamic_tag_classes", {})
+            dynamic_tags = utils.get_dynamic_tag_list(dynamic_tag_zones, dynamic_tag_classes)
 
             print(f"[SSO] Successfully fetched {real_account_count} accounts (and {len(aliases) + len(tags)} aliases/tags)")
 
@@ -41,6 +50,7 @@ def fetch_user_accounts():
             all_account_names.extend(real_account_names)
             all_account_names.extend(aliases)
             all_account_names.extend(tags)
+            all_account_names.extend(dynamic_tags)
         else:
             print(f"[SSO] Failed to fetch account list: {response.status_code} {response.text}")
 
@@ -48,7 +58,6 @@ def fetch_user_accounts():
     config.ACCOUNTS_CACHE_REAL_COUNT = real_account_count
     config.ACCOUNTS_CACHE_TIMESTAMP = datetime.datetime.now()
     config.ACCOUNTS_CACHED = accounts
-
 
 def check_sso_login(username: str, password: str) -> tuple[str, str]:
     """

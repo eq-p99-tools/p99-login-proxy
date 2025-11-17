@@ -1,4 +1,5 @@
 import csv
+import itertools
 import os
 
 def hex_to_bytes(hex_str):
@@ -61,4 +62,8 @@ def save_local_accounts(accounts, file_path):
     except Exception as e:
         print(f"Failed to save local accounts: {e}")
         return False
-        
+
+
+def get_dynamic_tag_list(dt_zones: list[str], dt_classes: list[str]) -> list[str]:
+    dt_list = ["{}{}".format(a, b) for a, b in itertools.product(dt_zones, dt_classes)]
+    return dt_list
