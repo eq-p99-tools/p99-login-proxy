@@ -1,6 +1,7 @@
 import configparser
-import socket
 import datetime
+import re
+import socket
 
 from p99_sso_login_proxy import __version_semver__
 from p99_sso_login_proxy import utils
@@ -89,3 +90,8 @@ def set_proxy_enabled(value: bool):
     PROXY_ENABLED = value
     with open("proxyconfig.ini", "w") as configfile:
         CONFIG.write(configfile)
+
+
+TIMESTAMP = r"\[(?P<time>\w{3} \w{3} \d{2} \d\d:\d\d:\d\d \d{4})\] +"
+MATCH_ENTERED_ZONE = re.compile(f"{TIMESTAMP}You have entered (?P<zone>.*?).")
+MATCH_CHARINFO = re.compile(f"{TIMESTAMP}You are currently bound in: (?P<zone>.*)")

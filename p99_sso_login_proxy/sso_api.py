@@ -1,6 +1,8 @@
 import datetime
 import requests
 
+import httpx
+
 from p99_sso_login_proxy import config
 from p99_sso_login_proxy import utils
 
@@ -59,6 +61,53 @@ def fetch_user_accounts():
     config.ACCOUNTS_CACHE_TIMESTAMP = datetime.datetime.now()
     config.ACCOUNTS_CACHED = accounts
 
+
+async def heartbeat(character_name: str) -> None:
+    """
+    Heartbeat the SSO API to keep the session alive.
+    """
+    if not config.USER_API_TOKEN:
+        return
+    # print(f"[SSO] Sending heartbeat for `{character_name}` at {datetime.datetime.now()}")
+    # Use a custom CA bundle if provided in config, otherwise default
+    verify = getattr(config, 'SSO_CA_BUNDLE', True)
+    # print(f"[SSO] Using CA bundle: {verify}")
+
+    async with httpx.AsyncClient(verify=verify) as client:
+        await client.post(f"{config.SSO_API}/heartbeat", json={
+            "character_name": character_name,
+            "access_key": config.USER_API_TOKEN
+        }, timeout=config.SSO_TIMEOUT)
+    # response = requests.post(f"{config.SSO_API}/heartbeat", json={
+    #     "character_name": character_name,
+    #     "access_key": config.USER_API_TOKEN
+    # }, timeout=config.SSO_TIMEOUT, verify=verify)
+    # print(f"[SSO] Heartbeat response: {response.status_code} {response.text}")
+
+
+async def update_location(character_name: str, park_location: str = None, bind_location: str = None):
+    if not config.USER_API_TOKEN:
+        return
+    # print(f"[SSO] Updating location for `{character_name}`")
+    # Use a custom CA bundle if provided in config, otherwise default
+    verify = getattr(config, 'SSO_CA_BUNDLE', True)
+    # print(f"[SSO] Using CA bundle: {verify}")
+
+    req_json = {
+        "character_name": character_name,
+        "access_key": config.USER_API_TOKEN,
+    }
+    if park_location:
+        req_json["park_location"] = park_location
+    if bind_location:
+        req_json["bind_location"] = bind_location
+    async with httpx.AsyncClient(verify=verify) as client:
+        await client.post(f"{config.SSO_API}/update_location", json=req_json, timeout=config.SSO_TIMEOUT)
+    # response = requests.post(
+    #     f"{config.SSO_API}/update_location", json=req_json, timeout=config.SSO_TIMEOUT, verify=verify)
+    # print(f"[SSO] Update location response: {response.status_code} {response.text}")
+
+
 def check_sso_login(username: str, password: str) -> tuple[str, str]:
     """
     Check the SSO login credentials.
@@ -73,7 +122,7 @@ def check_sso_login(username: str, password: str) -> tuple[str, str]:
     print(f"[SSO] Checking login for {username}")
     # Use a custom CA bundle if provided in config, otherwise default
     verify = getattr(config, 'SSO_CA_BUNDLE', True)
-    print(f"[SSO] Using CA bundle: {verify}")
+    # print(f"[SSO] Using CA bundle: {verify}")
 
     response = requests.post(f"{config.SSO_API}/auth", json={
         "username": username,

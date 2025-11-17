@@ -43,6 +43,8 @@ dependencies = [
     "pywin32>=306; sys_platform == 'win32'",
     "semver>=3.0.1",
     "markdown>=3.8",
+    "watchdog>=6.0.0",
+    "httpx>=0.28.1",
 ]
 
 [project.scripts]

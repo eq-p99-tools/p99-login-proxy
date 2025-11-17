@@ -24,7 +24,7 @@ def load_local_accounts(file_path) -> tuple[dict[str, dict[str, str]], dict[str,
             for row in reader:
                 try:
                     if row_num == 0 and "name" in row[0]:
-                        print("Skipping header row")
+                        # print("Skipping header row")
                         row_num += 1
                         continue
                     account_name = row[0].strip().lower()
@@ -38,7 +38,7 @@ def load_local_accounts(file_path) -> tuple[dict[str, dict[str, str]], dict[str,
                             all_names[alias] = account_name
                     else:
                         accounts[account_name]["aliases"] = []
-                    print(f"Loaded account: `{account_name}` with aliases: {accounts[account_name]['aliases']}")
+                    # print(f"Loaded account: `{account_name}` with aliases: {accounts[account_name]['aliases']}")
                 except IndexError as e:
                     print(f"Invalid row format at row `{row}`: {e}")
                 row_num += 1

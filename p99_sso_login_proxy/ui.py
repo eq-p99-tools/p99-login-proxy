@@ -1,15 +1,16 @@
+import datetime
 import logging
 import os
+import platform
 import sys
 import threading
-import datetime
-import platform
 
 import wx
 import wx.html
 
 from p99_sso_login_proxy import config
 from p99_sso_login_proxy import eq_config
+from p99_sso_login_proxy import log_handler
 from p99_sso_login_proxy import sso_api
 from p99_sso_login_proxy import utils
 from p99_sso_login_proxy.ui_classes import local_account_dialog
@@ -629,7 +630,7 @@ class ProxyUI(wx.Frame):
         
         # Center the window
         self.Centre()
-    
+
     # Handle launch EverQuest button click
     def on_launch_eq(self, event):
         # Get the EverQuest directory
@@ -1161,8 +1162,8 @@ class ProxyUI(wx.Frame):
                 for character in sorted(characters):
                     all_characters.append((character, account, characters[character]["bind"], characters[character]["park"], characters[character]["class"]))
 
-            # Sort by character name
-            all_characters.sort()
+            # Sort by item 1 then item 0
+            all_characters.sort(key=lambda x: (x[1], x[0]))
 
             # Add each character to the list
             for i, (character, account, bind, park, klass) in enumerate(all_characters):
@@ -1189,6 +1190,9 @@ class ProxyUI(wx.Frame):
         if status["eq_directory_found"]:
             self.eq_dir_text.SetLabel(f"{status['eq_directory']}")
             self.eq_dir_text.SetForegroundColour(wx.Colour(0, 128, 0))  # Green
+
+            # Set up the Log Watcher
+            log_handler.set_log_watch_directory(status["eq_directory"], self)
         else:
             self.eq_dir_text.SetLabel("Not Found")
             self.eq_dir_text.SetForegroundColour(wx.Colour(255, 0, 0))  # Red

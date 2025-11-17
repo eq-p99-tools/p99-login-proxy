@@ -1,4 +1,6 @@
 import asyncio
+import glob
+import os
 import sys
 import threading
 import platform
@@ -15,7 +17,8 @@ class WxAsyncApp(wx.App):
         self.running = False
         self.transport = None
         self.exit_event = threading.Event()
-    
+        self.loop_thread: threading.Thread | None = None
+
     def start_event_loop(self):
         """Start the event loop"""
         self.running = True
@@ -39,7 +42,7 @@ class WxAsyncApp(wx.App):
     
     async def _check_exit(self):
         """Check if the exit event has been set"""
-        # Start the proxy server\
+        # Start the proxy server
         self.proxy_task = asyncio.create_task(server.main())
 
         # Wait for the exit event to be set
@@ -77,6 +80,7 @@ class WxAsyncApp(wx.App):
         print("[RUN SERVER] Stopping event loop in WxAsyncApp")
         self.exit_event.set()
         self.ExitMainLoop()
+
 
 def main():
     # Create the wxPython application with asyncio integration

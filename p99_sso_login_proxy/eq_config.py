@@ -145,6 +145,26 @@ def get_eqhost_path(eq_dir: Optional[str] = None) -> Optional[str]:
     return None
 
 
+def get_eqclient_path(eq_dir: Optional[str] = None) -> Optional[str]:
+    """
+    Get the path to the eqclient.ini file.
+
+    Args:
+        eq_dir (Optional[str]): EverQuest directory path. If None, will attempt to find it.
+
+    Returns:
+        Optional[str]: Path to eqclient.ini if found, None otherwise
+    """
+    if not eq_dir:
+        eq_dir = find_eq_directory()
+        if not eq_dir:
+            return None
+    eqclient_path = os.path.join(eq_dir, "eqclient.ini")
+    if os.path.exists(eqclient_path):
+        return eqclient_path
+    return None
+
+
 def read_eqhost_file(eqhost_path: Optional[str] = None) -> List[str]:
     """
     Read the contents of the eqhost.txt file.
