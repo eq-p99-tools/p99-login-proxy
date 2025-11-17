@@ -10,6 +10,8 @@ import logging
 import string
 from typing import Optional, Tuple, List
 
+import wx
+
 from p99_sso_login_proxy import config
 
 # Set up logging
@@ -185,11 +187,13 @@ def write_eqhost_file(lines: List[str], eqhost_path: Optional[str] = None) -> bo
         eqhost_path = get_eqhost_path()
         if not eqhost_path:
             return False
-    
+
     try:
-        # Create directory if it doesn't exist
-        os.makedirs(os.path.dirname(eqhost_path), exist_ok=True)
-        
+        # Check if the eqhost file is read-only
+        if not os.access(eqhost_path, os.W_OK):
+            # Make it writeable
+            os.chmod(eqhost_path, 0o777)
+
         with open(eqhost_path, 'w') as f:
             for line in lines:
                 f.write(f"{line}\n")
@@ -197,6 +201,8 @@ def write_eqhost_file(lines: List[str], eqhost_path: Optional[str] = None) -> bo
         return True
     except Exception as e:
         logger.error(f"Error writing to eqhost.txt: {e}")
+        wx.MessageBox("Failed to write to eqhost.txt (this is likely a permissions issue):\n\n"
+                      f"{str(e)}", "Error", wx.OK | wx.ICON_ERROR)
         return False
 
 
