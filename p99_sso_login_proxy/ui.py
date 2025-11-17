@@ -880,12 +880,12 @@ class ProxyUI(wx.Frame):
                 cache_time = config.ACCOUNTS_CACHE_TIMESTAMP.strftime("%Y-%m-%d %H:%M:%S")
                 time_diff = datetime.datetime.now() - config.ACCOUNTS_CACHE_TIMESTAMP
 
-                if time_diff.total_seconds() > 24 * 60 * 60:  # 24 hours
+                if time_diff.total_seconds() > 2 * 60 * 60:  # 2 hours
                     print(f"Account cache is stale, updating: {time_diff}")
                     cache_text_color = wx.RED
                     sso_api.fetch_user_accounts()
                     self.update_account_cache_time()
-                elif time_diff.total_seconds() > 12 * 60 * 60:  # 12 hours
+                elif time_diff.total_seconds() > 1 * 60 * 60:  # 1 hour
                     print(f"Account cache is getting stale: {time_diff}")
                     cache_text_color = wx.Colour(255, 130, 0)  # Orange
                 print(f"Updating account cache time: {cache_time} ({time_diff})")
