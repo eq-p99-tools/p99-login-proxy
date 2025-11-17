@@ -15,6 +15,7 @@ def fetch_user_accounts():
         list[str]: A list of account names.
     """
     accounts = {}
+    characters = []
     all_account_names = []
     real_account_count = 0
 
@@ -32,7 +33,6 @@ def fetch_user_accounts():
             real_account_count = len(real_account_names)
             aliases = []
             tags = []
-            characters = []
 
             for account_data in accounts.values():
                 if account_data.get("aliases"):
@@ -40,7 +40,7 @@ def fetch_user_accounts():
                 if account_data.get("tags"):
                     tags.extend(account_data.get("tags"))
                 if account_data.get("characters"):
-                    characters.extend(account_data.get("characters"))
+                    characters.extend(c.lower() for c in account_data.get("characters"))
 
             dynamic_tag_zones = response.json().get("dynamic_tag_zones", {})
             dynamic_tag_classes = response.json().get("dynamic_tag_classes", {})
@@ -60,6 +60,7 @@ def fetch_user_accounts():
     config.ACCOUNTS_CACHE_REAL_COUNT = real_account_count
     config.ACCOUNTS_CACHE_TIMESTAMP = datetime.datetime.now()
     config.ACCOUNTS_CACHED = accounts
+    config.CHARACTERS_CACHED = characters
 
 
 async def heartbeat(character_name: str) -> None:

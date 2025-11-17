@@ -42,6 +42,7 @@ USER_API_TOKEN = CONFIG.get("DEFAULT", "user_api_token", fallback="")
 # Variables to store account list and timestamp
 ALL_CACHED_NAMES = []
 ACCOUNTS_CACHED = {}
+CHARACTERS_CACHED = []
 ACCOUNTS_CACHE_REAL_COUNT = 0
 ACCOUNTS_CACHE_TIMESTAMP = datetime.datetime.min
 

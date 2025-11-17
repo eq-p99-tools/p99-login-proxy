@@ -42,10 +42,12 @@ class LogFileHandler(FileSystemEventHandler):
         if not config.USER_API_TOKEN:
             return
         if self.latest_log_file:
+            character_name = self.latest_log_file.split("_")[1]
+            if character_name.lower() not in config.CHARACTERS_CACHED:
+                return
             # Check the modified time of the logfile
             modified_time = os.path.getmtime(self.latest_log_file)
             # If not modified within the last 30s, don't send a heartbeat
-            character_name = self.latest_log_file.split("_")[1]
             if time.time() - modified_time > 30:
                 print(f"[LOG HANDLER] Not modified within the last 30s, not sending heartbeat for `{character_name}`")
                 return
