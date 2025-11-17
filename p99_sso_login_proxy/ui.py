@@ -1169,8 +1169,8 @@ class ProxyUI(wx.Frame):
             for i, (character, account, bind, park, klass) in enumerate(all_characters):
                 self.characters_list.InsertItem(i, character)
                 self.characters_list.SetItem(i, 1, klass)
-                self.characters_list.SetItem(i, 2, park)
-                self.characters_list.SetItem(i, 3, bind)
+                self.characters_list.SetItem(i, 2, park or "Unknown")
+                self.characters_list.SetItem(i, 3, bind or "Unknown")
                 self.characters_list.SetItem(i, 4, account)
 
                 # Set alternating row colors
