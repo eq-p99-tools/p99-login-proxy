@@ -94,5 +94,5 @@ def set_proxy_enabled(value: bool):
 
 
 TIMESTAMP = r"\[(?P<time>\w{3} \w{3} \d{2} \d\d:\d\d:\d\d \d{4})\] +"
-MATCH_ENTERED_ZONE = re.compile(f"{TIMESTAMP}You have entered (?P<zone>.*?).")
+MATCH_ENTERED_ZONE = re.compile(f"{TIMESTAMP}You have entered (?P<zone>.*?)\.")
 MATCH_CHARINFO = re.compile(f"{TIMESTAMP}You are currently bound in: (?P<zone>.*)")

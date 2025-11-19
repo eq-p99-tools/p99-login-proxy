@@ -16,6 +16,7 @@ from p99_sso_login_proxy import utils
 from p99_sso_login_proxy.ui_classes import local_account_dialog
 from p99_sso_login_proxy.ui_classes import proxy_stats
 from p99_sso_login_proxy.ui_classes import taskbar_icon
+from p99_sso_login_proxy import zone_translate
 
 # Create a global stats instance
 PROXY_STATS = proxy_stats.ProxyStats()
@@ -1160,7 +1161,10 @@ class ProxyUI(wx.Frame):
             for account, data in config.ACCOUNTS_CACHED.items():
                 characters = data.get("characters", {})
                 for character in sorted(characters):
-                    all_characters.append((character, account, characters[character]["bind"], characters[character]["park"], characters[character]["class"]))
+                    bind_text = zone_translate.zonekey_to_zone(characters[character]["bind"])
+                    park_text = zone_translate.zonekey_to_zone(characters[character]["park"])
+                    class_text = characters[character]["class"]
+                    all_characters.append((character, account, bind_text, park_text, class_text))
 
             # Sort by item 1 then item 0
             all_characters.sort(key=lambda x: (x[1], x[0]))

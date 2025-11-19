@@ -10,6 +10,7 @@ import wx
 
 from p99_sso_login_proxy import config
 from p99_sso_login_proxy import sso_api
+from p99_sso_login_proxy import zone_translate
 
 LOG_WATCH_DIRECTORY = None
 LOG_HANDLER = None
@@ -77,12 +78,14 @@ class LogFileHandler(FileSystemEventHandler):
         character_name = self.latest_log_file.split("_")[1]
         if config.MATCH_ENTERED_ZONE.match(line):
             zone = config.MATCH_ENTERED_ZONE.match(line).group("zone")
-            print(f"[LOG HANDLER] `{character_name}` entered zone: {zone}")
-            asyncio.run(sso_api.update_location(character_name, bind_location=zone))
+            zonekey = zone_translate.zone_to_zonekey(zone)
+            print(f"[LOG HANDLER] `{character_name}` entered zone: {zone} ({zonekey})")
+            asyncio.run(sso_api.update_location(character_name, park_location=zonekey))
         elif config.MATCH_CHARINFO.match(line):
             zone = config.MATCH_CHARINFO.match(line).group("zone")
-            print(f"[LOG HANDLER] `{character_name}` is in zone: {zone}")
-            asyncio.run(sso_api.update_location(character_name, park_location=zone))
+            zonekey = zone_translate.zone_to_zonekey(zone)
+            print(f"[LOG HANDLER] `{character_name}` is in zone: {zone} ({zonekey})")
+            asyncio.run(sso_api.update_location(character_name, bind_location=zonekey))
 
 
 def set_log_watch_directory(eq_directory, wx_app):
