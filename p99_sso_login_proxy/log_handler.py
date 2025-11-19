@@ -25,24 +25,28 @@ class LogFileHandler(FileSystemEventHandler):
         self.get_latest_log_file = get_latest_log_file
         self._position = 0
         self.latest_log_file = self.get_latest_log_file()
-        if self.latest_log_file:
+        if self.latest_log_file and config.USER_API_TOKEN:
             print(f"[LOG HANDLER] New log file: {self.latest_log_file}")
             try:
                 with open(self.latest_log_file, 'rb') as f:
                     f.seek(0, os.SEEK_END)
                     self._position = f.tell()
+                    # Try to handle login text
+                    f.seek(max(self._position - 1000, 0), os.SEEK_SET)
+                    for line in f:
+                        if line.rstrip().endswith(b'] Welcome to EverQuest!'):
+                            break
+                    self._position = min(f.tell(), self._position)
             except Exception:
                 self._position = 0
+            self.send_heartbeat()  # Send an initial heartbeat if we've got a logfile
 
         self.heartbeat_timer = wx.Timer(self._wx_app)
         self._wx_app.Bind(wx.EVT_TIMER, self.send_heartbeat, self.heartbeat_timer)
         self.heartbeat_timer.Start(20000)  # Heartbeat every 20 seconds
-        self.send_heartbeat()  # Send an initial heartbeat if we've got a logfile
 
     def send_heartbeat(self, event=None):
-        if not config.USER_API_TOKEN:
-            return
-        if self.latest_log_file:
+        if self.latest_log_file and config.USER_API_TOKEN:
             character_name = self.latest_log_file.split("_")[1]
             if character_name.lower() not in config.CHARACTERS_CACHED:
                 return
@@ -65,6 +69,12 @@ class LogFileHandler(FileSystemEventHandler):
                 with open(self.latest_log_file, 'rb') as f:
                     f.seek(0, os.SEEK_END)
                     self._position = f.tell()
+                    # Try to handle login text
+                    f.seek(max(self._position - 1000, 0), os.SEEK_SET)
+                    for line in f:
+                        if line.rstrip().endswith(b'] Welcome to EverQuest!'):
+                            break
+                    self._position = min(f.tell(), self._position)
             except Exception:
                 self._position = 0
         if event.src_path == self.latest_log_file:
