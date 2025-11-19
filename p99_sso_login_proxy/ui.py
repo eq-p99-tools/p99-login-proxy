@@ -517,6 +517,9 @@ class ProxyUI(wx.Frame):
         self.characters_list.InsertColumn(2, "Park Location", width=110)
         self.characters_list.InsertColumn(3, "Bind Location", width=110)
         self.characters_list.InsertColumn(4, "Account Name", width=100)
+        self.characters_list.Bind(wx.EVT_LIST_COL_CLICK, self.on_characters_list_col_click)
+        self._characters_sort_col = 1
+        self._characters_sort_asc = True
 
         # We'll set alternating row colors in the update_account_cache_display method
 
@@ -527,108 +530,108 @@ class ProxyUI(wx.Frame):
         # Local accounts tab
         local_tab = wx.Panel(sso_notebook)
         local_sizer = wx.BoxSizer(wx.VERTICAL)
-        
+
         # Create a list control for the local accounts
         self.local_accounts_list = wx.ListCtrl(local_tab, style=wx.LC_REPORT | wx.BORDER_SUNKEN | wx.LC_HRULES | wx.LC_VRULES)
         self.local_accounts_list.InsertColumn(0, "Account Name", width=200)
         self.local_accounts_list.InsertColumn(1, "Aliases", width=250)
-        
+
         # We'll set alternating row colors in the update_account_cache_display method
-        
+
         # Add the list control to the local tab
         local_sizer.Add(self.local_accounts_list, 1, wx.ALL | wx.EXPAND, 5)
-        
+
         # Add buttons for managing local accounts
         local_buttons_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        
+
         # Add account button
         self.add_local_account_btn = wx.Button(local_tab, label="Add Account")
         self.add_local_account_btn.Bind(wx.EVT_BUTTON, self.on_add_local_account)
         local_buttons_sizer.Add(self.add_local_account_btn, 0, wx.ALL, 5)
-        
+
         # Edit account button
         self.edit_local_account_btn = wx.Button(local_tab, label="Edit Account")
         self.edit_local_account_btn.Bind(wx.EVT_BUTTON, self.on_edit_local_account)
         local_buttons_sizer.Add(self.edit_local_account_btn, 0, wx.ALL, 5)
-        
+
         # Delete account button
         self.delete_local_account_btn = wx.Button(local_tab, label="Delete Account")
         self.delete_local_account_btn.Bind(wx.EVT_BUTTON, self.on_delete_local_account)
         local_buttons_sizer.Add(self.delete_local_account_btn, 0, wx.ALL, 5)
-        
+
         # Add the buttons sizer to the local tab
         local_sizer.Add(local_buttons_sizer, 0, wx.ALL | wx.CENTER, 5)
         local_tab.SetSizer(local_sizer)
-        
+
         # Add the tabs to the nested notebook
         sso_notebook.AddPage(accounts_tab, "Accounts")
         sso_notebook.AddPage(aliases_tab, "Aliases")
         sso_notebook.AddPage(tags_tab, "Tags")
         sso_notebook.AddPage(characters_tab, "Characters")
         sso_notebook.AddPage(local_tab, "Local")
-        
+
         # Add the nested notebook to the main SSO tab sizer
         sso_sizer.Add(sso_notebook, 1, wx.ALL | wx.EXPAND, 5)
-        
+
         # Add refresh button below the notebook
         refresh_btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
         self.refresh_accounts_btn = wx.Button(sso_tab, label="Refresh SSO Account List")
         self.refresh_accounts_btn.Bind(wx.EVT_BUTTON, self.on_refresh_account_cache)
         self.refresh_accounts_btn.SetToolTip("Refresh the account cache from the SSO server")
         refresh_btn_sizer.Add(self.refresh_accounts_btn, 0, wx.BOTTOM, 5)
-        
+
         sso_sizer.Add(refresh_btn_sizer, 0, wx.ALL | wx.CENTER, 5)
-        
+
         # Set the SSO tab sizer
         sso_tab.SetSizer(sso_sizer)
-        
+
         # Create Changelog tab
         changelog_tab = wx.Panel(notebook)
         changelog_sizer = wx.BoxSizer(wx.VERTICAL)
-        
+
         # Create a static box with the label "Version History"
         version_history_box = wx.StaticBox(changelog_tab, label="Version History")
         version_history_sizer = wx.StaticBoxSizer(version_history_box, wx.VERTICAL)
-        
+
         # Create an HTML window for the changelog
         self.changelog_html = wx.html.HtmlWindow(version_history_box)
 
         # Add the HTML window to the static box sizer
         version_history_sizer.Add(self.changelog_html, 1, wx.EXPAND | wx.ALL, 10)
-        
+
         # Add the static box sizer to the main changelog sizer
         changelog_sizer.Add(version_history_sizer, 1, wx.EXPAND | wx.ALL, 10)
         changelog_tab.SetSizer(changelog_sizer)
-        
+
         # Add tabs to notebook
         notebook.AddPage(proxy_tab, "Proxy")
         notebook.AddPage(sso_tab, "SSO")
         notebook.AddPage(eq_tab, "Advanced")
         notebook.AddPage(changelog_tab, "Changelog")
-        
+
         # Add notebook to main sizer
         main_sizer.Add(notebook, 1, wx.EXPAND | wx.ALL, 10)
-        
+
         # Buttons at the bottom
         button_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        
+
         # Launch EverQuest button
         self.launch_eq_btn = wx.Button(panel, label="Launch EverQuest")
         self.launch_eq_btn.Bind(wx.EVT_BUTTON, self.on_launch_eq)
         button_sizer.Add(self.launch_eq_btn, 0, wx.ALL, 5)
-        
+
         # Add some space between buttons
         button_sizer.AddSpacer(60)
-        
+
         # Exit button
         self.exit_btn = wx.Button(panel, label="Exit")
         self.exit_btn.Bind(wx.EVT_BUTTON, self.on_exit_button)
         button_sizer.Add(self.exit_btn, 0, wx.ALL, 5)
-        
+
         main_sizer.Add(button_sizer, 0, wx.ALL | wx.CENTER, 5)
-        
+
         panel.SetSizer(main_sizer)
-        
+
         # Center the window
         self.Centre()
 
@@ -636,11 +639,11 @@ class ProxyUI(wx.Frame):
     def on_launch_eq(self, event):
         # Get the EverQuest directory
         eq_dir = eq_config.find_eq_directory()
-        
+
         if not eq_dir:
             wx.MessageBox("EverQuest directory not found.", "Error", wx.OK | wx.ICON_ERROR)
             return
-        
+
         # Path to eqgame.exe
         eqgame_path = os.path.join(eq_dir, "eqgame.exe")
         try:
@@ -663,7 +666,7 @@ class ProxyUI(wx.Frame):
             if not using_proxy:
                 success = eq_config.enable_proxy()
                 if not success:
-                    wx.MessageBox("Failed to enable proxy. EverQuest directory or eqhost.txt not found.", 
+                    wx.MessageBox("Failed to enable proxy. EverQuest directory or eqhost.txt not found.",
                                 "Error", wx.OK | wx.ICON_ERROR)
                     # Revert selection if failed
                     self.proxy_mode_choice.SetSelection(2)
@@ -679,36 +682,36 @@ class ProxyUI(wx.Frame):
             if not using_proxy:
                 success = eq_config.enable_proxy()
                 if not success:
-                    wx.MessageBox("Failed to enable proxy. EverQuest directory or eqhost.txt not found.", 
+                    wx.MessageBox("Failed to enable proxy. EverQuest directory or eqhost.txt not found.",
                                 "Error", wx.OK | wx.ICON_ERROR)
                     # Revert selection if failed
                     self.proxy_mode_choice.SetSelection(2)
                     return
-            
+
             if not config.PROXY_ONLY:
                 config.set_proxy_only(True)
             if not config.PROXY_ENABLED:
                 config.set_proxy_enabled(True)
-        
+
         elif selection == 2:  # Disabled
             # Disable proxy if it's currently enabled
             if using_proxy:
                 success = eq_config.disable_proxy()
                 if not success:
-                    wx.MessageBox("Failed to disable proxy. EverQuest directory or eqhost.txt not found.", 
+                    wx.MessageBox("Failed to disable proxy. EverQuest directory or eqhost.txt not found.",
                                 "Error", wx.OK | wx.ICON_ERROR)
                     # Revert selection if failed
                     self.proxy_mode_choice.SetSelection(0 if not config.PROXY_ONLY else 1)
                     return
-            
+
             if config.PROXY_ONLY:
                 config.set_proxy_only(False)
             if config.PROXY_ENABLED:
                 config.set_proxy_enabled(False)
-        
+
         # Update UI to reflect new status
         self.update_eq_status()
-    
+
     def on_updated_changelog(self):
         # Update the changelog HTML
         self.changelog_html.SetPage(config.CHANGELOG)
@@ -720,38 +723,38 @@ class ProxyUI(wx.Frame):
     def on_save_eqhost(self, event):
         # Get the EverQuest directory
         eq_dir = eq_config.find_eq_directory()
-        
+
         if not eq_dir:
             logging.error("EverQuest directory not found when trying to save eqhost.txt")
             return
-        
+
         # Path to eqhost.txt
         eqhost_path = os.path.join(eq_dir, "eqhost.txt")
-        
+
         # Get content from text control
         content = self.eqhost_contents.GetValue()
-        
+
         try:
             # Write content to file
             with open(eqhost_path, 'w') as f:
                 f.write(content)
-            
+
             logging.info(f"Successfully wrote to eqhost.txt at {eqhost_path}")
             # Update status after save
             self.update_eq_status()
         except Exception as e:
             logging.error(f"Failed to save eqhost.txt: {str(e)}")
-    
+
     # Reset eqhost.txt content from disk
     def on_reset_eqhost(self, event):
         # Simply update the status which will reload the file content
         self.update_eq_status()
-    
+
     # Handle Always On Top checkbox
     def on_always_on_top(self, event):
         # Get the checkbox state
         is_checked = self.always_on_top_cb.GetValue()
-        
+
         # Set the window style
         if is_checked:
             # Set the window to be always on top
@@ -759,18 +762,18 @@ class ProxyUI(wx.Frame):
         else:
             # Remove the always on top style
             self.SetWindowStyle(self.GetWindowStyle() & ~wx.STAY_ON_TOP)
-            
+
         # Update the checkbox state in the config
         config.set_always_on_top(is_checked)
-    
+
     # Handle saving the password on typing
     def on_save_debug_password(self, event):
         # Get the password from the field
         password = self.password_field.GetValue()
-        
+
         # Save the password to config
         config.set_user_api_token(password)
-    
+
     # Show password when field gets focus
     def on_password_focus(self, event):
         # Update the style to show the password
@@ -789,7 +792,7 @@ class ProxyUI(wx.Frame):
                 self.password_field.SetWindowStyleFlag(style)
         # Ensure the event propagates
         event.Skip()
-    
+
     # Hide password when field loses focus
     def on_password_blur(self, event):
         # Add password style back
@@ -807,23 +810,23 @@ class ProxyUI(wx.Frame):
                 self.password_field.SetWindowStyleFlag(style)
         # Ensure the event propagates
         event.Skip()
-        
+
     # Handle refresh account cache button click
     def on_refresh_account_cache(self, event):
         """Refresh the account cache from the SSO server"""
         try:
             # Show a busy cursor
             wx.BeginBusyCursor()
-            
+
             # Refresh the account cache
             sso_api.fetch_user_accounts()
-            
+
             # Reload local accounts
             config.LOCAL_ACCOUNTS, config.LOCAL_ACCOUNT_NAME_MAP = utils.load_local_accounts(config.LOCAL_ACCOUNTS_FILE)
-            
+
             # Update the UI
             self.update_account_cache_display()
-            
+
             # Update the cache time
             self.update_account_cache_time()
         except Exception as e:
@@ -833,12 +836,12 @@ class ProxyUI(wx.Frame):
             # Restore the cursor
             if wx.IsBusy():
                 wx.EndBusyCursor()
-    
+
     # Handle exit button click
     def on_exit_button(self, event):
         """Exit the application when the exit button is clicked"""
         self.close_application()
-        
+
     # Set the application icon
     def set_icon(self):
         # Try multiple possible locations for the icon file
@@ -850,7 +853,7 @@ class ProxyUI(wx.Frame):
             # Current directory
             "tray_icon.png"
         ]
-        
+
         icon = None
         for path in icon_paths:
             if os.path.exists(path):
@@ -859,14 +862,14 @@ class ProxyUI(wx.Frame):
                     break
                 except Exception as e:
                     print(f"Failed to load icon from {path}: {e}")
-        
+
         # TODO: Revisit for cleanup
         if icon:
             self.SetIcon(icon)
             # Also set the taskbar icon explicitly
             if hasattr(self, 'tray_icon'):
                 self.tray_icon.SetIcon(icon, config.APP_NAME)
-    
+
     def update_account_cache_time(self, event=None) -> None:
         """Update the account cache time display"""
         try:
@@ -907,44 +910,44 @@ class ProxyUI(wx.Frame):
             account_name = dialog.account_name.GetValue().strip()
             password = dialog.password.GetValue().strip()
             aliases_text = dialog.aliases.GetValue().strip()
-            
+
             # Validate input
             if not account_name:
                 wx.MessageBox("Account name cannot be empty.", "Error", wx.OK | wx.ICON_ERROR)
                 return
-            
+
             if not password:
                 wx.MessageBox("Password cannot be empty.", "Error", wx.OK | wx.ICON_ERROR)
                 return
-            
+
             # Check if account already exists
             if account_name in config.LOCAL_ACCOUNTS:
                 wx.MessageBox(f"Account '{account_name}' already exists.", "Error", wx.OK | wx.ICON_ERROR)
                 return
-            
+
             # Parse aliases
             aliases = [alias.strip() for alias in aliases_text.split(",") if alias.strip()]
-            
+
             # Add the account
             config.LOCAL_ACCOUNTS[account_name] = {
                 "password": password,
                 "aliases": aliases
             }
-            
+
             # Update the name map
             config.LOCAL_ACCOUNT_NAME_MAP[account_name] = account_name
             for alias in aliases:
                 config.LOCAL_ACCOUNT_NAME_MAP[alias] = account_name
-            
+
             # Save to file
             if not utils.save_local_accounts(config.LOCAL_ACCOUNTS, config.LOCAL_ACCOUNTS_FILE):
                 wx.MessageBox("Failed to save local accounts.", "Error", wx.OK | wx.ICON_ERROR)
-            
+
             # Update the UI
             self.update_account_cache_display()
-        
+
         dialog.Destroy()
-    
+
     # Handle editing a local account
     def on_edit_local_account(self, event):
         """Edit an existing local account"""
@@ -953,61 +956,61 @@ class ProxyUI(wx.Frame):
         if selected_index == -1:
             wx.MessageBox("Please select an account to edit.", "Error", wx.OK | wx.ICON_ERROR)
             return
-        
+
         account_name = self.local_accounts_list.GetItemText(selected_index, 0)
         if account_name not in config.LOCAL_ACCOUNTS:
             wx.MessageBox(f"Account '{account_name}' not found.", "Error", wx.OK | wx.ICON_ERROR)
             return
-        
+
         # Get the current account data
         account_data = config.LOCAL_ACCOUNTS[account_name]
-        
+
         # Create and show the dialog
         dialog = local_account_dialog.LocalAccountDialog(
-            self, 
+            self,
             title="Edit Local Account",
             account_name=account_name,
             password=account_data.get("password", ""),
             aliases=", ".join(account_data.get("aliases", []))
         )
         dialog.account_name.Disable()  # Don't allow changing the account name
-        
+
         if dialog.ShowModal() == wx.ID_OK:
             password = dialog.password.GetValue().strip()
             aliases_text = dialog.aliases.GetValue().strip()
-            
+
             # Validate input
             if not password:
                 wx.MessageBox("Password cannot be empty.", "Error", wx.OK | wx.ICON_ERROR)
                 return
-            
+
             # Parse aliases
             aliases = [alias.strip() for alias in aliases_text.split(",") if alias.strip()]
-            
+
             # Remove old aliases from the name map
             for alias in account_data.get("aliases", []):
                 if alias in config.LOCAL_ACCOUNT_NAME_MAP:
                     del config.LOCAL_ACCOUNT_NAME_MAP[alias]
-            
+
             # Update the account
             config.LOCAL_ACCOUNTS[account_name] = {
                 "password": password,
                 "aliases": aliases
             }
-            
+
             # Update the name map
             for alias in aliases:
                 config.LOCAL_ACCOUNT_NAME_MAP[alias] = account_name
-            
+
             # Save to file
             if not utils.save_local_accounts(config.LOCAL_ACCOUNTS, config.LOCAL_ACCOUNTS_FILE):
                 wx.MessageBox("Failed to save local accounts.", "Error", wx.OK | wx.ICON_ERROR)
-            
+
             # Update the UI
             self.update_account_cache_display()
-        
+
         dialog.Destroy()
-    
+
     # Handle deleting a local account
     def on_delete_local_account(self, event):
         """Delete a local account"""
@@ -1016,37 +1019,46 @@ class ProxyUI(wx.Frame):
         if selected_index == -1:
             wx.MessageBox("Please select an account to delete.", "Error", wx.OK | wx.ICON_ERROR)
             return
-        
+
         account_name = self.local_accounts_list.GetItemText(selected_index, 0)
         if account_name not in config.LOCAL_ACCOUNTS:
             wx.MessageBox(f"Account '{account_name}' not found.", "Error", wx.OK | wx.ICON_ERROR)
             return
-        
+
         # Confirm deletion
-        if wx.MessageBox(f"Are you sure you want to delete the account '{account_name}'?", 
+        if wx.MessageBox(f"Are you sure you want to delete the account '{account_name}'?",
                         "Confirm Deletion", wx.YES_NO | wx.ICON_QUESTION) != wx.YES:
             return
-        
+
         # Get the account data
         account_data = config.LOCAL_ACCOUNTS[account_name]
-        
+
         # Remove aliases from the name map
         for alias in account_data.get("aliases", []):
             if alias in config.LOCAL_ACCOUNT_NAME_MAP:
                 del config.LOCAL_ACCOUNT_NAME_MAP[alias]
-        
+
         # Remove the account from the name map
         if account_name in config.LOCAL_ACCOUNT_NAME_MAP:
             del config.LOCAL_ACCOUNT_NAME_MAP[account_name]
-        
+
         # Remove the account
         del config.LOCAL_ACCOUNTS[account_name]
-        
+
         # Save to file
         if not utils.save_local_accounts(config.LOCAL_ACCOUNTS, config.LOCAL_ACCOUNTS_FILE):
             wx.MessageBox("Failed to save local accounts.", "Error", wx.OK | wx.ICON_ERROR)
-        
+
         # Update the UI
+        self.update_account_cache_display()
+
+    def on_characters_list_col_click(self, event):
+        col = event.GetColumn()
+        if getattr(self, '_characters_sort_col', 0) == col:
+            self._characters_sort_asc = not self._characters_sort_asc
+        else:
+            self._characters_sort_col = col
+            self._characters_sort_asc = True
         self.update_account_cache_display()
 
     # Update EverQuest configuration status display
@@ -1055,7 +1067,7 @@ class ProxyUI(wx.Frame):
         # Update accounts cached
         total_accounts = len(config.ALL_CACHED_NAMES)
         real_accounts = config.ACCOUNTS_CACHE_REAL_COUNT
-        
+
         # Update the text with account counts
         if total_accounts == 0:
             self.accounts_cached_text.SetLabel("None")
@@ -1063,77 +1075,77 @@ class ProxyUI(wx.Frame):
         else:
             self.accounts_cached_text.SetLabel(f"{real_accounts} accounts, {total_accounts - real_accounts} aliases/tags")
             self.accounts_cached_text.SetForegroundColour(wx.Colour(0, 128, 0))  # Green
-            
+
         # Update the local accounts list
         if hasattr(self, 'local_accounts_list'):
             self.local_accounts_list.DeleteAllItems()
-            
+
             # Add each local account to the list
             for i, (account, data) in enumerate(sorted(config.LOCAL_ACCOUNTS.items())):
                 self.local_accounts_list.InsertItem(i, account)
-                
+
                 # Add aliases as comma-separated list
                 aliases = data.get("aliases", [])
                 if aliases:
                     self.local_accounts_list.SetItem(i, 1, ", ".join(sorted(aliases)))
-                
+
                 # Set alternating row colors
                 if i % 2 == 1:
                     self.local_accounts_list.SetItemBackgroundColour(i, wx.Colour(240, 245, 250))
-        
+
         # Update the accounts list in the SSO tab
         if hasattr(self, 'accounts_list'):
             self.accounts_list.DeleteAllItems()
-            
+
             # Add each account to the list
             index = 0
             for account, data in sorted(config.ACCOUNTS_CACHED.items()):
                 # Add the account
                 self.accounts_list.InsertItem(index, account)
-                
+
                 # Add aliases as comma-separated list
                 aliases = data.get("aliases", [])
                 if aliases:
                     self.accounts_list.SetItem(index, 1, ", ".join(sorted(aliases)))
-                
+
                 # Add tags as comma-separated list
                 tags = data.get("tags", [])
                 if tags:
                     self.accounts_list.SetItem(index, 2, ", ".join(sorted(tags)))
-                
+
                 # Set alternating row colors
                 if index % 2 == 1:
                     self.accounts_list.SetItemBackgroundColour(index, wx.Colour(240, 245, 250))
-                
+
                 index += 1
-        
+
         # Update the aliases list
         if hasattr(self, 'aliases_list'):
             self.aliases_list.DeleteAllItems()
-            
+
             # Create a list of all aliases with their account names
             all_aliases = []
             for account, data in config.ACCOUNTS_CACHED.items():
                 aliases = data.get("aliases", [])
                 for alias in sorted(aliases):
                     all_aliases.append((alias, account))
-            
+
             # Sort by alias name
             all_aliases.sort()
-            
+
             # Add each alias to the list
             for i, (alias, account) in enumerate(all_aliases):
                 self.aliases_list.InsertItem(i, alias)
                 self.aliases_list.SetItem(i, 1, account)
-                
+
                 # Set alternating row colors
                 if i % 2 == 1:
                     self.aliases_list.SetItemBackgroundColour(i, wx.Colour(240, 245, 250))
-        
+
         # Update the tags list
         if hasattr(self, 'tags_list'):
             self.tags_list.DeleteAllItems()
-            
+
             # Create a dictionary of tags to accounts
             tag_to_accounts = {}
             for account, data in config.ACCOUNTS_CACHED.items():
@@ -1142,12 +1154,12 @@ class ProxyUI(wx.Frame):
                     if tag not in tag_to_accounts:
                         tag_to_accounts[tag] = []
                     tag_to_accounts[tag].append(account)
-            
+
             # Add each tag to the list
             for i, (tag, accounts) in enumerate(sorted(tag_to_accounts.items())):
                 self.tags_list.InsertItem(i, tag)
                 self.tags_list.SetItem(i, 1, ", ".join(sorted(accounts)))
-                
+
                 # Set alternating row colors
                 if i % 2 == 1:
                     self.tags_list.SetItemBackgroundColour(i, wx.Colour(240, 245, 250))
@@ -1164,13 +1176,15 @@ class ProxyUI(wx.Frame):
                     bind_text = zone_translate.zonekey_to_zone(characters[character]["bind"])
                     park_text = zone_translate.zonekey_to_zone(characters[character]["park"])
                     class_text = characters[character]["class"]
-                    all_characters.append((character, account, bind_text, park_text, class_text))
+                    all_characters.append((character, class_text, park_text, bind_text, account))
 
-            # Sort by item 1 then item 0
-            all_characters.sort(key=lambda x: (x[1], x[0]))
+            # Sort by selected column and order
+            sort_col = getattr(self, '_characters_sort_col', 0)
+            sort_asc = getattr(self, '_characters_sort_asc', True)
+            all_characters.sort(key=lambda x: ((x[sort_col] or ""), x[0]), reverse=not sort_asc)
 
             # Add each character to the list
-            for i, (character, account, bind, park, klass) in enumerate(all_characters):
+            for i, (character, klass, park, bind, account) in enumerate(all_characters):
                 self.characters_list.InsertItem(i, character)
                 self.characters_list.SetItem(i, 1, klass)
                 self.characters_list.SetItem(i, 2, park or "Unknown")
