@@ -209,19 +209,25 @@ def write_eqhost_file(lines: List[str], eqhost_path: Optional[str] = None) -> bo
             return False
 
     try:
-        # Check if the eqhost file is read-only
-        if not os.access(eqhost_path, os.W_OK):
-            # Make it writeable
-            os.chmod(eqhost_path, 0o777)
+        ### Check if the eqhost file is read-only
+        ### (this requires running as admin and sometimes doesn't work, so disabled for now)
+        # if not os.access(eqhost_path, os.W_OK):
+        #     # Make it writeable
+        #     os.chmod(eqhost_path, 0o777)
 
         with open(eqhost_path, 'w') as f:
             for line in lines:
                 f.write(f"{line}\n")
         logger.info(f"Successfully wrote to eqhost.txt at {eqhost_path}")
         return True
+    except PermissionError as e:
+        logger.error(f"Error writing to eqhost.txt. Please turn off the read-only flag on this file: {e.filename}")
+        wx.MessageBox("Failed to write to eqhost.txt. Please turn off the read-only flag on this file:\n\n"
+                      f"{e.filename}", "Error", wx.OK | wx.ICON_ERROR)
+        return False
     except Exception as e:
         logger.error(f"Error writing to eqhost.txt: {e}")
-        wx.MessageBox("Failed to write to eqhost.txt (this is likely a permissions issue):\n\n"
+        wx.MessageBox("Failed to write to eqhost.txt:\n\n"
                       f"{str(e)}", "Error", wx.OK | wx.ICON_ERROR)
         return False
 

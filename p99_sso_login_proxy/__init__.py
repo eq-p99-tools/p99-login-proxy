@@ -3,7 +3,7 @@ import semver
 __version_semver__ = semver.Version(
     major=1,
     minor=1,
-    patch=0,
+    patch=1,
     prerelease=None,
     build=None
 )
