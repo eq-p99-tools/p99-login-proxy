@@ -36,9 +36,9 @@ def fetch_user_accounts():
 
             for account_data in accounts.values():
                 if account_data.get("aliases"):
-                    aliases.extend(account_data.get("aliases"))
+                    aliases.extend(a.lower() for a in account_data.get("aliases"))
                 if account_data.get("tags"):
-                    tags.extend(account_data.get("tags"))
+                    tags.extend(t.lower() for t in account_data.get("tags"))
                 if account_data.get("characters"):
                     characters.extend(c.lower() for c in account_data.get("characters"))
 
@@ -48,15 +48,16 @@ def fetch_user_accounts():
 
             print(f"[SSO] Successfully fetched {real_account_count} accounts (and {len(aliases) + len(tags)} aliases/tags)")
 
-            # Add real accounts, aliases, and tags to the flat login list
+            # Add real accounts, aliases, characters, and tags to the flat login list
             all_account_names.extend(real_account_names)
+            all_account_names.extend(characters)
             all_account_names.extend(aliases)
             all_account_names.extend(tags)
             all_account_names.extend(dynamic_tags)
         else:
             print(f"[SSO] Failed to fetch account list: {response.status_code} {response.text}")
 
-    config.ALL_CACHED_NAMES = all_account_names
+    config.ALL_CACHED_NAMES = list(set(all_account_names))
     config.ACCOUNTS_CACHE_REAL_COUNT = real_account_count
     config.ACCOUNTS_CACHE_TIMESTAMP = datetime.datetime.now()
     config.ACCOUNTS_CACHED = accounts
