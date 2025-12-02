@@ -86,6 +86,8 @@ class LogFileHandler(FileSystemEventHandler):
 
     def handle_log_line(self, line):
         character_name = self.latest_log_file.split("_")[1]
+        if character_name.lower() not in config.CHARACTERS_CACHED:
+            return
         if config.MATCH_ENTERED_ZONE.match(line):
             zone = config.MATCH_ENTERED_ZONE.match(line).group("zone")
             zonekey = zone_translate.zone_to_zonekey(zone)
