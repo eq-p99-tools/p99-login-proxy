@@ -1,0 +1,19 @@
+---
+description: Protects low-level packet parsing code in server.py and sequence.py from unintended modifications
+globs: p99_sso_login_proxy/server.py,p99_sso_login_proxy/sequence.py
+alwaysApply: false
+---
+
+# Do Not Modify Packet Parsing Code
+
+The low-level packet parsing and construction logic in `server.py` and `sequence.py` is delicate and protocol-sensitive. **Do not modify, refactor, or rewrite any packet parsing code** unless the user explicitly instructs you to do so.
+
+This includes:
+- Byte-level read/write operations (e.g., `struct.pack`, `struct.unpack`, raw byte slicing)
+- Packet header parsing or construction
+- Protocol field offsets, sizes, and ordering
+- Opcode handling and dispatch logic
+- Encryption/decryption routines tied to packet data
+- Any buffer or stream manipulation for network data
+
+If a task could be accomplished without touching packet parsing internals, always prefer that approach. If you believe a change to packet parsing is necessary to fulfill a request, **ask the user for confirmation first** rather than making the change directly.
