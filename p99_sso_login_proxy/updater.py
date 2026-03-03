@@ -5,6 +5,7 @@ import logging
 import os
 import subprocess
 import sys
+import threading
 import zipfile
 
 import markdown
@@ -45,21 +46,28 @@ GITHUB_API_TAGGED_RELEASE_URL = (
 GITHUB_API_RELEASES_URL = (
     "https://api.github.com/repos/eq-p99-tools/p99-login-proxy/releases?per_page={max_releases}")
 
+REQUEST_TIMEOUT = (5, 15)  # (connect, read) in seconds
+
+_auth = None
 if os.path.exists("github_auth.json"):
-    with open("github_auth.json") as gha:
-        auth_data = json.load(gha)
-    get = functools.partial(requests.get, auth=requests.auth.HTTPBasicAuth(
-        auth_data['username'], auth_data['key']))
-else:
-    get = requests.get
+    try:
+        with open("github_auth.json") as gha:
+            auth_data = json.load(gha)
+        _auth = requests.auth.HTTPBasicAuth(auth_data['username'], auth_data['key'])
+    except (json.JSONDecodeError, KeyError, OSError) as e:
+        LOG.warning("Failed to load github_auth.json, using unauthenticated requests: %s", e)
+
+get = functools.partial(requests.get, auth=_auth, timeout=REQUEST_TIMEOUT)
 
 
 def get_release_from_github(tag=None):
     """Get a specific release from GitHub"""
     if tag:
-        tag_data = get(GITHUB_API_TAGGED_RELEASE_URL.format(tag=tag)).json()
+        resp = get(GITHUB_API_TAGGED_RELEASE_URL.format(tag=tag))
     else:
-        tag_data = get(GITHUB_API_LATEST_RELEASE_URL).json()
+        resp = get(GITHUB_API_LATEST_RELEASE_URL)
+    resp.raise_for_status()
+    tag_data = resp.json()
     version = semver.Version.parse(tag_data['tag_name'].lstrip('v'))
     return version, tag_data
 
@@ -67,7 +75,9 @@ def get_release_from_github(tag=None):
 def get_recent_releases(max_releases=10):
     """Fetch the most recent releases (up to max_releases)"""
     try:
-        releases_data = get(GITHUB_API_RELEASES_URL.format(max_releases=max_releases)).json()
+        resp = get(GITHUB_API_RELEASES_URL.format(max_releases=max_releases))
+        resp.raise_for_status()
+        releases_data = resp.json()
         releases = []
         
         for release in releases_data:
@@ -119,30 +129,36 @@ def compile_changelog(releases):
 def download_and_unpack(url: str):
     """Download and unpack the update zip file"""
     # pylint: disable=no-member
-    asset_data = get(url).json()
+    resp = get(url)
+    resp.raise_for_status()
+    asset_data = resp.json()
+    ZIP_CONTENT_TYPES = {'application/x-zip-compressed', 'application/zip', 'application/octet-stream'}
     zip_url = None
     for asset in asset_data:
-        if asset['content_type'] == 'application/x-zip-compressed':
+        if asset['content_type'] in ZIP_CONTENT_TYPES or asset.get('name', '').endswith('.zip'):
             zip_url = asset['browser_download_url']
             break
     if zip_url:
         LOG.info("Downloading update from %s", zip_url)
         zip_data = get(zip_url, stream=True)
+        zip_data.raise_for_status()
         size = int(zip_data.headers.get('content-length', 0))
+        chunk_size = max(size // 100, 8192)
+        progress_max = max(size, 1)
         pd = wx.GenericProgressDialog(
             title="Downloading Update",
             message="Downloading update, please wait...",
-            maximum=size,
+            maximum=progress_max,
             style=wx.PD_APP_MODAL | wx.PD_AUTO_HIDE | wx.PD_CAN_ABORT |
                   wx.PD_ELAPSED_TIME | wx.PD_REMAINING_TIME
         )
         with io.BytesIO() as bio:
             downloaded = 0
             cancelled = False
-            for data in zip_data.iter_content(chunk_size=int(size/100)):
+            for data in zip_data.iter_content(chunk_size=chunk_size):
                 bio.write(data)
                 downloaded += len(data)
-                pd.Update(downloaded)
+                pd.Update(min(downloaded, progress_max))
                 if pd.WasCancelled():
                     cancelled = True
                     break
@@ -150,6 +166,10 @@ def download_and_unpack(url: str):
             if cancelled:
                 return None
             with zipfile.ZipFile(bio) as zip_file:
+                for member in zip_file.namelist():
+                    if os.path.isabs(member) or '..' in member.split('/'):
+                        LOG.error("Zip contains unsafe path: %s", member)
+                        return None
                 exe_name = zip_file.namelist()[0]
                 zip_file.extractall()
             return exe_name
@@ -157,65 +177,146 @@ def download_and_unpack(url: str):
     return None
 
 
-def check_update():
-    """Check for updates and return True if update is available"""
-    try:
-        LOG.info(f"Checking for update. Current version: {config.APP_VERSION}")
-        
-        # Get recent releases and compile changelog
-        releases = get_recent_releases(10)
-        if releases:
-            # Update the markdown changelog in config
-            config.CHANGELOG = compile_changelog(releases)
-            wx.GetApp().GetTopWindow().on_updated_changelog()
-            
-            # Check if an update is available
-            latest_version = releases[0]['version']
-            if latest_version > config.APP_VERSION:
-                LOG.info(f"Update available: {latest_version}")
-                au_win = wx.MessageDialog(
-                    None,
-                    "A new update is available. Would you like to update?\n\n"
-                    f"Your version: {config.APP_VERSION}\n"
-                    f"New version: {latest_version}",
-                    "Update Available", wx.YES | wx.NO | wx.ICON_QUESTION)
-                result = au_win.ShowModal()
-                au_win.Destroy()
-                if result == wx.ID_YES:
-                    assets_url = next((r.get('assets_url') for r in releases if r['version'] == latest_version), None)
-                    if assets_url:
-                        newest_exe = download_and_unpack(assets_url)
-                        if newest_exe:
-                            LOG.info("Downloaded new version: %s", newest_exe)
-                            current_exe = os.path.basename(sys.executable).lower()
-                            if not current_exe.startswith("python"):
-                                if current_exe.lower() == f"p99loginproxy-{config.APP_VERSION}.exe":
-                                    pass
-                                else:
-                                    # if the new name already exists, remove it first
-                                    if os.path.exists(f"P99LoginProxy-{config.APP_VERSION}.exe"):
-                                        os.remove(f"P99LoginProxy-{config.APP_VERSION}.exe")
-                                    os.rename(current_exe,
-                                              f"P99LoginProxy-{config.APP_VERSION}.exe")
-                                    os.rename(newest_exe, "P99LoginProxy.exe")
-                                    newest_exe = "P99LoginProxy.exe"
-                            with subprocess.Popen([newest_exe]):
-                                os._exit(0)
-                        else:
-                            LOG.error("Failed to download update. Continuing with existing version.")
-                            dlg = wx.MessageDialog(
-                                None,
-                                "Failed to download update. Continuing with existing version.",
-                                "Update Error", wx.OK | wx.ICON_ERROR)
-                            dlg.ShowModal()
-                            dlg.Destroy()
-                return True
-            else:
-                LOG.info("No update available.")
-                return False
-        else:
-            LOG.info("No releases found.")
-            return False
-    except Exception as e:
-        LOG.error(f"Failed to check for update: {e}")
-        return False
+STABLE_EXE_NAME = "P99LoginProxy.exe"
+
+
+def _prompt_and_apply_update(releases, latest_version):
+    """Show the update prompt and apply the update if accepted. Must run on the main (UI) thread."""
+    au_win = wx.MessageDialog(
+        None,
+        "A new update is available. Would you like to update?\n\n"
+        f"Your version: {config.APP_VERSION}\n"
+        f"New version: {latest_version}",
+        "Update Available", wx.YES | wx.NO | wx.ICON_QUESTION)
+    result = au_win.ShowModal()
+    au_win.Destroy()
+    if result != wx.ID_YES:
+        return
+
+    assets_url = next(
+        (r.get('assets_url') for r in releases if r['version'] == latest_version), None)
+    if not assets_url:
+        return
+
+    current_exe = os.path.basename(sys.executable)
+    is_packaged = not current_exe.lower().startswith("python")
+    backed_up = False
+    backup_name = f"P99LoginProxy-{config.APP_VERSION}.exe"
+
+    # Rename current exe to versioned backup BEFORE extraction so the zip can
+    # extract P99LoginProxy.exe without hitting a Windows file lock.
+    if is_packaged and current_exe.lower() == STABLE_EXE_NAME.lower():
+        try:
+            if os.path.exists(backup_name):
+                os.remove(backup_name)
+            os.rename(current_exe, backup_name)
+            backed_up = True
+        except OSError as e:
+            LOG.error("Failed to backup current exe before update: %s", e)
+            _show_update_error(f"Failed to prepare for update: {e}")
+            return
+
+    newest_exe = download_and_unpack(assets_url)
+    if not newest_exe:
+        LOG.error("Failed to download update. Continuing with existing version.")
+        if backed_up:
+            try:
+                os.rename(backup_name, STABLE_EXE_NAME)
+            except OSError:
+                pass
+        _show_update_error("Failed to download update. Continuing with existing version.")
+        return
+
+    LOG.info("Downloaded new version: %s", newest_exe)
+
+    # Ensure the new exe ends up with the stable name
+    if is_packaged and newest_exe.lower() != STABLE_EXE_NAME.lower():
+        try:
+            if os.path.exists(STABLE_EXE_NAME):
+                os.remove(STABLE_EXE_NAME)
+            os.rename(newest_exe, STABLE_EXE_NAME)
+        except OSError as rename_err:
+            LOG.error("Failed to rename new exe to stable name: %s", rename_err)
+            _show_update_error(
+                f"Failed to rename update files: {rename_err}\n\n"
+                f"The new version was downloaded as '{newest_exe}'. "
+                "You can rename it manually and restart.")
+            return
+
+    launch_exe = STABLE_EXE_NAME if is_packaged else newest_exe
+
+    app = wx.GetApp()
+    if hasattr(app, 'transport') and app.transport:
+        app.transport.close()
+    logging.shutdown()
+    with subprocess.Popen([launch_exe]):
+        os._exit(0)  # os._exit to bypass atexit/finally handlers that could conflict with the new process
+
+
+def _on_releases_fetched(releases, notify_no_update):
+    """Handle fetched releases on the main (UI) thread."""
+    if not releases:
+        LOG.info("No releases found.")
+        if notify_no_update:
+            dlg = wx.MessageDialog(
+                None,
+                f"Version: {config.APP_VERSION}\n\n"
+                "Could not retrieve release information.",
+                "Update Check", wx.OK | wx.ICON_INFORMATION)
+            dlg.ShowModal()
+            dlg.Destroy()
+        return
+
+    config.CHANGELOG = compile_changelog(releases)
+    top_window = wx.GetApp().GetTopWindow()
+    if top_window:
+        top_window.on_updated_changelog()
+
+    latest_version = releases[0]['version']
+    if latest_version > config.APP_VERSION:
+        LOG.info("Update available: %s", latest_version)
+        _prompt_and_apply_update(releases, latest_version)
+    else:
+        LOG.info("No update available.")
+        if notify_no_update:
+            dlg = wx.MessageDialog(
+                None,
+                f"Version: {config.APP_VERSION}\n\n"
+                "There is no update available, you are running the latest version.",
+                "No Update Available", wx.OK | wx.ICON_INFORMATION)
+            dlg.ShowModal()
+            dlg.Destroy()
+
+
+def check_update(notify_no_update=False):
+    """Check for updates in a background thread.
+
+    Network I/O runs off the main thread so the UI stays responsive.
+    All dialogs and UI updates are marshaled back via wx.CallAfter.
+
+    Args:
+        notify_no_update: If True, show a dialog when no update is found
+                          (used for manual "Check for Updates" from the menu).
+    """
+    def _background():
+        try:
+            LOG.info("Checking for update. Current version: %s", config.APP_VERSION)
+            releases = get_recent_releases(10)
+            wx.CallAfter(_on_releases_fetched, releases, notify_no_update)
+        except Exception as e:
+            LOG.error("Failed to check for update: %s", e)
+            if notify_no_update:
+                wx.CallAfter(_show_update_error, str(e))
+
+    thread = threading.Thread(target=_background, daemon=True)
+    thread.start()
+
+
+def _show_update_error(message):
+    """Show an update error dialog on the main thread."""
+    dlg = wx.MessageDialog(
+        None,
+        f"Failed to check for updates:\n\n{message}",
+        "Update Error", wx.OK | wx.ICON_ERROR)
+    dlg.ShowModal()
+    dlg.Destroy()

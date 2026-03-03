@@ -88,22 +88,7 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
 
     def on_check_updates(self, event):
         """Check for updates"""
-        try:
-            if not updater.check_update():
-                dlg = wx.MessageDialog(
-                    self.frame,
-                    f"Version: {config.APP_VERSION}\n\n"
-                    "There is no update available, you are running the latest version.",
-                    "No Update Available", wx.OK | wx.ICON_INFORMATION)
-                dlg.ShowModal()
-                dlg.Destroy()
-        except Exception as e:
-            logger.error("Failed to check for updates: %s", e)
-            wx.MessageBox(
-                f"Failed to check for updates: {e}",
-                "Error",
-                wx.OK | wx.ICON_ERROR,
-            )
+        updater.check_update(notify_no_update=True)
 
     def on_exit(self, event):
         """Exit the application"""
