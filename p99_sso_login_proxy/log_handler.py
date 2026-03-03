@@ -1,5 +1,6 @@
 import asyncio
 import glob
+import logging
 import os
 import threading
 import time
@@ -11,6 +12,8 @@ import wx
 from p99_sso_login_proxy import config
 from p99_sso_login_proxy import sso_api
 from p99_sso_login_proxy import zone_translate
+
+logger = logging.getLogger("log_handler")
 
 LOG_WATCH_DIRECTORY = None
 LOG_HANDLER = None
@@ -26,7 +29,7 @@ class LogFileHandler(FileSystemEventHandler):
         self._position = 0
         self.latest_log_file = self.get_latest_log_file()
         if self.latest_log_file and config.USER_API_TOKEN:
-            print(f"[LOG HANDLER] New log file: {self.latest_log_file}")
+            logger.info("New log file: %s", self.latest_log_file)
             try:
                 with open(self.latest_log_file, 'rb') as f:
                     f.seek(0, os.SEEK_END)
@@ -54,7 +57,7 @@ class LogFileHandler(FileSystemEventHandler):
             modified_time = os.path.getmtime(self.latest_log_file)
             # If not modified within the last 30s, don't send a heartbeat
             if time.time() - modified_time > 30:
-                print(f"[LOG HANDLER] Not modified within the last 30s, not sending heartbeat for `{character_name}`")
+                logger.debug("Not modified within the last 30s, not sending heartbeat for `%s`", character_name)
                 return
             asyncio.run(sso_api.heartbeat(character_name))
 
@@ -63,7 +66,7 @@ class LogFileHandler(FileSystemEventHandler):
             return
         latest = self.get_latest_log_file()
         if latest != self.latest_log_file:
-            print(f"[LOG HANDLER] New log file: {latest}")
+            logger.info("New log file: %s", latest)
             self.latest_log_file = latest
             try:
                 with open(self.latest_log_file, 'rb') as f:
@@ -91,12 +94,12 @@ class LogFileHandler(FileSystemEventHandler):
         if config.MATCH_ENTERED_ZONE.match(line):
             zone = config.MATCH_ENTERED_ZONE.match(line).group("zone")
             zonekey = zone_translate.zone_to_zonekey(zone)
-            print(f"[LOG HANDLER] `{character_name}` entered zone: {zone} ({zonekey})")
+            logger.info("`%s` entered zone: %s (%s)", character_name, zone, zonekey)
             asyncio.run(sso_api.update_location(character_name, park_location=zonekey))
         elif config.MATCH_CHARINFO.match(line):
             zone = config.MATCH_CHARINFO.match(line).group("zone")
             zonekey = zone_translate.zone_to_zonekey(zone)
-            print(f"[LOG HANDLER] `{character_name}` is in zone: {zone} ({zonekey})")
+            logger.info("`%s` is bound in zone: %s (%s)", character_name, zone, zonekey)
             asyncio.run(sso_api.update_location(character_name, bind_location=zonekey))
 
 
@@ -109,9 +112,9 @@ def set_log_watch_directory(eq_directory, wx_app):
         return None
     log_directory = find_logs_subdir(eq_directory)
     if not log_directory:
-        print("[LOG HANDLER] No log directory found in: " + eq_directory)
+        logger.warning("No log directory found in: %s", eq_directory)
         return
-    print("[LOG HANDLER] Setting log watch directory to: " + log_directory)
+    logger.info("Setting log watch directory to: %s", log_directory)
     LOG_WATCH_DIRECTORY = log_directory
     def get_latest_log_file():
         files = glob.glob(os.path.join(LOG_WATCH_DIRECTORY, 'eqlog_*.txt'))

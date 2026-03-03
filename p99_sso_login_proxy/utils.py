@@ -1,6 +1,20 @@
 import csv
 import itertools
 import os
+import sys
+
+def find_resource_path(filename):
+    """Find a resource file by checking common locations (source dir, PyInstaller bundle, cwd)."""
+    candidates = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", filename),
+        os.path.join(os.path.dirname(sys.executable), filename),
+        filename,
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    return None
+
 
 def hex_to_bytes(hex_str):
     return bytes.fromhex(hex_str.replace('\\x', ''))
