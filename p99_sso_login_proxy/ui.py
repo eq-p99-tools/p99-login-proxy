@@ -65,10 +65,10 @@ class ProxyUI(wx.Frame):
     def __init__(self, parent=None, id=wx.ID_ANY, title=f"{config.APP_NAME} v{config.APP_VERSION}"):
         if platform.system() == "Windows":
             style = wx.DEFAULT_FRAME_STYLE & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX)
-            size = (550, 522)
+            size = (550, 550)
         else:
             style = wx.DEFAULT_FRAME_STYLE
-            size = (700, 644)
+            size = (700, 664)
         super().__init__(parent, id, title, size=size, style=style)
 
         self.exit_event = threading.Event()
@@ -267,6 +267,30 @@ class ProxyUI(wx.Frame):
         self.api_token_field.Bind(wx.EVT_KILL_FOCUS, self.on_token_blur)
 
         action_sizer.Add(token_field_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
+        # SSO API dropdown
+        sso_api_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        sso_api_label = StatusLabel(proxy_tab, "SSO API:")
+        sso_api_sizer.Add(sso_api_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+
+        known_urls = {url for _, url in config.SSO_API_OPTIONS}
+        choices = [name for name, _ in config.SSO_API_OPTIONS]
+        self._sso_api_url_map = [url for _, url in config.SSO_API_OPTIONS]
+
+        if config.SSO_API in known_urls:
+            selection = self._sso_api_url_map.index(config.SSO_API)
+        else:
+            choices.append(f"Custom: {config.SSO_API}")
+            self._sso_api_url_map.append(config.SSO_API)
+            selection = len(choices) - 1
+
+        self.sso_api_choice = wx.Choice(proxy_tab, choices=choices)
+        self.sso_api_choice.SetSelection(selection)
+        self.sso_api_choice.Bind(wx.EVT_CHOICE, self.on_sso_api_changed)
+        self.sso_api_choice.SetToolTip("Select the SSO API server endpoint")
+        sso_api_sizer.Add(self.sso_api_choice, 1, wx.EXPAND)
+
+        action_sizer.Add(sso_api_sizer, 0, wx.EXPAND | wx.ALL, 5)
         proxy_sizer.Add(action_sizer, 0, wx.ALL | wx.EXPAND, 10)
 
         proxy_tab.SetSizer(proxy_sizer)
@@ -621,6 +645,13 @@ class ProxyUI(wx.Frame):
     def on_updated_changelog(self):
         self.changelog_html.SetPage(config.CHANGELOG)
         self.changelog_html.SetHTMLBackgroundColour("#f9f9f9")
+
+    def on_sso_api_changed(self, event):
+        """Handle SSO API dropdown selection change."""
+        idx = self.sso_api_choice.GetSelection()
+        url = self._sso_api_url_map[idx]
+        if url != config.SSO_API:
+            config.set_sso_api(url)
 
     def on_browse_eq_directory(self, event):
         """Let the user pick the EverQuest installation directory."""

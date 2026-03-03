@@ -24,7 +24,11 @@ EQEMU_PORT = CONFIG.getint("DEFAULT", "login_port", fallback=5998)
 EQEMU_LOGIN_IP = socket.gethostbyname(EQEMU_LOGIN_HOST)
 EQEMU_ADDR = (EQEMU_LOGIN_IP, EQEMU_PORT)
 
-SSO_API = CONFIG.get("DEFAULT", "sso_api", fallback="https://proxy.p99loginproxy.net")
+SSO_API_OPTIONS = [
+    ("P99 Login Proxy", "https://proxy.p99loginproxy.net"),
+]
+
+SSO_API = CONFIG.get("DEFAULT", "sso_api", fallback=SSO_API_OPTIONS[0][1])
 SSO_TIMEOUT = CONFIG.getint("DEFAULT", "sso_timeout", fallback=10)
 SSO_CA_BUNDLE = CONFIG.get("DEFAULT", "sso_ca_bundle", fallback=True)
 
@@ -82,6 +86,15 @@ def set_user_api_token(token: str):
     global USER_API_TOKEN
     USER_API_TOKEN = token
     CONFIG.set("DEFAULT", "user_api_token", token)
+    with open("proxyconfig.ini", "w") as configfile:
+        CONFIG.write(configfile)
+
+
+def set_sso_api(url: str):
+    """Set the SSO API endpoint URL"""
+    global SSO_API
+    SSO_API = url
+    CONFIG.set("DEFAULT", "sso_api", url)
     with open("proxyconfig.ini", "w") as configfile:
         CONFIG.write(configfile)
 
