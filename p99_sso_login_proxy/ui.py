@@ -65,13 +65,14 @@ class ProxyUI(wx.Frame):
     def __init__(self, parent=None, id=wx.ID_ANY, title=f"{config.APP_NAME} v{config.APP_VERSION}"):
         if platform.system() == "Windows":
             style = wx.DEFAULT_FRAME_STYLE & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX)
-            size = (550, 520)
+            size = (550, 522)
         else:
             style = wx.DEFAULT_FRAME_STYLE
-            size = (700, 640)
+            size = (700, 644)
         super().__init__(parent, id, title, size=size, style=style)
 
         self.exit_event = threading.Event()
+        self._list_filter_data = {}
 
         PROXY_STATS.add_listener(self)
         self.Bind(proxy_stats.EVT_STATS_UPDATED_BINDER, self.on_stats_updated)
@@ -108,7 +109,15 @@ class ProxyUI(wx.Frame):
         return value
 
     def _populate_list(self, list_ctrl, rows):
-        """Populate a ListCtrl with rows (list of tuples) and apply alternating colors."""
+        """Store rows and render through the search filter if one exists."""
+        if list_ctrl in self._list_filter_data:
+            self._list_filter_data[list_ctrl]["rows"] = rows
+            self._apply_filter(list_ctrl)
+        else:
+            self._render_list(list_ctrl, rows)
+
+    def _render_list(self, list_ctrl, rows):
+        """Render rows into a ListCtrl with alternating row colors."""
         list_ctrl.DeleteAllItems()
         for i, row in enumerate(rows):
             list_ctrl.InsertItem(i, row[0])
@@ -116,6 +125,38 @@ class ProxyUI(wx.Frame):
                 list_ctrl.SetItem(i, col, value)
             if i % 2 == 1:
                 list_ctrl.SetItemBackgroundColour(i, COLOR_ALT_ROW)
+
+    def _apply_filter(self, list_ctrl):
+        """Re-render a list applying the current search filter.
+
+        Each whitespace-separated word acts as a stacking filter: a row must
+        match every word (in any column) to be included.
+        """
+        data = self._list_filter_data[list_ctrl]
+        terms = data["search"].GetValue().lower().split()
+        if not terms:
+            self._render_list(list_ctrl, data["rows"])
+        else:
+            filtered = [
+                row for row in data["rows"]
+                if all(
+                    any(term in cell.lower() for cell in row)
+                    for term in terms
+                )
+            ]
+            self._render_list(list_ctrl, filtered)
+
+    def _add_search_ctrl(self, parent, sizer, list_ctrl):
+        """Add a search box above a list control for typeahead filtering."""
+        search = wx.SearchCtrl(parent, style=wx.TE_PROCESS_ENTER)
+        search.SetDescriptiveText("Type to filter...")
+        search.ShowCancelButton(True)
+        sizer.Add(search, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 5)
+        self._list_filter_data[list_ctrl] = {"rows": [], "search": search}
+        search.Bind(wx.EVT_TEXT, lambda evt: self._apply_filter(list_ctrl))
+        search.Bind(wx.EVT_SEARCHCTRL_CANCEL_BTN,
+                     lambda evt: search.SetValue(""))
+        return search
 
     def _create_list_ctrl(self, parent, columns):
         """Create a styled ListCtrl with the given columns list of (name, width)."""
@@ -242,6 +283,7 @@ class ProxyUI(wx.Frame):
         accounts_sizer = wx.BoxSizer(wx.VERTICAL)
         self.accounts_list = self._create_list_ctrl(accounts_tab, [
             ("Account Name", 150), ("Aliases", 150), ("Tags", 150)])
+        self._add_search_ctrl(accounts_tab, accounts_sizer, self.accounts_list)
         accounts_sizer.Add(self.accounts_list, 1, wx.ALL | wx.EXPAND, 5)
         accounts_tab.SetSizer(accounts_sizer)
 
@@ -250,6 +292,7 @@ class ProxyUI(wx.Frame):
         aliases_sizer = wx.BoxSizer(wx.VERTICAL)
         self.aliases_list = self._create_list_ctrl(aliases_tab, [
             ("Alias", 150), ("Account Name", 300)])
+        self._add_search_ctrl(aliases_tab, aliases_sizer, self.aliases_list)
         aliases_sizer.Add(self.aliases_list, 1, wx.ALL | wx.EXPAND, 5)
         aliases_tab.SetSizer(aliases_sizer)
 
@@ -258,6 +301,7 @@ class ProxyUI(wx.Frame):
         tags_sizer = wx.BoxSizer(wx.VERTICAL)
         self.tags_list = self._create_list_ctrl(tags_tab, [
             ("Tag", 150), ("Account Names", 300)])
+        self._add_search_ctrl(tags_tab, tags_sizer, self.tags_list)
         tags_sizer.Add(self.tags_list, 1, wx.ALL | wx.EXPAND, 5)
         tags_tab.SetSizer(tags_sizer)
 
@@ -270,6 +314,7 @@ class ProxyUI(wx.Frame):
         self.characters_list.Bind(wx.EVT_LIST_COL_CLICK, self.on_characters_list_col_click)
         self._characters_sort_col = 1
         self._characters_sort_asc = True
+        self._add_search_ctrl(characters_tab, characters_sizer, self.characters_list)
         characters_sizer.Add(self.characters_list, 1, wx.ALL | wx.EXPAND, 5)
         characters_tab.SetSizer(characters_sizer)
 
@@ -278,6 +323,7 @@ class ProxyUI(wx.Frame):
         local_sizer = wx.BoxSizer(wx.VERTICAL)
         self.local_accounts_list = self._create_list_ctrl(local_tab, [
             ("Account Name", 200), ("Aliases", 250)])
+        self._add_search_ctrl(local_tab, local_sizer, self.local_accounts_list)
         local_sizer.Add(self.local_accounts_list, 1, wx.ALL | wx.EXPAND, 5)
 
         local_buttons_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -323,8 +369,17 @@ class ProxyUI(wx.Frame):
         eq_status_box = wx.StaticBox(eq_tab, label="EverQuest Configuration")
         eq_status_sizer = wx.StaticBoxSizer(eq_status_box, wx.VERTICAL)
 
-        self.eq_dir_text = self._add_label_value_row(
-            eq_tab, eq_status_sizer, "EverQuest Path:", "Checking...")
+        eq_dir_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        eq_dir_label = StatusLabel(eq_tab, "EverQuest Path:")
+        self.eq_dir_text = ValueLabel(eq_tab, "Checking...")
+        self.browse_eq_btn = wx.Button(eq_tab, label="Browse\u2026", size=(70, -1))
+        self.browse_eq_btn.Bind(wx.EVT_BUTTON, self.on_browse_eq_directory)
+        self.browse_eq_btn.SetToolTip("Select the EverQuest installation directory")
+        eq_dir_sizer.Add(eq_dir_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        eq_dir_sizer.Add(self.eq_dir_text, 1, wx.ALIGN_CENTER_VERTICAL)
+        eq_dir_sizer.Add(self.browse_eq_btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 5)
+        eq_status_sizer.Add(eq_dir_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
         self.eqhost_text = self._add_label_value_row(
             eq_tab, eq_status_sizer, "eqhost.txt Path:", "Checking...")
 
@@ -566,6 +621,25 @@ class ProxyUI(wx.Frame):
     def on_updated_changelog(self):
         self.changelog_html.SetPage(config.CHANGELOG)
         self.changelog_html.SetHTMLBackgroundColour("#f9f9f9")
+
+    def on_browse_eq_directory(self, event):
+        """Let the user pick the EverQuest installation directory."""
+        dlg = wx.DirDialog(
+            self, "Select EverQuest Directory",
+            defaultPath=config.EQ_DIRECTORY or "",
+            style=wx.DD_DEFAULT_STYLE | wx.DD_DIR_MUST_EXIST)
+        if dlg.ShowModal() == wx.ID_OK:
+            chosen = dlg.GetPath()
+            if not eq_config.is_valid_eq_directory(chosen):
+                wx.MessageBox(
+                    f"eqgame.exe was not found in:\n{chosen}\n\n"
+                    "Please select a directory containing eqgame.exe.",
+                    "Invalid Directory", wx.OK | wx.ICON_WARNING)
+            else:
+                config.set_eq_directory(chosen)
+                eq_config.clear_cache()
+                self.update_eq_status()
+        dlg.Destroy()
 
     def on_save_eqhost(self, event):
         eq_dir = eq_config.find_eq_directory()

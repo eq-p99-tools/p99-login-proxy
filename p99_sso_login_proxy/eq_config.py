@@ -77,6 +77,7 @@ def is_valid_eq_directory(path: str) -> bool:
 def find_eq_directory() -> Optional[str]:
     """
     Find the EverQuest installation directory using multiple methods.
+    Checks the explicit config override first, then falls back to auto-detection.
     
     Returns:
         Optional[str]: Path to EverQuest directory if found, None otherwise
@@ -85,7 +86,13 @@ def find_eq_directory() -> Optional[str]:
     if _cache.get("eq_directory"):
         logger.debug(f"Using cached EverQuest directory: {_cache['eq_directory']}")
         return _cache["eq_directory"]
-    
+
+    # Check explicit config override
+    if config.EQ_DIRECTORY and is_valid_eq_directory(config.EQ_DIRECTORY):
+        logger.info(f"Using configured EverQuest directory: {config.EQ_DIRECTORY}")
+        _cache["eq_directory"] = config.EQ_DIRECTORY
+        return config.EQ_DIRECTORY
+
     # First check the current directory:
     current_dir = os.getcwd()
     if is_valid_eq_directory(current_dir):
@@ -104,9 +111,14 @@ def find_eq_directory() -> Optional[str]:
     
     # Not found
     logger.warning("EverQuest directory not found")
-    # Update cache with None result
     _cache["eq_directory"] = None
     return None
+
+
+def clear_cache():
+    """Clear the cached directory and eqhost paths so they are re-detected."""
+    _cache["eq_directory"] = None
+    _cache["eqhost_path"] = None
 
 
 def get_eqhost_path(eq_dir: Optional[str] = None) -> Optional[str]:

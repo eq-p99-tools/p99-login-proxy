@@ -3,8 +3,8 @@ import semver
 __version_semver__ = semver.Version(
     major=1,
     minor=1,
-    patch=2,
-    prerelease=None,
+    patch=3,
+    prerelease='rc1',
     build=None
 )
 __version__ = f"{__version_semver__.major}.{__version_semver__.minor}.{__version_semver__.patch}"

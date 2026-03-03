@@ -30,6 +30,8 @@ SSO_CA_BUNDLE = CONFIG.get("DEFAULT", "sso_ca_bundle", fallback=True)
 
 ALWAYS_ON_TOP = CONFIG.getboolean("DEFAULT", "always_on_top", fallback=False)
 
+EQ_DIRECTORY = CONFIG.get("DEFAULT", "eq_directory", fallback="")
+
 # Whether to run in proxy-only mode (no SSO authentication)
 PROXY_ONLY = CONFIG.getboolean("DEFAULT", "proxy_only", fallback=False)
 
@@ -80,6 +82,15 @@ def set_user_api_token(token: str):
     global USER_API_TOKEN
     USER_API_TOKEN = token
     CONFIG.set("DEFAULT", "user_api_token", token)
+    with open("proxyconfig.ini", "w") as configfile:
+        CONFIG.write(configfile)
+
+
+def set_eq_directory(path: str):
+    """Set the EverQuest directory override path"""
+    global EQ_DIRECTORY
+    EQ_DIRECTORY = path
+    CONFIG.set("DEFAULT", "eq_directory", path)
     with open("proxyconfig.ini", "w") as configfile:
         CONFIG.write(configfile)
 
