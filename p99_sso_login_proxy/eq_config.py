@@ -8,9 +8,8 @@ the eqhost.txt file which controls which login server the game connects to.
 import os
 import logging
 import string
+from dataclasses import dataclass
 from typing import Optional, Tuple, List
-
-import wx
 
 from p99_sso_login_proxy import config
 
@@ -20,7 +19,8 @@ logger = logging.getLogger("eq_config")
 # Simple cache for paths
 _cache = {
     "eq_directory": None,
-    "eqhost_path": None
+    "eqhost_path": None,
+    "eqclient_path": None,
 }
 
 # Default EverQuest installation paths to check
@@ -116,9 +116,10 @@ def find_eq_directory() -> Optional[str]:
 
 
 def clear_cache():
-    """Clear the cached directory and eqhost paths so they are re-detected."""
+    """Clear the cached directory and file paths so they are re-detected."""
     _cache["eq_directory"] = None
     _cache["eqhost_path"] = None
+    _cache["eqclient_path"] = None
 
 
 def get_eqhost_path(eq_dir: Optional[str] = None) -> Optional[str]:
@@ -126,20 +127,19 @@ def get_eqhost_path(eq_dir: Optional[str] = None) -> Optional[str]:
     Get the path to the eqhost.txt file.
     
     Args:
-        eq_dir (Optional[str]): EverQuest directory path. If None, will attempt to find it.
+        eq_dir (Optional[str]): EverQuest directory path. If None, will attempt to find it
+                                and use the cache.
         
     Returns:
         Optional[str]: Path to eqhost.txt if found, None otherwise
     """
-    # Check cache first
-    if _cache.get("eqhost_path"):
-        logger.debug(f"Using cached eqhost.txt path: {_cache['eqhost_path']}")
-        return _cache["eqhost_path"]
-    
+    # Only use cache when no explicit eq_dir is provided
     if not eq_dir:
+        if _cache.get("eqhost_path"):
+            logger.debug(f"Using cached eqhost.txt path: {_cache['eqhost_path']}")
+            return _cache["eqhost_path"]
         eq_dir = find_eq_directory()
         if not eq_dir:
-            # Update cache with None result
             _cache["eqhost_path"] = None
             return None
     
@@ -147,12 +147,10 @@ def get_eqhost_path(eq_dir: Optional[str] = None) -> Optional[str]:
     eqhost_path = os.path.join(eq_dir, "eqhost.txt")
     if os.path.exists(eqhost_path):
         logger.info(f"Found eqhost.txt at {eqhost_path}")
-        # Update cache
         _cache["eqhost_path"] = eqhost_path
         return eqhost_path
     
     # Not found
-    # Update cache with None result
     _cache["eqhost_path"] = None
     return None
 
@@ -162,18 +160,28 @@ def get_eqclient_path(eq_dir: Optional[str] = None) -> Optional[str]:
     Get the path to the eqclient.ini file.
 
     Args:
-        eq_dir (Optional[str]): EverQuest directory path. If None, will attempt to find it.
+        eq_dir (Optional[str]): EverQuest directory path. If None, will attempt to find it
+                                and use the cache.
 
     Returns:
         Optional[str]: Path to eqclient.ini if found, None otherwise
     """
+    # Only use cache when no explicit eq_dir is provided
     if not eq_dir:
+        if _cache.get("eqclient_path"):
+            logger.debug(f"Using cached eqclient.ini path: {_cache['eqclient_path']}")
+            return _cache["eqclient_path"]
         eq_dir = find_eq_directory()
         if not eq_dir:
+            _cache["eqclient_path"] = None
             return None
+
     eqclient_path = os.path.join(eq_dir, "eqclient.ini")
     if os.path.exists(eqclient_path):
+        _cache["eqclient_path"] = eqclient_path
         return eqclient_path
+
+    _cache["eqclient_path"] = None
     return None
 
 
@@ -204,7 +212,7 @@ def read_eqhost_file(eqhost_path: Optional[str] = None) -> List[str]:
         return []
 
 
-def write_eqhost_file(lines: List[str], eqhost_path: Optional[str] = None) -> bool:
+def write_eqhost_file(lines: List[str], eqhost_path: Optional[str] = None) -> Tuple[bool, Optional[str]]:
     """
     Write contents to the eqhost.txt file.
     
@@ -213,12 +221,12 @@ def write_eqhost_file(lines: List[str], eqhost_path: Optional[str] = None) -> bo
         eqhost_path (Optional[str]): Path to eqhost.txt. If None, will attempt to find it.
         
     Returns:
-        bool: True if successful, False otherwise
+        Tuple[bool, Optional[str]]: (success, error_message)
     """
     if not eqhost_path:
         eqhost_path = get_eqhost_path()
         if not eqhost_path:
-            return False
+            return False, None
 
     try:
         ### Check if the eqhost file is read-only
@@ -231,17 +239,59 @@ def write_eqhost_file(lines: List[str], eqhost_path: Optional[str] = None) -> bo
             for line in lines:
                 f.write(f"{line}\n")
         logger.info(f"Successfully wrote to eqhost.txt at {eqhost_path}")
-        return True
+        return True, None
     except PermissionError as e:
         logger.error(f"Error writing to eqhost.txt. Please turn off the read-only flag on this file: {e.filename}")
-        wx.MessageBox("Failed to write to eqhost.txt. Please turn off the read-only flag on this file:\n\n"
-                      f"{e.filename}", "Error", wx.OK | wx.ICON_ERROR)
-        return False
+        return False, (f"Failed to write to eqhost.txt. Please turn off the read-only flag on this file:\n\n"
+                       f"{e.filename}")
     except Exception as e:
         logger.error(f"Error writing to eqhost.txt: {e}")
-        wx.MessageBox("Failed to write to eqhost.txt:\n\n"
-                      f"{str(e)}", "Error", wx.OK | wx.ICON_ERROR)
-        return False
+        return False, f"Failed to write to eqhost.txt:\n\n{str(e)}"
+
+
+@dataclass
+class EqHostEntry:
+    """Represents a single line in the eqhost.txt file."""
+    raw: str           # The line content (stripped of leading #)
+    is_host: bool      # Whether this is a Host= line
+    commented: bool    # Whether the line is commented out
+    is_proxy: bool     # Whether it matches the proxy address
+
+
+def _parse_eqhost_lines(lines: List[str]) -> List[EqHostEntry]:
+    """Parse raw eqhost.txt lines into structured entries."""
+    entries = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            entries.append(EqHostEntry(raw="", is_host=False, commented=False, is_proxy=False))
+            continue
+
+        is_commented = stripped.startswith('#')
+        uncommented = stripped.lstrip('#').strip()
+        is_host_line = uncommented.startswith('Host=')
+        is_proxy_line = DEFAULT_PROXY_ADDRESS in stripped
+
+        entries.append(EqHostEntry(
+            raw=uncommented,
+            is_host=is_host_line,
+            commented=is_commented,
+            is_proxy=is_proxy_line,
+        ))
+    return entries
+
+
+def _serialize_eqhost_entries(entries: List[EqHostEntry]) -> List[str]:
+    """Serialize structured entries back into eqhost.txt lines."""
+    result = []
+    for entry in entries:
+        if not entry.is_host:
+            result.append(entry.raw)
+        elif entry.commented:
+            result.append(f'#{entry.raw}')
+        else:
+            result.append(entry.raw)
+    return result
 
 
 def is_using_proxy(eq_dir: Optional[str] = None) -> Tuple[bool, Optional[str]]:
@@ -265,7 +315,7 @@ def is_using_proxy(eq_dir: Optional[str] = None) -> Tuple[bool, Optional[str]]:
     return any(DEFAULT_PROXY_ADDRESS in line and not line.startswith('#') for line in lines), eqhost_path
 
 
-def enable_proxy() -> bool:
+def enable_proxy() -> Tuple[bool, Optional[str]]:
     """
     Configure EverQuest to use the proxy in a non-destructive way.
     - Adds proxy line to the end if not present
@@ -273,11 +323,11 @@ def enable_proxy() -> bool:
     - Uncomments proxy line if it's commented
     
     Returns:
-        bool: True if successful, False otherwise
+        Tuple[bool, Optional[str]]: (success, error_message)
     """
     eqhost_path = get_eqhost_path()
     if not eqhost_path:
-        return False
+        return False, None
     
     lines = read_eqhost_file(eqhost_path)
     
@@ -285,118 +335,66 @@ def enable_proxy() -> bool:
     if not lines:
         return write_eqhost_file([DEFAULT_PROXY_ADDRESS], eqhost_path)
     
-    # Process the file line by line
-    new_lines = []
-    host_lines = []
-    proxy_line = None
-    commented_proxy_line = None
+    entries = _parse_eqhost_lines(lines)
+    has_proxy = False
+
+    for entry in entries:
+        if entry.is_proxy:
+            # Uncomment the proxy line
+            entry.commented = False
+            has_proxy = True
+        elif entry.is_host and not entry.commented:
+            # Comment out other active Host lines
+            entry.commented = True
+
+    # If proxy line wasn't in the file at all, add it
+    if not has_proxy:
+        entries.append(EqHostEntry(
+            raw=DEFAULT_PROXY_ADDRESS, is_host=True, commented=False, is_proxy=True))
     
-    for line in lines:
-        stripped = line.strip()
-        # Skip empty lines but preserve them
-        if not stripped:
-            new_lines.append(line)
-            continue
-            
-        # Check if this is our proxy line (commented or not)
-        if DEFAULT_PROXY_ADDRESS in stripped:
-            if stripped.startswith('#'):
-                commented_proxy_line = line
-            else:
-                # Already have an uncommented proxy line
-                proxy_line = line
-                new_lines.append(line)  # Keep it where it is for now
-        # Check if this is a Host line
-        elif stripped.startswith('Host=') and not stripped.startswith('#'):
-            # This is an uncommented Host line, save it to comment out later
-            host_lines.append(line)
-        else:
-            # Keep all other lines as they are
-            new_lines.append(line)
-    
-    # If we found uncommented Host lines, comment them and add to the end
-    for host_line in host_lines:
-        if host_line not in new_lines:  # Avoid duplicates
-            new_lines.append(f'#{host_line.strip()}')
-    
-    # If we have a commented proxy line but no uncommented one, uncomment it
-    if commented_proxy_line and not proxy_line:
-        proxy_line = commented_proxy_line.lstrip('#').strip()
-        # Remove the commented version if it's in our new lines
-        if commented_proxy_line in new_lines:
-            new_lines.remove(commented_proxy_line)
-        new_lines.append(proxy_line)
-    
-    # If we don't have an uncommented proxy line yet, add it to the end
-    if not proxy_line:
-        new_lines.append(f'{DEFAULT_PROXY_ADDRESS}')
-    
-    return write_eqhost_file(new_lines, eqhost_path)
+    return write_eqhost_file(_serialize_eqhost_entries(entries), eqhost_path)
 
 
-def disable_proxy() -> bool:
+def disable_proxy() -> Tuple[bool, Optional[str]]:
     """
     Configure EverQuest to use the official login server instead of the proxy in a non-destructive way.
     - Comments out the proxy line if present
     - Uncomments the last non-proxy Host line
     
     Returns:
-        bool: True if successful, False otherwise
+        Tuple[bool, Optional[str]]: (success, error_message)
     """
     eqhost_path = get_eqhost_path()
     if not eqhost_path:
-        return False
+        return False, None
     
     lines = read_eqhost_file(eqhost_path)
     if not lines:
         # If file doesn't exist, create it with default login server
         return write_eqhost_file([DEFAULT_LOGIN_SERVER], eqhost_path)
     
-    # Process the file line by line
-    new_lines = []
-    commented_host_lines = []
-    proxy_line_index = None
+    entries = _parse_eqhost_lines(lines)
+    had_active_proxy = False
+
+    # Comment out the proxy line
+    for entry in entries:
+        if entry.is_proxy and not entry.commented:
+            entry.commented = True
+            had_active_proxy = True
+
+    # If we disabled the proxy, uncomment the last non-proxy Host line
+    if had_active_proxy:
+        for entry in reversed(entries):
+            if entry.is_host and not entry.is_proxy and entry.commented:
+                entry.commented = False
+                break
+
+    # If there are no active Host lines at all, add the default login server
+    if not any(e.is_host and not e.commented for e in entries):
+        entries.append(EqHostEntry(
+            raw=DEFAULT_LOGIN_SERVER, is_host=True, commented=False, is_proxy=False))
     
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        # Skip empty lines but preserve them
-        if not stripped:
-            new_lines.append(line)
-            continue
-            
-        # Check if this is our proxy line
-        if DEFAULT_PROXY_ADDRESS in stripped:
-            if not stripped.startswith('#'):
-                # Comment out the proxy line
-                new_lines.append(f'#{stripped}')
-                proxy_line_index = i
-            else:
-                # Already commented, keep as is
-                new_lines.append(line)
-        # Check if this is a commented Host line (not proxy)
-        elif stripped.startswith('#') and stripped.lstrip('#').strip().startswith('Host=') and DEFAULT_PROXY_ADDRESS not in stripped:
-            commented_host_lines.append((i, line))
-            new_lines.append(line)  # Keep it for now
-        else:
-            # Keep all other lines as they are
-            new_lines.append(line)
-    
-    # If we commented out the proxy line and have commented host lines, uncomment the last one
-    if proxy_line_index is not None and commented_host_lines:
-        # Find the last commented host line
-        last_index, last_line = commented_host_lines[-1]
-        # Remove it from where it was
-        new_lines.pop(last_index)
-        # Add the uncommented version
-        uncommented = last_line.lstrip('#').strip()
-        # Add it back at the end
-        new_lines.append(f'{uncommented}')
-    
-    # If we have no Host lines at all, add the default login server
-    if not any(line.strip().startswith('Host=') and not line.strip().startswith('#') for line in new_lines):
-        new_lines.append(f'{DEFAULT_LOGIN_SERVER}')
-    
-    return write_eqhost_file(new_lines, eqhost_path)
+    return write_eqhost_file(_serialize_eqhost_entries(entries), eqhost_path)
 
 
 def get_eq_status() -> dict:

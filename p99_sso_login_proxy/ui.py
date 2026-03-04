@@ -563,7 +563,8 @@ class ProxyUI(wx.Frame):
             self.tray_icon.RemoveIcon()
             self.tray_icon.Destroy()
 
-        if eq_config.is_using_proxy():
+        using_proxy, _ = eq_config.is_using_proxy()
+        if using_proxy:
             eq_config.disable_proxy()
 
         self.exit_event.set()
@@ -597,10 +598,10 @@ class ProxyUI(wx.Frame):
 
         if selection == 0:  # Enabled (SSO)
             if not using_proxy:
-                success = eq_config.enable_proxy()
+                success, err = eq_config.enable_proxy()
                 if not success:
                     wx.MessageBox(
-                        "Failed to enable proxy. EverQuest directory or eqhost.txt not found.",
+                        err or "Failed to enable proxy. EverQuest directory or eqhost.txt not found.",
                         "Error", wx.OK | wx.ICON_ERROR)
                     self.proxy_mode_choice.SetSelection(2)
                     return
@@ -612,10 +613,10 @@ class ProxyUI(wx.Frame):
 
         elif selection == 1:  # Enabled (Proxy Only)
             if not using_proxy:
-                success = eq_config.enable_proxy()
+                success, err = eq_config.enable_proxy()
                 if not success:
                     wx.MessageBox(
-                        "Failed to enable proxy. EverQuest directory or eqhost.txt not found.",
+                        err or "Failed to enable proxy. EverQuest directory or eqhost.txt not found.",
                         "Error", wx.OK | wx.ICON_ERROR)
                     self.proxy_mode_choice.SetSelection(2)
                     return
@@ -627,10 +628,10 @@ class ProxyUI(wx.Frame):
 
         elif selection == 2:  # Disabled
             if using_proxy:
-                success = eq_config.disable_proxy()
+                success, err = eq_config.disable_proxy()
                 if not success:
                     wx.MessageBox(
-                        "Failed to disable proxy. EverQuest directory or eqhost.txt not found.",
+                        err or "Failed to disable proxy. EverQuest directory or eqhost.txt not found.",
                         "Error", wx.OK | wx.ICON_ERROR)
                     self.proxy_mode_choice.SetSelection(0 if not config.PROXY_ONLY else 1)
                     return
