@@ -128,8 +128,9 @@ def _apply_delta(data: dict):
                     chars[name] = cdata
                 entry["characters"] = chars
 
-            if "last_login" in fields:
-                entry["last_login"] = fields["last_login"]
+            for scalar in ("last_login", "last_login_by"):
+                if scalar in fields:
+                    entry[scalar] = fields[scalar]
 
             tree[account] = entry
 

@@ -38,7 +38,9 @@ def _activity_colour(last_login_iso: str | None) -> wx.Colour | None:
         then = datetime.datetime.fromisoformat(last_login_iso)
     except (ValueError, TypeError):
         return None
-    elapsed = (datetime.datetime.now(tz=then.tzinfo) - then).total_seconds()
+    if then.tzinfo is None:
+        then = then.replace(tzinfo=datetime.timezone.utc)
+    elapsed = (datetime.datetime.now(tz=datetime.timezone.utc) - then).total_seconds()
     if elapsed < 0:
         elapsed = 0
     if elapsed >= ACTIVITY_FADE_SECONDS:
@@ -88,10 +90,10 @@ class ProxyUI(wx.Frame):
     def __init__(self, parent=None, id=wx.ID_ANY, title=f"{config.APP_NAME} v{config.APP_VERSION}"):
         if platform.system() == "Windows":
             style = wx.DEFAULT_FRAME_STYLE & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX)
-            size = (616, 550)
+            size = (708, 550)
         else:
             style = wx.DEFAULT_FRAME_STYLE
-            size = (756, 664)
+            size = (800, 664)
         super().__init__(parent, id, title, size=size, style=style)
 
         self.exit_event = threading.Event()
@@ -343,7 +345,7 @@ class ProxyUI(wx.Frame):
         accounts_tab = wx.Panel(sso_notebook)
         accounts_sizer = wx.BoxSizer(wx.VERTICAL)
         self.accounts_list = self._create_list_ctrl(
-            accounts_tab, [("Account Name", 150), ("Aliases", 186), ("Tags", 186)]
+            accounts_tab, [("Account Name", 114), ("Aliases", 250), ("Tags", 250)]
         )
         self._add_search_ctrl(accounts_tab, accounts_sizer, self.accounts_list)
         accounts_sizer.Add(self.accounts_list, 1, wx.ALL | wx.EXPAND, 5)
@@ -352,7 +354,7 @@ class ProxyUI(wx.Frame):
         # Aliases sub-tab
         aliases_tab = wx.Panel(sso_notebook)
         aliases_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.aliases_list = self._create_list_ctrl(aliases_tab, [("Alias", 150), ("Account Name", 372)])
+        self.aliases_list = self._create_list_ctrl(aliases_tab, [("Alias", 100), ("Account Name", 114)])
         self._add_search_ctrl(aliases_tab, aliases_sizer, self.aliases_list)
         aliases_sizer.Add(self.aliases_list, 1, wx.ALL | wx.EXPAND, 5)
         aliases_tab.SetSizer(aliases_sizer)
@@ -360,7 +362,7 @@ class ProxyUI(wx.Frame):
         # Tags sub-tab
         tags_tab = wx.Panel(sso_notebook)
         tags_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.tags_list = self._create_list_ctrl(tags_tab, [("Tag", 150), ("Account Names", 372)])
+        self.tags_list = self._create_list_ctrl(tags_tab, [("Tag", 100), ("Account Names", 514)])
         self._add_search_ctrl(tags_tab, tags_sizer, self.tags_list)
         tags_sizer.Add(self.tags_list, 1, wx.ALL | wx.EXPAND, 5)
         tags_tab.SetSizer(tags_sizer)
@@ -374,9 +376,10 @@ class ProxyUI(wx.Frame):
                 ("Character", 80),
                 ("Class", 82),
                 ("Level", 40),
-                ("Park Location", 110),
-                ("Bind Location", 110),
+                ("Park Location", 115),
+                ("Bind Location", 115),
                 ("Account Name", 100),
+                ("Logged In By", 82),
             ],
         )
         self.characters_list.Bind(wx.EVT_LIST_COL_CLICK, self.on_characters_list_col_click)
@@ -389,7 +392,7 @@ class ProxyUI(wx.Frame):
         # Local accounts sub-tab
         local_tab = wx.Panel(sso_notebook)
         local_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.local_accounts_list = self._create_list_ctrl(local_tab, [("Account Name", 200), ("Aliases", 322)])
+        self.local_accounts_list = self._create_list_ctrl(local_tab, [("Account Name", 114), ("Aliases", 500)])
         self._add_search_ctrl(local_tab, local_sizer, self.local_accounts_list)
         local_sizer.Add(self.local_accounts_list, 1, wx.ALL | wx.EXPAND, 5)
 
@@ -409,10 +412,10 @@ class ProxyUI(wx.Frame):
         local_sizer.Add(local_buttons_sizer, 0, wx.ALL | wx.CENTER, 5)
         local_tab.SetSizer(local_sizer)
 
+        sso_notebook.AddPage(characters_tab, "Characters")
         sso_notebook.AddPage(accounts_tab, "Accounts")
         sso_notebook.AddPage(aliases_tab, "Aliases")
         sso_notebook.AddPage(tags_tab, "Tags")
-        sso_notebook.AddPage(characters_tab, "Characters")
         sso_notebook.AddPage(local_tab, "Local")
 
         sso_sizer.Add(sso_notebook, 1, wx.ALL | wx.EXPAND, 5)
@@ -1024,10 +1027,11 @@ class ProxyUI(wx.Frame):
         tag_rows = [(tag, ", ".join(sorted(accounts))) for tag, accounts in sorted(tag_to_accounts.items())]
         self._populate_list(self.tags_list, tag_rows)
 
-        # Characters -- last_login appended as hidden 7th element for activity colouring
+        # Characters -- last_login appended as hidden 8th element for activity colouring
         all_characters = []
         for account, data in config.ACCOUNTS_CACHED.items():
             last_login = data.get("last_login")
+            last_login_by = data.get("last_login_by") or ""
             characters = data.get("characters", {})
             for character in sorted(characters):
                 bind_text = zone_translate.zonekey_to_zone(characters[character]["bind"])
@@ -1035,20 +1039,20 @@ class ProxyUI(wx.Frame):
                 class_text = characters[character]["class"]
                 level = characters[character].get("level")
                 level_text = str(level) if level is not None else ""
-                all_characters.append((character, class_text, level_text, park_text, bind_text, account, last_login))
+                all_characters.append((character, class_text, level_text, park_text, bind_text, account, last_login_by, last_login))
 
         sort_col = self._characters_sort_col
         sort_asc = self._characters_sort_asc
         all_characters.sort(key=lambda x: ((x[sort_col] or ""), x[0]), reverse=not sort_asc)
 
         char_rows = [
-            (char, klass, lvl, park or "Unknown", bind or "Unknown", acct, ll)
-            for char, klass, lvl, park, bind, acct, ll in all_characters
+            (char, klass, lvl, park or "Unknown", bind or "Unknown", acct, login_by, ll)
+            for char, klass, lvl, park, bind, acct, login_by, ll in all_characters
         ]
         self._populate_list(
             self.characters_list,
             char_rows,
-            row_color_fn=lambda row: _activity_colour(row[6]),
+            row_color_fn=lambda row: _activity_colour(row[7]),
         )
 
     def update_eq_status(self):
