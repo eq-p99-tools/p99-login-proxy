@@ -1,0 +1,62 @@
+; P99 Login Proxy – example configuration
+; All keys shown below are optional; defaults are listed in comments.
+
+[DEFAULT]
+; Proxy listen address and port
+; listen_host = 0.0.0.0
+; listen_port = 5998
+
+; EQEmu login server to forward traffic to
+; login_server = login.eqemulator.net
+; login_port = 5998
+
+; SSO API backend currently in use (URL and display name)
+; sso_api = https://proxy.p99loginproxy.net
+; sso_api_name = P99 Login Proxy
+
+; Timeout in seconds for SSO HTTP requests
+; sso_timeout = 10
+
+; Custom CA bundle path, or True to use the system default
+; sso_ca_bundle = True
+
+; Keep the window on top of other windows
+; always_on_top = False
+
+; Path to the EverQuest installation directory (auto-detected if empty)
+; eq_directory =
+
+; Proxy mode: when True, packets are forwarded without SSO rewriting
+; proxy_only = False
+
+; Master switch – set to False to bypass the proxy entirely
+; proxy_enabled = True
+
+; API token for the active backend (kept in sync automatically;
+; you normally don't need to edit this by hand)
+; user_api_token =
+
+; CSV file containing locally-stored account credentials
+; local_accounts_file = local_accounts.csv
+
+; Comma-separated account names that should never be SSO-checked
+; skip_sso_accounts =
+
+; ── Per-backend API tokens ──────────────────────────────────────────
+; Each backend name maps to its own API token. When you switch backends
+; in the UI the correct token is loaded automatically.
+; The key is the display name from the dropdown (built-in or custom).
+;
+; [api_tokens]
+; P99 Login Proxy = YourTokenHere
+; My Guild Server = AnotherTokenHere
+
+; ── Custom SSO backends ─────────────────────────────────────────────
+; Add extra entries to the SSO API dropdown. Built-in backends are
+; always present; entries here are appended to the list.
+; The key is the display name shown in the dropdown; the value is the URL.
+; Multiple entries may share the same URL (each with its own API token).
+;
+; [sso_backends]
+; My Guild Server = https://guild.example.com
+; My Alt Account = https://proxy.p99loginproxy.net

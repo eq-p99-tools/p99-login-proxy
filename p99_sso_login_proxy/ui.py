@@ -312,15 +312,18 @@ class ProxyUI(wx.Frame):
         sso_api_label = StatusLabel(proxy_tab, "SSO API:")
         sso_api_sizer.Add(sso_api_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
 
-        known_urls = {url for _, url in config.SSO_API_OPTIONS}
+        known_names = {name for name, _ in config.SSO_API_OPTIONS}
         choices = [name for name, _ in config.SSO_API_OPTIONS]
         self._sso_api_url_map = [url for _, url in config.SSO_API_OPTIONS]
+        self._sso_api_name_map = list(choices)
 
-        if config.SSO_API in known_urls:
-            selection = self._sso_api_url_map.index(config.SSO_API)
+        if config.SSO_API_NAME in known_names:
+            selection = self._sso_api_name_map.index(config.SSO_API_NAME)
         else:
-            choices.append(f"Custom: {config.SSO_API}")
+            custom_label = f"Custom: {config.SSO_API}"
+            choices.append(custom_label)
             self._sso_api_url_map.append(config.SSO_API)
+            self._sso_api_name_map.append(custom_label)
             selection = len(choices) - 1
 
         self.sso_api_choice = wx.Choice(proxy_tab, choices=choices)
@@ -693,9 +696,11 @@ class ProxyUI(wx.Frame):
     def on_sso_api_changed(self, event):
         """Handle SSO API dropdown selection change."""
         idx = self.sso_api_choice.GetSelection()
+        name = self._sso_api_name_map[idx]
         url = self._sso_api_url_map[idx]
-        if url != config.SSO_API:
-            config.set_sso_api(url)
+        if name != config.SSO_API_NAME:
+            new_token = config.set_sso_api(name, url)
+            self.api_token_field.ChangeValue(new_token)
             if hasattr(self, "ws_status_text"):
                 self.ws_status_text.SetLabel("Connecting...")
                 self.ws_status_text.SetForegroundColour(COLOR_WARNING)
@@ -754,7 +759,7 @@ class ProxyUI(wx.Frame):
 
     def on_api_token_changed(self, event):
         token = self.api_token_field.GetValue()
-        config.set_user_api_token(token)
+        config.set_api_token_for_backend(config.SSO_API_NAME, token)
         self._schedule_ws_reconnect()
 
     def on_token_focus(self, event):
@@ -979,10 +984,9 @@ class ProxyUI(wx.Frame):
 
     def update_account_cache_display(self):
         """Update the account cache display"""
-        total_accounts = len(config.ALL_CACHED_NAMES)
         real_accounts = config.ACCOUNTS_CACHE_REAL_COUNT
 
-        if total_accounts == 0:
+        if real_accounts == 0:
             self.accounts_cached_text.SetLabel("None")
             self.accounts_cached_text.SetForegroundColour(COLOR_MUTED)
         else:
@@ -990,9 +994,18 @@ class ProxyUI(wx.Frame):
                 len(data.get("characters", {}))
                 for data in config.ACCOUNTS_CACHED.values()
             )
+            total_aliases = sum(
+                len(data.get("aliases", []))
+                for data in config.ACCOUNTS_CACHED.values()
+            )
+            unique_tags = len({
+                tag
+                for data in config.ACCOUNTS_CACHED.values()
+                for tag in data.get("tags", [])
+            })
             self.accounts_cached_text.SetLabel(
                 f"{real_accounts} accounts, {total_characters} characters, "
-                f"{total_accounts - real_accounts} aliases/tags"
+                f"{total_aliases + unique_tags} aliases/tags"
             )
             self.accounts_cached_text.SetForegroundColour(COLOR_SUCCESS)
 

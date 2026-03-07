@@ -6,6 +6,7 @@ import socket
 from p99_sso_login_proxy import __version_semver__, utils
 
 CONFIG = configparser.ConfigParser()
+CONFIG.optionxform = str
 CONFIG.read("proxyconfig.ini")
 
 APP_NAME = "P99 Login Proxy"
@@ -35,7 +36,23 @@ SSO_API_OPTIONS = [
 if __version_semver__.prerelease:
     SSO_API_OPTIONS.append(("Localhost", "http://localhost:5998"))
 
+if CONFIG.has_section("sso_backends"):
+    _known_names = {name for name, _ in SSO_API_OPTIONS}
+    _default_keys = set(CONFIG.defaults())
+    for name, url in CONFIG.items("sso_backends"):
+        if name in _default_keys:
+            continue
+        if name not in _known_names:
+            SSO_API_OPTIONS.append((name, url))
+            _known_names.add(name)
+
 SSO_API = CONFIG.get("DEFAULT", "sso_api", fallback=SSO_API_OPTIONS[0][1])
+_url_to_name = {}
+for _n, _u in SSO_API_OPTIONS:
+    if _u not in _url_to_name:
+        _url_to_name[_u] = _n
+SSO_API_NAME = CONFIG.get("DEFAULT", "sso_api_name", fallback=_url_to_name.get(SSO_API, SSO_API))
+
 SSO_TIMEOUT = CONFIG.getint("DEFAULT", "sso_timeout", fallback=10)
 SSO_CA_BUNDLE = CONFIG.get("DEFAULT", "sso_ca_bundle", fallback=True)
 
@@ -49,8 +66,18 @@ PROXY_ONLY = CONFIG.getboolean("DEFAULT", "proxy_only", fallback=False)
 # Whether to run in proxy mode
 PROXY_ENABLED = CONFIG.getboolean("DEFAULT", "proxy_enabled", fallback=True)
 
-# Get the user API token from config
-USER_API_TOKEN = CONFIG.get("DEFAULT", "user_api_token", fallback="")
+# Per-backend API tokens keyed by backend display name
+_API_TOKENS_SECTION = "api_tokens"
+_legacy_token = CONFIG.get("DEFAULT", "user_api_token", fallback="")
+
+if not CONFIG.has_section(_API_TOKENS_SECTION):
+    CONFIG.add_section(_API_TOKENS_SECTION)
+    if _legacy_token:
+        CONFIG.set(_API_TOKENS_SECTION, SSO_API_NAME, _legacy_token)
+        with open("proxyconfig.ini", "w") as _f:
+            CONFIG.write(_f)
+
+USER_API_TOKEN = CONFIG.get(_API_TOKENS_SECTION, SSO_API_NAME, fallback=_legacy_token)
 
 # Variables to store account list and timestamp
 ALL_CACHED_NAMES = []
@@ -88,14 +115,40 @@ def set_proxy_only(value: bool):
     _set_config("PROXY_ONLY", "proxy_only", value)
 
 
-def set_user_api_token(token: str):
-    """Store the user API token"""
-    _set_config("USER_API_TOKEN", "user_api_token", token)
+def get_api_token(name: str) -> str:
+    """Return the stored API token for a given backend name."""
+    return CONFIG.get(_API_TOKENS_SECTION, name, fallback="")
 
 
-def set_sso_api(url: str):
-    """Set the SSO API endpoint URL"""
-    _set_config("SSO_API", "sso_api", url)
+def set_api_token_for_backend(name: str, token: str):
+    """Save an API token for a specific backend name.
+
+    Also keeps the legacy user_api_token in DEFAULT in sync when
+    the token belongs to the currently active backend.
+    """
+    CONFIG.set(_API_TOKENS_SECTION, name, token)
+    if name == globals()["SSO_API_NAME"]:
+        globals()["USER_API_TOKEN"] = token
+        CONFIG.set("DEFAULT", "user_api_token", token)
+    with open("proxyconfig.ini", "w") as configfile:
+        CONFIG.write(configfile)
+
+
+def set_sso_api(name: str, url: str) -> str:
+    """Set the SSO API endpoint and swap the active API token.
+
+    Returns the API token associated with the new backend.
+    """
+    globals()["SSO_API"] = url
+    globals()["SSO_API_NAME"] = name
+    CONFIG.set("DEFAULT", "sso_api", url)
+    CONFIG.set("DEFAULT", "sso_api_name", name)
+    token = get_api_token(name)
+    globals()["USER_API_TOKEN"] = token
+    CONFIG.set("DEFAULT", "user_api_token", token)
+    with open("proxyconfig.ini", "w") as configfile:
+        CONFIG.write(configfile)
+    return token
 
 
 def set_eq_directory(path: str):
