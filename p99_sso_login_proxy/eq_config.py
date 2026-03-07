@@ -5,11 +5,11 @@ This module handles finding the EverQuest installation directory and managing
 the eqhost.txt file which controls which login server the game connects to.
 """
 
-import os
 import logging
+import os
 import string
 from dataclasses import dataclass
-from typing import Optional, Tuple, List
+from typing import List, Optional, Tuple
 
 from p99_sso_login_proxy import config
 
@@ -204,7 +204,7 @@ def read_eqhost_file(eqhost_path: Optional[str] = None) -> List[str]:
 
     try:
         if os.path.exists(eqhost_path):
-            with open(eqhost_path, "r") as f:
+            with open(eqhost_path) as f:
                 return [line.strip() for line in f.readlines()]
         else:
             logger.warning(f"eqhost.txt not found at {eqhost_path}")
@@ -249,7 +249,7 @@ def write_eqhost_file(lines: List[str], eqhost_path: Optional[str] = None) -> Tu
         )
     except Exception as e:
         logger.exception("Error writing to eqhost.txt")
-        return False, f"Failed to write to eqhost.txt:\n\n{str(e)}"
+        return False, f"Failed to write to eqhost.txt:\n\n{e!s}"
 
 
 @dataclass
@@ -430,6 +430,6 @@ if __name__ == "__main__":
 
     # Test the functions
     status = get_eq_status()
-    print("EverQuest Status:")
+    logger.info("EverQuest Status:")
     for key, value in status.items():
-        print(f"  {key}: {value}")
+        logger.info("  %s: %s", key, value)

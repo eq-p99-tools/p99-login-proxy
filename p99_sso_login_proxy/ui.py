@@ -7,15 +7,8 @@ import threading
 import wx
 import wx.html
 
-from p99_sso_login_proxy import config
-from p99_sso_login_proxy import eq_config
-from p99_sso_login_proxy import log_handler
-from p99_sso_login_proxy import sso_api
-from p99_sso_login_proxy import utils
-from p99_sso_login_proxy.ui_classes import local_account_dialog
-from p99_sso_login_proxy.ui_classes import proxy_stats
-from p99_sso_login_proxy.ui_classes import taskbar_icon
-from p99_sso_login_proxy import zone_translate
+from p99_sso_login_proxy import config, eq_config, log_handler, sso_api, utils, zone_translate
+from p99_sso_login_proxy.ui_classes import local_account_dialog, proxy_stats, taskbar_icon
 
 logger = logging.getLogger("ui")
 
@@ -571,7 +564,8 @@ class ProxyUI(wx.Frame):
             else:
                 wx.MessageBox(f"EverQuest executable not found in {eq_dir}", "Error", wx.OK | wx.ICON_ERROR)
         except Exception as e:
-            wx.MessageBox(f"Failed to launch EverQuest: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
+            logger.exception("Failed to launch EverQuest")
+            wx.MessageBox(f"Failed to launch EverQuest: {e!s}", "Error", wx.OK | wx.ICON_ERROR)
 
     def on_proxy_mode_changed(self, event):
         selection = self.proxy_mode_choice.GetSelection()
@@ -725,20 +719,43 @@ class ProxyUI(wx.Frame):
                 self.api_token_field.SetWindowStyleFlag(style)
         event.Skip()
 
+    def _fetch_accounts_in_background(self, on_done=None, show_busy=False):
+        """Run fetch_user_accounts in a background thread to avoid blocking the UI."""
+        if show_busy:
+            wx.BeginBusyCursor()
+
+        def _worker():
+            try:
+                sso_api.fetch_user_accounts()
+            except Exception:
+                logger.exception("Failed to fetch account cache in background")
+            finally:
+                wx.CallAfter(self._on_background_fetch_done, on_done, show_busy)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_background_fetch_done(self, on_done, show_busy):
+        """Called on the wx thread after background fetch completes."""
+        if show_busy and wx.IsBusy():
+            wx.EndBusyCursor()
+        if on_done:
+            on_done()
+
     def on_refresh_account_cache(self, event):
         """Refresh the account cache from the SSO server"""
-        try:
-            wx.BeginBusyCursor()
-            sso_api.fetch_user_accounts()
-            config.LOCAL_ACCOUNTS, config.LOCAL_ACCOUNT_NAME_MAP = utils.load_local_accounts(config.LOCAL_ACCOUNTS_FILE)
-            self.update_account_cache_display()
-            self.update_account_cache_time()
-        except Exception as e:
-            logger.exception("Failed to refresh account cache")
-            wx.MessageBox(f"Failed to refresh account cache: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
-        finally:
-            if wx.IsBusy():
-                wx.EndBusyCursor()
+
+        def _after_fetch():
+            try:
+                config.LOCAL_ACCOUNTS, config.LOCAL_ACCOUNT_NAME_MAP = utils.load_local_accounts(
+                    config.LOCAL_ACCOUNTS_FILE
+                )
+                self.update_account_cache_display()
+                self.update_account_cache_time()
+            except Exception as e:
+                logger.exception("Failed to refresh account cache")
+                wx.MessageBox(f"Failed to refresh account cache: {e!s}", "Error", wx.OK | wx.ICON_ERROR)
+
+        self._fetch_accounts_in_background(on_done=_after_fetch, show_busy=True)
 
     def on_exit_button(self, event):
         """Exit the application when the exit button is clicked"""
@@ -752,20 +769,20 @@ class ProxyUI(wx.Frame):
                 self.SetIcon(icon)
                 if self.tray_icon:
                     self.tray_icon.SetIcon(icon, config.APP_NAME)
-            except Exception as e:
-                logger.warning("Failed to load icon from %s: %s", path, e)
+            except Exception:
+                logger.warning("Failed to load icon from %s", path, exc_info=True)
 
     def update_account_cache_time(self, event=None) -> None:
-        """Update the account cache time display"""
+        """Update the account cache time display, fetching in background if stale."""
         try:
             cache_text_color = COLOR_SUCCESS
-            if config.ACCOUNTS_CACHE_TIMESTAMP == datetime.datetime.min:
+            needs_fetch = False
+
+            if datetime.datetime.min == config.ACCOUNTS_CACHE_TIMESTAMP:
                 if config.USER_API_TOKEN:
-                    sso_api.fetch_user_accounts()
-                    self.update_account_cache_time()
-                else:
-                    cache_time = "Not cached yet"
-                    cache_text_color = COLOR_ERROR
+                    needs_fetch = True
+                cache_time = "Not cached yet"
+                cache_text_color = COLOR_ERROR
             else:
                 cache_time = config.ACCOUNTS_CACHE_TIMESTAMP.strftime("%Y-%m-%d %H:%M:%S")
                 time_diff = datetime.datetime.now() - config.ACCOUNTS_CACHE_TIMESTAMP
@@ -773,8 +790,7 @@ class ProxyUI(wx.Frame):
                 if time_diff.total_seconds() > 2 * 60 * 60:
                     logger.info("Account cache is stale, updating: %s", time_diff)
                     cache_text_color = COLOR_ERROR
-                    sso_api.fetch_user_accounts()
-                    self.update_account_cache_time()
+                    needs_fetch = True
                 elif time_diff.total_seconds() > 1 * 60 * 60:
                     logger.info("Account cache is getting stale: %s", time_diff)
                     cache_text_color = COLOR_WARNING
@@ -784,6 +800,9 @@ class ProxyUI(wx.Frame):
                 self.cache_time_text.SetForegroundColour(cache_text_color)
                 self.cache_time_text.SetLabel(cache_time)
                 self.cache_time_text.Refresh()
+
+            if needs_fetch:
+                self._fetch_accounts_in_background(on_done=self.update_account_cache_time)
         except Exception:
             logger.exception("Failed to update account cache time")
 

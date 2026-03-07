@@ -5,13 +5,11 @@ import os
 import threading
 import time
 
+import wx
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
-import wx
 
-from p99_sso_login_proxy import config
-from p99_sso_login_proxy import sso_api
-from p99_sso_login_proxy import zone_translate
+from p99_sso_login_proxy import config, sso_api, zone_translate
 
 logger = logging.getLogger("log_handler")
 
@@ -26,6 +24,9 @@ def _run_async(coro):
     app = wx.GetApp()
     if app and hasattr(app, "loop") and app.loop.is_running():
         asyncio.run_coroutine_threadsafe(coro, app.loop)
+    else:
+        coro.close()
+        logger.warning("Async loop not available, coroutine was dropped")
 
 
 class LogFileHandler(FileSystemEventHandler):
@@ -81,7 +82,7 @@ class LogFileHandler(FileSystemEventHandler):
             self.latest_log_file = latest
             self._seek_to_latest_position()
         if event.src_path == self.latest_log_file:
-            with open(self.latest_log_file, "r", errors="ignore") as f:
+            with open(self.latest_log_file, errors="ignore") as f:
                 f.seek(self._position)
                 for line in f:
                     self.handle_log_line(line.rstrip())

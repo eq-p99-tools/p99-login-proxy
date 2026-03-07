@@ -20,7 +20,7 @@ try:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        handlers=[logging.FileHandler(f"updater.log"), logging.StreamHandler()],
+        handlers=[logging.FileHandler("updater.log"), logging.StreamHandler()],
     )
     LOG = logging.getLogger("updater")
 except Exception as e:

@@ -3,10 +3,7 @@ import logging
 import wx
 import wx.adv
 
-from p99_sso_login_proxy import config
-from p99_sso_login_proxy import eq_config
-from p99_sso_login_proxy import updater
-from p99_sso_login_proxy import utils
+from p99_sso_login_proxy import config, eq_config, updater, utils
 
 logger = logging.getLogger("taskbar_icon")
 
@@ -67,8 +64,8 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
                 self.SetIcon(icon, tooltip)
                 self.frame.SetIcon(icon)
                 return
-            except Exception as e:
-                logger.warning("Failed to load icon from %s: %s", path, e)
+            except Exception:
+                logger.warning("Failed to load icon from %s", path, exc_info=True)
 
         logger.warning("Could not find or load icon %s", icon_filename)
 

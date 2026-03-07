@@ -1,20 +1,21 @@
 import asyncio
-import glob
-import os
+import logging
+import platform
 import sys
 import threading
-import platform
 
 import wx
 
-from p99_sso_login_proxy import server, ui, updater, sso_api
+from p99_sso_login_proxy import server, sso_api, ui, updater
+
+logger = logging.getLogger("cmd")
 
 
 # Class to integrate wxPython with asyncio
 class WxAsyncApp(wx.App):
     def __init__(self):
         super().__init__(False)
-        self.loop = asyncio.get_event_loop()
+        self.loop = asyncio.new_event_loop()
         self.running = False
         self.transport = None
         self.exit_event = threading.Event()
@@ -52,9 +53,9 @@ class WxAsyncApp(wx.App):
             try:
                 if self.transport is None and self.proxy_task.done():
                     self.transport = self.proxy_task.result()
-            except Exception as e:
-                print(f"Failed to start UDP proxy: {e}")
-                ui.error("Failed to start UDP proxy, check if another instance is running, and restart.")
+            except Exception:
+                logger.exception("Failed to start UDP proxy")
+                wx.CallAfter(ui.error, "Failed to start UDP proxy, check if another instance is running, and restart.")
                 self.stop_event_loop()
 
         # Cancel the proxy task
@@ -65,20 +66,30 @@ class WxAsyncApp(wx.App):
         wx.CallAfter(self.restart_proxy_server)
 
     def restart_proxy_server(self):
-        """Restart the proxy server"""
-        print("System resume event detected. Restarting proxy server...")
+        """Restart the proxy server (called from wx thread via CallAfter)."""
+        logger.info("System resume event detected. Restarting proxy server...")
 
         if self.transport:
             self.transport.close()
-        print("Existing transport shutdown.")
+        logger.info("Existing transport shutdown.")
 
-        self.proxy_task = self.loop.create_task(server.main())
+        future = asyncio.run_coroutine_threadsafe(server.main(), self.loop)
         self.transport = None
-        print("New transport started.")
+
+        def _on_restart_done(fut):
+            try:
+                self.transport = fut.result()
+                logger.info("New transport started.")
+            except Exception:
+                logger.exception("Failed to restart proxy server")
+                wx.CallAfter(ui.error, "Failed to restart proxy server. Please restart the application.")
+
+        future.add_done_callback(_on_restart_done)
+        logger.info("Restart scheduled on asyncio loop.")
 
     def stop_event_loop(self):
         """Stop the event loop"""
-        print("[RUN SERVER] Stopping event loop in WxAsyncApp")
+        logger.info("Stopping event loop in WxAsyncApp")
         self.exit_event.set()
         self.ExitMainLoop()
 
@@ -88,7 +99,7 @@ def main():
     wx_app = WxAsyncApp()
 
     def start_eq_windows(eq_dir):
-        print("Starting EverQuest...")
+        logger.info("Starting EverQuest...")
         import subprocess
 
         subprocess.Popen(
@@ -100,7 +111,7 @@ def main():
         )
 
     def start_eq_linux(eq_dir):
-        print("Starting EverQuest...")
+        logger.info("Starting EverQuest...")
         # This is absolutely not accurate, need to get a real command from someone who knows...
         # or make it configurable because it likely is different on different distros
         import subprocess
@@ -110,8 +121,8 @@ def main():
     # Fetch user accounts if API token is available
     try:
         sso_api.fetch_user_accounts()
-    except Exception as e:
-        print(f"[RUN SERVER] Failed to fetch user accounts: {e}")
+    except Exception:
+        logger.exception("Failed to fetch user accounts")
 
     # Initialize the UI
     main_window = ui.start_ui()
@@ -123,8 +134,8 @@ def main():
     # Check for updates on startup
     try:
         updater.check_update()
-    except Exception as e:
-        print(f"[RUN SERVER] Failed to check for updates: {e}")
+    except Exception:
+        logger.exception("Failed to check for updates")
 
     # Set up exit handler
     def handle_exit():
@@ -150,7 +161,7 @@ def main():
     except KeyboardInterrupt:
         handle_exit()
     finally:
-        print("Shutting down.")
+        logger.info("Shutting down.")
         sys.exit(0)
 
 

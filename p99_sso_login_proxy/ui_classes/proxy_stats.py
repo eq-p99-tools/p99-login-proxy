@@ -1,4 +1,5 @@
 import time
+
 import wx
 
 # Define custom event IDs

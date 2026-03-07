@@ -1,6 +1,7 @@
 # Based in large part on the original work by Zaela:
 # https://github.com/Zaela/p99-login-middlemand
 from __future__ import annotations
+
 import asyncio
 import functools
 import logging
@@ -8,11 +9,7 @@ import time
 
 from Cryptodome.Cipher import DES
 
-from p99_sso_login_proxy import config
-from p99_sso_login_proxy import sequence
-from p99_sso_login_proxy import sso_api
-from p99_sso_login_proxy import structs
-from p99_sso_login_proxy import ui
+from p99_sso_login_proxy import config, sequence, sso_api, structs, ui
 
 logger = logging.getLogger("server")
 
@@ -255,14 +252,6 @@ class LoginProxy(asyncio.DatagramProtocol):
             return
         logger.debug("Forwarding processed packet to client")
         self.send_to_client(data)
-
-
-async def shutdown(transport):
-    logger.info("Shutting down proxy...")
-    ui.PROXY_STATS.update_status("Shutting down")
-    transport.close()
-    loop = asyncio.get_running_loop()
-    loop.close()
 
 
 async def main():

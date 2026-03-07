@@ -3,8 +3,7 @@ import logging
 
 import httpx
 
-from p99_sso_login_proxy import config
-from p99_sso_login_proxy import utils
+from p99_sso_login_proxy import config, utils
 
 logger = logging.getLogger("sso_api")
 
