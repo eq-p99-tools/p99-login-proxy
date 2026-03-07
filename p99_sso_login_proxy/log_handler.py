@@ -21,6 +21,13 @@ LOG_OBSERVER = None
 LOG_OBSERVER_THREAD = None
 
 
+def _run_async(coro):
+    """Schedule a coroutine on the app's asyncio event loop (thread-safe)."""
+    app = wx.GetApp()
+    if app and hasattr(app, "loop") and app.loop.is_running():
+        asyncio.run_coroutine_threadsafe(coro, app.loop)
+
+
 class LogFileHandler(FileSystemEventHandler):
     def __init__(self, get_latest_log_file, wx_app):
         super().__init__()
@@ -30,23 +37,27 @@ class LogFileHandler(FileSystemEventHandler):
         self.latest_log_file = self.get_latest_log_file()
         if self.latest_log_file and config.USER_API_TOKEN:
             logger.info("New log file: %s", self.latest_log_file)
-            try:
-                with open(self.latest_log_file, 'rb') as f:
-                    f.seek(0, os.SEEK_END)
-                    self._position = f.tell()
-                    # Try to handle login text
-                    f.seek(max(self._position - 1000, 0), os.SEEK_SET)
-                    for line in f:
-                        if line.rstrip().endswith(b'] Welcome to EverQuest!'):
-                            break
-                    self._position = min(f.tell(), self._position)
-            except Exception:
-                self._position = 0
+            self._seek_to_latest_position()
             self.send_heartbeat()  # Send an initial heartbeat if we've got a logfile
 
         self.heartbeat_timer = wx.Timer(self._wx_app)
         self._wx_app.Bind(wx.EVT_TIMER, self.send_heartbeat, self.heartbeat_timer)
         self.heartbeat_timer.Start(20000)  # Heartbeat every 20 seconds
+
+    def _seek_to_latest_position(self):
+        """Seek to the end of the current log file, backing up to the last login marker."""
+        try:
+            with open(self.latest_log_file, "rb") as f:
+                f.seek(0, os.SEEK_END)
+                self._position = f.tell()
+                # Try to handle login text
+                f.seek(max(self._position - 1000, 0), os.SEEK_SET)
+                for line in f:
+                    if line.rstrip().endswith(b"] Welcome to EverQuest!"):
+                        break
+                self._position = min(f.tell(), self._position)
+        except Exception:
+            self._position = 0
 
     def send_heartbeat(self, event=None):
         if self.latest_log_file and config.USER_API_TOKEN:
@@ -59,7 +70,7 @@ class LogFileHandler(FileSystemEventHandler):
             if time.time() - modified_time > 30:
                 logger.debug("Not modified within the last 30s, not sending heartbeat for `%s`", character_name)
                 return
-            asyncio.run(sso_api.heartbeat(character_name))
+            _run_async(sso_api.heartbeat(character_name))
 
     def on_modified(self, event):
         if not config.USER_API_TOKEN:
@@ -68,20 +79,9 @@ class LogFileHandler(FileSystemEventHandler):
         if latest != self.latest_log_file:
             logger.info("New log file: %s", latest)
             self.latest_log_file = latest
-            try:
-                with open(self.latest_log_file, 'rb') as f:
-                    f.seek(0, os.SEEK_END)
-                    self._position = f.tell()
-                    # Try to handle login text
-                    f.seek(max(self._position - 1000, 0), os.SEEK_SET)
-                    for line in f:
-                        if line.rstrip().endswith(b'] Welcome to EverQuest!'):
-                            break
-                    self._position = min(f.tell(), self._position)
-            except Exception:
-                self._position = 0
+            self._seek_to_latest_position()
         if event.src_path == self.latest_log_file:
-            with open(self.latest_log_file, 'r', errors='ignore') as f:
+            with open(self.latest_log_file, "r", errors="ignore") as f:
                 f.seek(self._position)
                 for line in f:
                     self.handle_log_line(line.rstrip())
@@ -95,30 +95,34 @@ class LogFileHandler(FileSystemEventHandler):
             zone = config.MATCH_ENTERED_ZONE.match(line).group("zone")
             zonekey = zone_translate.zone_to_zonekey(zone)
             logger.info("`%s` entered zone: %s (%s)", character_name, zone, zonekey)
-            asyncio.run(sso_api.update_location(character_name, park_location=zonekey))
+            _run_async(sso_api.update_location(character_name, park_location=zonekey))
         elif config.MATCH_CHARINFO.match(line):
             zone = config.MATCH_CHARINFO.match(line).group("zone")
             zonekey = zone_translate.zone_to_zonekey(zone)
             logger.info("`%s` is bound in zone: %s (%s)", character_name, zone, zonekey)
-            asyncio.run(sso_api.update_location(character_name, bind_location=zonekey))
+            _run_async(sso_api.update_location(character_name, bind_location=zonekey))
 
 
 def set_log_watch_directory(eq_directory, wx_app):
     global LOG_WATCH_DIRECTORY, LOG_HANDLER, LOG_OBSERVER, LOG_OBSERVER_THREAD
+
     def find_logs_subdir(directory):
         for entry in os.listdir(directory):
             if entry.lower() == "logs" and os.path.isdir(os.path.join(directory, entry)):
                 return os.path.join(directory, entry)
         return None
+
     log_directory = find_logs_subdir(eq_directory)
     if not log_directory:
         logger.warning("No log directory found in: %s", eq_directory)
         return
     logger.info("Setting log watch directory to: %s", log_directory)
     LOG_WATCH_DIRECTORY = log_directory
+
     def get_latest_log_file():
-        files = glob.glob(os.path.join(LOG_WATCH_DIRECTORY, 'eqlog_*.txt'))
+        files = glob.glob(os.path.join(LOG_WATCH_DIRECTORY, "eqlog_*.txt"))
         return max(files, key=os.path.getmtime) if files else None
+
     if not LOG_OBSERVER:
         LOG_HANDLER = LogFileHandler(get_latest_log_file, wx_app)
         LOG_OBSERVER = Observer()

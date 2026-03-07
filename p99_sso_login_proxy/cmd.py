@@ -9,6 +9,7 @@ import wx
 
 from p99_sso_login_proxy import server, ui, updater, sso_api
 
+
 # Class to integrate wxPython with asyncio
 class WxAsyncApp(wx.App):
     def __init__(self):
@@ -26,7 +27,7 @@ class WxAsyncApp(wx.App):
         self.loop_thread.daemon = True
         self.loop_thread.start()
         self.MainLoop()
-    
+
     def _run_loop(self):
         """Run the asyncio event loop in a separate thread"""
         asyncio.set_event_loop(self.loop)
@@ -39,7 +40,7 @@ class WxAsyncApp(wx.App):
             for task in pending:
                 task.cancel()
             self.loop.close()
-    
+
     async def _check_exit(self):
         """Check if the exit event has been set"""
         # Start the proxy server
@@ -55,10 +56,10 @@ class WxAsyncApp(wx.App):
                 print(f"Failed to start UDP proxy: {e}")
                 ui.error("Failed to start UDP proxy, check if another instance is running, and restart.")
                 self.stop_event_loop()
-        
+
         # Cancel the proxy task
         self.proxy_task.cancel()
-    
+
     def on_power_resume(self, event):
         """Handle power resume event"""
         wx.CallAfter(self.restart_proxy_server)
@@ -89,21 +90,23 @@ def main():
     def start_eq_windows(eq_dir):
         print("Starting EverQuest...")
         import subprocess
+
         subprocess.Popen(
             ["powershell.exe", "-Command", "& { Start-Process eqgame.exe -ArgumentList @('patchme') -Verb RunAs }"],
-            cwd=eq_dir, start_new_session=True, shell=True, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+            cwd=eq_dir,
+            start_new_session=True,
+            shell=True,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW,
         )
-    
+
     def start_eq_linux(eq_dir):
         print("Starting EverQuest...")
         # This is absolutely not accurate, need to get a real command from someone who knows...
         # or make it configurable because it likely is different on different distros
         import subprocess
-        subprocess.Popen(
-            ["wine", "eqgame.exe", "patchme"],
-            cwd=eq_dir, start_new_session=True
-        )
-    
+
+        subprocess.Popen(["wine", "eqgame.exe", "patchme"], cwd=eq_dir, start_new_session=True)
+
     # Fetch user accounts if API token is available
     try:
         sso_api.fetch_user_accounts()
@@ -116,17 +119,17 @@ def main():
         main_window.start_eq_func = start_eq_windows
     else:
         main_window.start_eq_func = start_eq_linux
-    
+
     # Check for updates on startup
     try:
         updater.check_update()
     except Exception as e:
         print(f"[RUN SERVER] Failed to check for updates: {e}")
-    
+
     # Set up exit handler
     def handle_exit():
         wx_app.stop_event_loop()
-    
+
     # Connect the exit event from the UI to our exit handler
     # In wxPython we need to check for the exit event being set
     def check_exit_event():
@@ -134,10 +137,10 @@ def main():
             handle_exit()
         else:
             wx.CallLater(100, check_exit_event)
-    
+
     # Start checking for exit event
     check_exit_event()
-    
+
     # Bind the power resume event
     main_window.Bind(wx.EVT_POWER_RESUME, wx_app.on_power_resume)
 
@@ -150,5 +153,6 @@ def main():
         print("Shutting down.")
         sys.exit(0)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

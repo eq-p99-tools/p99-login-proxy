@@ -16,12 +16,18 @@ CHANGELOG = ""
 LISTEN_HOST = CONFIG.get("DEFAULT", "listen_host", fallback="0.0.0.0")
 LISTEN_PORT = CONFIG.getint("DEFAULT", "listen_port", fallback=5998)
 
-ENCRYPTION_KEY = utils.hex_to_bytes(CONFIG.get("encryption", "key", fallback="\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00"))
+ENCRYPTION_KEY = utils.hex_to_bytes(
+    CONFIG.get("encryption", "key", fallback="\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00")
+)
 ENCRYPTION_IV = utils.hex_to_bytes(CONFIG.get("encryption", "iv", fallback="\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00"))
 
 EQEMU_LOGIN_HOST = CONFIG.get("DEFAULT", "login_server", fallback="login.eqemulator.net")
 EQEMU_PORT = CONFIG.getint("DEFAULT", "login_port", fallback=5998)
-EQEMU_LOGIN_IP = socket.gethostbyname(EQEMU_LOGIN_HOST)
+try:
+    EQEMU_LOGIN_IP = socket.gethostbyname(EQEMU_LOGIN_HOST)
+except socket.gaierror:
+    # Fall back to the hostname itself if DNS resolution fails (e.g. no internet)
+    EQEMU_LOGIN_IP = EQEMU_LOGIN_HOST
 EQEMU_ADDR = (EQEMU_LOGIN_IP, EQEMU_PORT)
 
 SSO_API_OPTIONS = [
@@ -64,57 +70,41 @@ def iv():
     return ENCRYPTION_IV[:]
 
 
-def set_always_on_top(value: bool):
-    CONFIG.set("DEFAULT", "always_on_top", str(value))
-    global ALWAYS_ON_TOP
-    ALWAYS_ON_TOP = value
+def _set_config(global_name: str, config_key: str, value):
+    """Update a module-level config global, persist it to proxyconfig.ini."""
+    globals()[global_name] = value
+    CONFIG.set("DEFAULT", config_key, str(value))
     with open("proxyconfig.ini", "w") as configfile:
         CONFIG.write(configfile)
+
+
+def set_always_on_top(value: bool):
+    _set_config("ALWAYS_ON_TOP", "always_on_top", value)
 
 
 def set_proxy_only(value: bool):
     """Set whether to run in proxy-only mode"""
-    CONFIG.set("DEFAULT", "proxy_only", str(value))
-    global PROXY_ONLY
-    PROXY_ONLY = value
-    with open("proxyconfig.ini", "w") as configfile:
-        CONFIG.write(configfile)
+    _set_config("PROXY_ONLY", "proxy_only", value)
 
 
 def set_user_api_token(token: str):
     """Store the user API token"""
-    global USER_API_TOKEN
-    USER_API_TOKEN = token
-    CONFIG.set("DEFAULT", "user_api_token", token)
-    with open("proxyconfig.ini", "w") as configfile:
-        CONFIG.write(configfile)
+    _set_config("USER_API_TOKEN", "user_api_token", token)
 
 
 def set_sso_api(url: str):
     """Set the SSO API endpoint URL"""
-    global SSO_API
-    SSO_API = url
-    CONFIG.set("DEFAULT", "sso_api", url)
-    with open("proxyconfig.ini", "w") as configfile:
-        CONFIG.write(configfile)
+    _set_config("SSO_API", "sso_api", url)
 
 
 def set_eq_directory(path: str):
     """Set the EverQuest directory override path"""
-    global EQ_DIRECTORY
-    EQ_DIRECTORY = path
-    CONFIG.set("DEFAULT", "eq_directory", path)
-    with open("proxyconfig.ini", "w") as configfile:
-        CONFIG.write(configfile)
+    _set_config("EQ_DIRECTORY", "eq_directory", path)
 
 
 def set_proxy_enabled(value: bool):
     """Set whether to run in proxy mode"""
-    CONFIG.set("DEFAULT", "proxy_enabled", str(value))
-    global PROXY_ENABLED
-    PROXY_ENABLED = value
-    with open("proxyconfig.ini", "w") as configfile:
-        CONFIG.write(configfile)
+    _set_config("PROXY_ENABLED", "proxy_enabled", value)
 
 
 TIMESTAMP = r"\[(?P<time>\w{3} \w{3} \d{2} \d\d:\d\d:\d\d \d{4})\] +"

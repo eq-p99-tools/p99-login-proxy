@@ -3,6 +3,7 @@ import itertools
 import os
 import sys
 
+
 def find_resource_path(filename):
     """Find a resource file by checking common locations (source dir, PyInstaller bundle, cwd)."""
     candidates = [
@@ -17,14 +18,14 @@ def find_resource_path(filename):
 
 
 def hex_to_bytes(hex_str):
-    return bytes.fromhex(hex_str.replace('\\x', ''))
+    return bytes.fromhex(hex_str.replace("\\x", ""))
 
 
 def load_local_accounts(file_path) -> tuple[dict[str, dict[str, str]], dict[str, str]]:
     if not os.path.exists(file_path):
         print(f"No local accounts file found at {file_path}, creating example")
         try:
-            with open(file_path, 'w') as f:
+            with open(file_path, "w") as f:
                 f.write("name,password,aliases\n")
                 f.write("exampleaccount1,password_goes_here,examplealias1|examplealias2\n")
         except Exception as e:
@@ -32,7 +33,7 @@ def load_local_accounts(file_path) -> tuple[dict[str, dict[str, str]], dict[str,
     accounts = {}
     all_names = {}
     try:
-        with open(file_path, 'r') as f:
+        with open(file_path, "r") as f:
             reader = csv.reader(f)
             row_num = 0
             for row in reader:
@@ -60,17 +61,18 @@ def load_local_accounts(file_path) -> tuple[dict[str, dict[str, str]], dict[str,
         print(f"No local accounts file found at {file_path}")
     return accounts, all_names
 
+
 def save_local_accounts(accounts, file_path):
     """Save local accounts to the CSV file"""
     try:
-        with open(file_path, 'w', newline='') as f:
+        with open(file_path, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["name", "password", "aliases"])
-            
+
             for account_name, data in accounts.items():
                 aliases = "|".join(data.get("aliases", []))
                 writer.writerow([account_name, data.get("password", ""), aliases])
-        
+
         print(f"Saved {len(accounts)} local accounts to {file_path}")
         return True
     except Exception as e:

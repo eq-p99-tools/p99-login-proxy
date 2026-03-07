@@ -1,4 +1,3 @@
-
 def zone_to_zonekey(zone: str) -> str | None:
     if zone:
         return zone_aliases.get(zone.lower(), zone.lower())

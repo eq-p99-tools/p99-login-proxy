@@ -96,5 +96,5 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
 
     def ShowBalloon(self, title, text, msec=0):
         """Show a balloon notification"""
-        if wx.Platform == '__WXMSW__':
+        if wx.Platform == "__WXMSW__":
             super().ShowBalloon(title, text, msec)

@@ -45,6 +45,7 @@ def error(message):
 
 class StatusLabel(wx.StaticText):
     """Custom styled status label"""
+
     def __init__(self, parent, text="", id=wx.ID_ANY):
         super().__init__(parent, id, text)
         font = self.GetFont()
@@ -54,6 +55,7 @@ class StatusLabel(wx.StaticText):
 
 class ValueLabel(wx.StaticText):
     """Custom styled value label"""
+
     def __init__(self, parent, text="", id=wx.ID_ANY):
         super().__init__(parent, id, text)
         self.SetForegroundColour(COLOR_VALUE_TEXT)
@@ -137,13 +139,7 @@ class ProxyUI(wx.Frame):
         if not terms:
             self._render_list(list_ctrl, data["rows"])
         else:
-            filtered = [
-                row for row in data["rows"]
-                if all(
-                    any(term in cell.lower() for cell in row)
-                    for term in terms
-                )
-            ]
+            filtered = [row for row in data["rows"] if all(any(term in cell.lower() for cell in row) for term in terms)]
             self._render_list(list_ctrl, filtered)
 
     def _add_search_ctrl(self, parent, sizer, list_ctrl):
@@ -154,14 +150,12 @@ class ProxyUI(wx.Frame):
         sizer.Add(search, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 5)
         self._list_filter_data[list_ctrl] = {"rows": [], "search": search}
         search.Bind(wx.EVT_TEXT, lambda evt: self._apply_filter(list_ctrl))
-        search.Bind(wx.EVT_SEARCHCTRL_CANCEL_BTN,
-                     lambda evt: search.SetValue(""))
+        search.Bind(wx.EVT_SEARCHCTRL_CANCEL_BTN, lambda evt: search.SetValue(""))
         return search
 
     def _create_list_ctrl(self, parent, columns):
         """Create a styled ListCtrl with the given columns list of (name, width)."""
-        list_ctrl = wx.ListCtrl(
-            parent, style=wx.LC_REPORT | wx.BORDER_SUNKEN | wx.LC_HRULES | wx.LC_VRULES)
+        list_ctrl = wx.ListCtrl(parent, style=wx.LC_REPORT | wx.BORDER_SUNKEN | wx.LC_HRULES | wx.LC_VRULES)
         for i, (name, width) in enumerate(columns):
             list_ctrl.InsertColumn(i, name, width=width)
         return list_ctrl
@@ -177,14 +171,14 @@ class ProxyUI(wx.Frame):
         status_box_sizer = wx.StaticBoxSizer(status_box, wx.VERTICAL)
 
         self.address_value = self._add_label_value_row(
-            proxy_tab, status_box_sizer, "Listening on:",
-            f"{PROXY_STATS.listening_address}:{PROXY_STATS.listening_port}")
-        self.proxy_status_text = self._add_label_value_row(
-            proxy_tab, status_box_sizer, "EQ Config:", "Checking...")
-        self.last_username_label = self._add_label_value_row(
-            proxy_tab, status_box_sizer, "Last Username:", "")
-        self.uptime_value = self._add_label_value_row(
-            proxy_tab, status_box_sizer, "Uptime:", PROXY_STATS.get_uptime())
+            proxy_tab,
+            status_box_sizer,
+            "Listening on:",
+            f"{PROXY_STATS.listening_address}:{PROXY_STATS.listening_port}",
+        )
+        self.proxy_status_text = self._add_label_value_row(proxy_tab, status_box_sizer, "EQ Config:", "Checking...")
+        self.last_username_label = self._add_label_value_row(proxy_tab, status_box_sizer, "Last Username:", "")
+        self.uptime_value = self._add_label_value_row(proxy_tab, status_box_sizer, "Uptime:", PROXY_STATS.get_uptime())
 
         proxy_sizer.Add(status_box_sizer, 0, wx.EXPAND | wx.ALL, 10)
 
@@ -193,14 +187,14 @@ class ProxyUI(wx.Frame):
         stats_box_sizer = wx.StaticBoxSizer(stats_box, wx.VERTICAL)
 
         self.total_value = self._add_label_value_row(
-            proxy_tab, stats_box_sizer, "Total Connections:",
-            str(PROXY_STATS.total_connections))
+            proxy_tab, stats_box_sizer, "Total Connections:", str(PROXY_STATS.total_connections)
+        )
         self.active_value = self._add_label_value_row(
-            proxy_tab, stats_box_sizer, "Active Connections:",
-            str(PROXY_STATS.active_connections))
+            proxy_tab, stats_box_sizer, "Active Connections:", str(PROXY_STATS.active_connections)
+        )
         self.completed_value = self._add_label_value_row(
-            proxy_tab, stats_box_sizer, "Completed Connections:",
-            str(PROXY_STATS.completed_connections))
+            proxy_tab, stats_box_sizer, "Completed Connections:", str(PROXY_STATS.completed_connections)
+        )
 
         proxy_sizer.Add(stats_box_sizer, 0, wx.EXPAND | wx.ALL, 10)
 
@@ -215,11 +209,7 @@ class ProxyUI(wx.Frame):
         mode_label = StatusLabel(proxy_tab, "Proxy Mode:")
         mode_sizer.Add(mode_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
 
-        self.proxy_mode_choice = wx.Choice(proxy_tab, choices=[
-            "Enabled (SSO)",
-            "Enabled (Proxy Only)",
-            "Disabled"
-        ])
+        self.proxy_mode_choice = wx.Choice(proxy_tab, choices=["Enabled (SSO)", "Enabled (Proxy Only)", "Disabled"])
 
         using_proxy, _ = eq_config.is_using_proxy()
         if not using_proxy:
@@ -233,7 +223,8 @@ class ProxyUI(wx.Frame):
         self.proxy_mode_choice.SetToolTip(
             "Enabled (SSO): Full proxy with SSO authentication\n"
             "Enabled (Proxy Only): Proxy active but no SSO interaction ('middlemand' mode)\n"
-            "Disabled: Proxy inactive, direct connection to server")
+            "Disabled: Proxy inactive, direct connection to server"
+        )
 
         mode_sizer.Add(self.proxy_mode_choice, 0, wx.ALIGN_CENTER_VERTICAL, 0)
         controls_sizer.Add(mode_sizer, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 5)
@@ -258,8 +249,8 @@ class ProxyUI(wx.Frame):
         self.api_token_field = wx.TextCtrl(proxy_tab, style=wx.TE_PASSWORD)
         self.api_token_field.SetValue(config.USER_API_TOKEN)
         self.api_token_field.SetToolTip(
-            "API Token for auto-authentication. When this is set, "
-            "the password entered in the EQ UI will be ignored.")
+            "API Token for auto-authentication. When this is set, the password entered in the EQ UI will be ignored."
+        )
         token_field_sizer.Add(token_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         token_field_sizer.Add(self.api_token_field, 1, wx.EXPAND, 0)
         self.api_token_field.Bind(wx.EVT_TEXT, self.on_api_token_changed)
@@ -305,8 +296,9 @@ class ProxyUI(wx.Frame):
         # Accounts sub-tab
         accounts_tab = wx.Panel(sso_notebook)
         accounts_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.accounts_list = self._create_list_ctrl(accounts_tab, [
-            ("Account Name", 150), ("Aliases", 150), ("Tags", 150)])
+        self.accounts_list = self._create_list_ctrl(
+            accounts_tab, [("Account Name", 150), ("Aliases", 150), ("Tags", 150)]
+        )
         self._add_search_ctrl(accounts_tab, accounts_sizer, self.accounts_list)
         accounts_sizer.Add(self.accounts_list, 1, wx.ALL | wx.EXPAND, 5)
         accounts_tab.SetSizer(accounts_sizer)
@@ -314,8 +306,7 @@ class ProxyUI(wx.Frame):
         # Aliases sub-tab
         aliases_tab = wx.Panel(sso_notebook)
         aliases_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.aliases_list = self._create_list_ctrl(aliases_tab, [
-            ("Alias", 150), ("Account Name", 300)])
+        self.aliases_list = self._create_list_ctrl(aliases_tab, [("Alias", 150), ("Account Name", 300)])
         self._add_search_ctrl(aliases_tab, aliases_sizer, self.aliases_list)
         aliases_sizer.Add(self.aliases_list, 1, wx.ALL | wx.EXPAND, 5)
         aliases_tab.SetSizer(aliases_sizer)
@@ -323,8 +314,7 @@ class ProxyUI(wx.Frame):
         # Tags sub-tab
         tags_tab = wx.Panel(sso_notebook)
         tags_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.tags_list = self._create_list_ctrl(tags_tab, [
-            ("Tag", 150), ("Account Names", 300)])
+        self.tags_list = self._create_list_ctrl(tags_tab, [("Tag", 150), ("Account Names", 300)])
         self._add_search_ctrl(tags_tab, tags_sizer, self.tags_list)
         tags_sizer.Add(self.tags_list, 1, wx.ALL | wx.EXPAND, 5)
         tags_tab.SetSizer(tags_sizer)
@@ -332,9 +322,10 @@ class ProxyUI(wx.Frame):
         # Characters sub-tab
         characters_tab = wx.Panel(sso_notebook)
         characters_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.characters_list = self._create_list_ctrl(characters_tab, [
-            ("Character", 80), ("Class", 70), ("Park Location", 110),
-            ("Bind Location", 110), ("Account Name", 100)])
+        self.characters_list = self._create_list_ctrl(
+            characters_tab,
+            [("Character", 80), ("Class", 70), ("Park Location", 110), ("Bind Location", 110), ("Account Name", 100)],
+        )
         self.characters_list.Bind(wx.EVT_LIST_COL_CLICK, self.on_characters_list_col_click)
         self._characters_sort_col = 1
         self._characters_sort_asc = True
@@ -345,8 +336,7 @@ class ProxyUI(wx.Frame):
         # Local accounts sub-tab
         local_tab = wx.Panel(sso_notebook)
         local_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.local_accounts_list = self._create_list_ctrl(local_tab, [
-            ("Account Name", 200), ("Aliases", 250)])
+        self.local_accounts_list = self._create_list_ctrl(local_tab, [("Account Name", 200), ("Aliases", 250)])
         self._add_search_ctrl(local_tab, local_sizer, self.local_accounts_list)
         local_sizer.Add(self.local_accounts_list, 1, wx.ALL | wx.EXPAND, 5)
 
@@ -404,8 +394,7 @@ class ProxyUI(wx.Frame):
         eq_dir_sizer.Add(self.browse_eq_btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 5)
         eq_status_sizer.Add(eq_dir_sizer, 0, wx.EXPAND | wx.ALL, 5)
 
-        self.eqhost_text = self._add_label_value_row(
-            eq_tab, eq_status_sizer, "eqhost.txt Path:", "Checking...")
+        self.eqhost_text = self._add_label_value_row(eq_tab, eq_status_sizer, "eqhost.txt Path:", "Checking...")
 
         self.eqhost_contents = wx.TextCtrl(eq_tab, style=wx.TE_MULTILINE, size=(-1, 100))
         eq_status_sizer.Add(StatusLabel(eq_tab, "eqhost.txt Content:"), 0, wx.ALL, 5)
@@ -430,16 +419,12 @@ class ProxyUI(wx.Frame):
         cache_controls_sizer = wx.BoxSizer(wx.HORIZONTAL)
         cache_info_sizer = wx.BoxSizer(wx.VERTICAL)
 
-        self.cache_time_text = self._add_label_value_row(
-            eq_tab, cache_info_sizer, "Cache Time:", "Unset")
-        self.cache_time_text.SetToolTip(
-            "Time when account data was last fetched from the SSO server")
+        self.cache_time_text = self._add_label_value_row(eq_tab, cache_info_sizer, "Cache Time:", "Unset")
+        self.cache_time_text.SetToolTip("Time when account data was last fetched from the SSO server")
         self.update_account_cache_time()
 
-        self.accounts_cached_text = self._add_label_value_row(
-            eq_tab, cache_info_sizer, "Accounts Cached:", "0")
-        self.accounts_cached_text.SetToolTip(
-            "Number of accounts and aliases/tags stored in the cache")
+        self.accounts_cached_text = self._add_label_value_row(eq_tab, cache_info_sizer, "Accounts Cached:", "0")
+        self.accounts_cached_text.SetToolTip("Number of accounts and aliases/tags stored in the cache")
 
         cache_controls_sizer.Add(cache_info_sizer, 1, wx.EXPAND, 0)
 
@@ -521,8 +506,7 @@ class ProxyUI(wx.Frame):
 
     def update_stats(self, event=None):
         """Update all statistics in the UI"""
-        self.address_value.SetLabel(
-            f"{PROXY_STATS.listening_address}:{PROXY_STATS.listening_port}")
+        self.address_value.SetLabel(f"{PROXY_STATS.listening_address}:{PROXY_STATS.listening_port}")
         self.uptime_value.SetLabel(PROXY_STATS.get_uptime())
         self.total_value.SetLabel(str(PROXY_STATS.total_connections))
         self.active_value.SetLabel(str(PROXY_STATS.active_connections))
@@ -535,7 +519,8 @@ class ProxyUI(wx.Frame):
                 f"Connections: {PROXY_STATS.active_connections} active, "
                 f"{PROXY_STATS.total_connections} total\n"
                 f"Local Accounts: {len(config.LOCAL_ACCOUNTS)}\n"
-                f"SSO Accounts: {config.ACCOUNTS_CACHE_REAL_COUNT}")
+                f"SSO Accounts: {config.ACCOUNTS_CACHE_REAL_COUNT}"
+            )
             self.tray_icon.update_icon(tooltip=tooltip)
 
     def show_user_connected_notification(self, username):
@@ -584,13 +569,9 @@ class ProxyUI(wx.Frame):
             if os.path.exists(eqgame_path):
                 self.start_eq_func(eq_dir)
             else:
-                wx.MessageBox(
-                    f"EverQuest executable not found in {eq_dir}",
-                    "Error", wx.OK | wx.ICON_ERROR)
+                wx.MessageBox(f"EverQuest executable not found in {eq_dir}", "Error", wx.OK | wx.ICON_ERROR)
         except Exception as e:
-            wx.MessageBox(
-                f"Failed to launch EverQuest: {str(e)}",
-                "Error", wx.OK | wx.ICON_ERROR)
+            wx.MessageBox(f"Failed to launch EverQuest: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
 
     def on_proxy_mode_changed(self, event):
         selection = self.proxy_mode_choice.GetSelection()
@@ -602,7 +583,9 @@ class ProxyUI(wx.Frame):
                 if not success:
                     wx.MessageBox(
                         err or "Failed to enable proxy. EverQuest directory or eqhost.txt not found.",
-                        "Error", wx.OK | wx.ICON_ERROR)
+                        "Error",
+                        wx.OK | wx.ICON_ERROR,
+                    )
                     self.proxy_mode_choice.SetSelection(2)
                     return
 
@@ -617,7 +600,9 @@ class ProxyUI(wx.Frame):
                 if not success:
                     wx.MessageBox(
                         err or "Failed to enable proxy. EverQuest directory or eqhost.txt not found.",
-                        "Error", wx.OK | wx.ICON_ERROR)
+                        "Error",
+                        wx.OK | wx.ICON_ERROR,
+                    )
                     self.proxy_mode_choice.SetSelection(2)
                     return
 
@@ -632,7 +617,9 @@ class ProxyUI(wx.Frame):
                 if not success:
                     wx.MessageBox(
                         err or "Failed to disable proxy. EverQuest directory or eqhost.txt not found.",
-                        "Error", wx.OK | wx.ICON_ERROR)
+                        "Error",
+                        wx.OK | wx.ICON_ERROR,
+                    )
                     self.proxy_mode_choice.SetSelection(0 if not config.PROXY_ONLY else 1)
                     return
 
@@ -657,16 +644,19 @@ class ProxyUI(wx.Frame):
     def on_browse_eq_directory(self, event):
         """Let the user pick the EverQuest installation directory."""
         dlg = wx.DirDialog(
-            self, "Select EverQuest Directory",
+            self,
+            "Select EverQuest Directory",
             defaultPath=config.EQ_DIRECTORY or "",
-            style=wx.DD_DEFAULT_STYLE | wx.DD_DIR_MUST_EXIST)
+            style=wx.DD_DEFAULT_STYLE | wx.DD_DIR_MUST_EXIST,
+        )
         if dlg.ShowModal() == wx.ID_OK:
             chosen = dlg.GetPath()
             if not eq_config.is_valid_eq_directory(chosen):
                 wx.MessageBox(
-                    f"eqgame.exe was not found in:\n{chosen}\n\n"
-                    "Please select a directory containing eqgame.exe.",
-                    "Invalid Directory", wx.OK | wx.ICON_WARNING)
+                    f"eqgame.exe was not found in:\n{chosen}\n\nPlease select a directory containing eqgame.exe.",
+                    "Invalid Directory",
+                    wx.OK | wx.ICON_WARNING,
+                )
             else:
                 config.set_eq_directory(chosen)
                 eq_config.clear_cache()
@@ -683,12 +673,12 @@ class ProxyUI(wx.Frame):
         content = self.eqhost_contents.GetValue()
 
         try:
-            with open(eqhost_path, 'w') as f:
+            with open(eqhost_path, "w") as f:
                 f.write(content)
             logger.info("Successfully wrote to eqhost.txt at %s", eqhost_path)
             self.update_eq_status()
-        except Exception as e:
-            logger.error("Failed to save eqhost.txt: %s", e)
+        except Exception:
+            logger.exception("Failed to save eqhost.txt")
 
     def on_reset_eqhost(self, event):
         self.update_eq_status()
@@ -712,6 +702,7 @@ class ProxyUI(wx.Frame):
             if platform.system() == "Windows":
                 import win32api
                 import win32con
+
                 win32api.SendMessage(handle, win32con.EM_SETPASSWORDCHAR, 0, 0)
             else:
                 style = self.api_token_field.GetWindowStyleFlag()
@@ -726,7 +717,8 @@ class ProxyUI(wx.Frame):
             if platform.system() == "Windows":
                 import win32api
                 import win32con
-                win32api.SendMessage(handle, win32con.EM_SETPASSWORDCHAR, 0x25cf, 0)
+
+                win32api.SendMessage(handle, win32con.EM_SETPASSWORDCHAR, 0x25CF, 0)
             else:
                 style = self.api_token_field.GetWindowStyleFlag()
                 style |= wx.TE_PASSWORD
@@ -738,15 +730,12 @@ class ProxyUI(wx.Frame):
         try:
             wx.BeginBusyCursor()
             sso_api.fetch_user_accounts()
-            config.LOCAL_ACCOUNTS, config.LOCAL_ACCOUNT_NAME_MAP = (
-                utils.load_local_accounts(config.LOCAL_ACCOUNTS_FILE))
+            config.LOCAL_ACCOUNTS, config.LOCAL_ACCOUNT_NAME_MAP = utils.load_local_accounts(config.LOCAL_ACCOUNTS_FILE)
             self.update_account_cache_display()
             self.update_account_cache_time()
         except Exception as e:
-            logger.error("Failed to refresh account cache: %s", e)
-            wx.MessageBox(
-                f"Failed to refresh account cache: {str(e)}",
-                "Error", wx.OK | wx.ICON_ERROR)
+            logger.exception("Failed to refresh account cache")
+            wx.MessageBox(f"Failed to refresh account cache: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
         finally:
             if wx.IsBusy():
                 wx.EndBusyCursor()
@@ -791,12 +780,12 @@ class ProxyUI(wx.Frame):
                     cache_text_color = COLOR_WARNING
                 logger.debug("Updating account cache time: %s (%s)", cache_time, time_diff)
 
-            if hasattr(self, 'cache_time_text'):
+            if hasattr(self, "cache_time_text"):
                 self.cache_time_text.SetForegroundColour(cache_text_color)
                 self.cache_time_text.SetLabel(cache_time)
                 self.cache_time_text.Refresh()
-        except Exception as e:
-            logger.error("Failed to update account cache time: %s", e)
+        except Exception:
+            logger.exception("Failed to update account cache time")
 
     # --- Local account management ---
 
@@ -817,9 +806,7 @@ class ProxyUI(wx.Frame):
                 return
 
             if account_name in config.LOCAL_ACCOUNTS:
-                wx.MessageBox(
-                    f"Account '{account_name}' already exists.",
-                    "Error", wx.OK | wx.ICON_ERROR)
+                wx.MessageBox(f"Account '{account_name}' already exists.", "Error", wx.OK | wx.ICON_ERROR)
                 return
 
             aliases = [alias.strip() for alias in aliases_text.split(",") if alias.strip()]
@@ -846,8 +833,7 @@ class ProxyUI(wx.Frame):
 
         account_name = self.local_accounts_list.GetItemText(selected_index, 0)
         if account_name not in config.LOCAL_ACCOUNTS:
-            wx.MessageBox(
-                f"Account '{account_name}' not found.", "Error", wx.OK | wx.ICON_ERROR)
+            wx.MessageBox(f"Account '{account_name}' not found.", "Error", wx.OK | wx.ICON_ERROR)
             return
 
         account_data = config.LOCAL_ACCOUNTS[account_name]
@@ -896,13 +882,17 @@ class ProxyUI(wx.Frame):
 
         account_name = self.local_accounts_list.GetItemText(selected_index, 0)
         if account_name not in config.LOCAL_ACCOUNTS:
-            wx.MessageBox(
-                f"Account '{account_name}' not found.", "Error", wx.OK | wx.ICON_ERROR)
+            wx.MessageBox(f"Account '{account_name}' not found.", "Error", wx.OK | wx.ICON_ERROR)
             return
 
-        if wx.MessageBox(
+        if (
+            wx.MessageBox(
                 f"Are you sure you want to delete the account '{account_name}'?",
-                "Confirm Deletion", wx.YES_NO | wx.ICON_QUESTION) != wx.YES:
+                "Confirm Deletion",
+                wx.YES_NO | wx.ICON_QUESTION,
+            )
+            != wx.YES
+        ):
             return
 
         account_data = config.LOCAL_ACCOUNTS[account_name]
@@ -940,7 +930,8 @@ class ProxyUI(wx.Frame):
             self.accounts_cached_text.SetForegroundColour(COLOR_MUTED)
         else:
             self.accounts_cached_text.SetLabel(
-                f"{real_accounts} accounts, {total_accounts - real_accounts} aliases/tags")
+                f"{real_accounts} accounts, {total_accounts - real_accounts} aliases/tags"
+            )
             self.accounts_cached_text.SetForegroundColour(COLOR_SUCCESS)
 
         # Local accounts
@@ -971,10 +962,7 @@ class ProxyUI(wx.Frame):
         for account, data in config.ACCOUNTS_CACHED.items():
             for tag in sorted(data.get("tags", [])):
                 tag_to_accounts.setdefault(tag, []).append(account)
-        tag_rows = [
-            (tag, ", ".join(sorted(accounts)))
-            for tag, accounts in sorted(tag_to_accounts.items())
-        ]
+        tag_rows = [(tag, ", ".join(sorted(accounts))) for tag, accounts in sorted(tag_to_accounts.items())]
         self._populate_list(self.tags_list, tag_rows)
 
         # Characters
@@ -985,13 +973,11 @@ class ProxyUI(wx.Frame):
                 bind_text = zone_translate.zonekey_to_zone(characters[character]["bind"])
                 park_text = zone_translate.zonekey_to_zone(characters[character]["park"])
                 class_text = characters[character]["class"]
-                all_characters.append(
-                    (character, class_text, park_text, bind_text, account))
+                all_characters.append((character, class_text, park_text, bind_text, account))
 
         sort_col = self._characters_sort_col
         sort_asc = self._characters_sort_asc
-        all_characters.sort(
-            key=lambda x: ((x[sort_col] or ""), x[0]), reverse=not sort_asc)
+        all_characters.sort(key=lambda x: ((x[sort_col] or ""), x[0]), reverse=not sort_asc)
 
         char_rows = [
             (char, klass, park or "Unknown", bind or "Unknown", acct)

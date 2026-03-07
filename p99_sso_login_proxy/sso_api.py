@@ -1,10 +1,17 @@
 import datetime
-import requests
+import logging
 
 import httpx
 
 from p99_sso_login_proxy import config
 from p99_sso_login_proxy import utils
+
+logger = logging.getLogger("sso_api")
+
+
+def _get_verify():
+    """Get the SSL verification setting (custom CA bundle path or True)."""
+    return config.SSO_CA_BUNDLE
 
 
 def fetch_user_accounts():
@@ -20,12 +27,12 @@ def fetch_user_accounts():
     real_account_count = 0
 
     if config.USER_API_TOKEN:
-        # Use a custom CA bundle if provided in config, otherwise default
-        verify = getattr(config, 'SSO_CA_BUNDLE', True)
-
-        response = requests.post(f"{config.SSO_API}/list_accounts", json={
-            "access_key": config.USER_API_TOKEN
-        }, timeout=config.SSO_TIMEOUT, verify=verify)
+        response = httpx.post(
+            f"{config.SSO_API}/list_accounts",
+            json={"access_key": config.USER_API_TOKEN},
+            timeout=config.SSO_TIMEOUT,
+            verify=_get_verify(),
+        )
 
         if response.status_code == 200:
             accounts = response.json().get("account_tree", {})
@@ -46,7 +53,9 @@ def fetch_user_accounts():
             dynamic_tag_classes = response.json().get("dynamic_tag_classes", {})
             dynamic_tags = utils.get_dynamic_tag_list(dynamic_tag_zones, dynamic_tag_classes)
 
-            print(f"[SSO] Successfully fetched {real_account_count} accounts (and {len(aliases) + len(tags)} aliases/tags)")
+            logger.info(
+                "Successfully fetched %d accounts (and %d aliases/tags)", real_account_count, len(aliases) + len(tags)
+            )
 
             # Add real accounts, aliases, characters, and tags to the flat login list
             all_account_names.extend(real_account_names)
@@ -55,7 +64,7 @@ def fetch_user_accounts():
             all_account_names.extend(tags)
             all_account_names.extend(dynamic_tags)
         else:
-            print(f"[SSO] Failed to fetch account list: {response.status_code} {response.text}")
+            logger.warning("Failed to fetch account list: %d %s", response.status_code, response.text)
 
     config.ALL_CACHED_NAMES = list(set(all_account_names))
     config.ACCOUNTS_CACHE_REAL_COUNT = real_account_count
@@ -70,30 +79,23 @@ async def heartbeat(character_name: str) -> None:
     """
     if not config.USER_API_TOKEN:
         return
-    # print(f"[SSO] Sending heartbeat for `{character_name}` at {datetime.datetime.now()}")
-    # Use a custom CA bundle if provided in config, otherwise default
-    verify = getattr(config, 'SSO_CA_BUNDLE', True)
-    # print(f"[SSO] Using CA bundle: {verify}")
+    logger.debug("Sending heartbeat for `%s` at %s", character_name, datetime.datetime.now())
+    logger.debug("Using CA bundle: %s", _get_verify())
 
-    async with httpx.AsyncClient(verify=verify) as client:
-        await client.post(f"{config.SSO_API}/heartbeat", json={
-            "character_name": character_name,
-            "access_key": config.USER_API_TOKEN
-        }, timeout=config.SSO_TIMEOUT)
-    # response = requests.post(f"{config.SSO_API}/heartbeat", json={
-    #     "character_name": character_name,
-    #     "access_key": config.USER_API_TOKEN
-    # }, timeout=config.SSO_TIMEOUT, verify=verify)
-    # print(f"[SSO] Heartbeat response: {response.status_code} {response.text}")
+    async with httpx.AsyncClient(verify=_get_verify()) as client:
+        response = await client.post(
+            f"{config.SSO_API}/heartbeat",
+            json={"character_name": character_name, "access_key": config.USER_API_TOKEN},
+            timeout=config.SSO_TIMEOUT,
+        )
+    logger.debug("Heartbeat response: %d %s", response.status_code, response.text)
 
 
 async def update_location(character_name: str, park_location: str = None, bind_location: str = None):
     if not config.USER_API_TOKEN:
         return
-    # print(f"[SSO] Updating location for `{character_name}`")
-    # Use a custom CA bundle if provided in config, otherwise default
-    verify = getattr(config, 'SSO_CA_BUNDLE', True)
-    # print(f"[SSO] Using CA bundle: {verify}")
+    logger.debug("Updating location for `%s`", character_name)
+    logger.debug("Using CA bundle: %s", _get_verify())
 
     req_json = {
         "character_name": character_name,
@@ -103,35 +105,34 @@ async def update_location(character_name: str, park_location: str = None, bind_l
         req_json["park_location"] = park_location
     if bind_location:
         req_json["bind_location"] = bind_location
-    async with httpx.AsyncClient(verify=verify) as client:
-        await client.post(f"{config.SSO_API}/update_location", json=req_json, timeout=config.SSO_TIMEOUT)
-    # response = requests.post(
-    #     f"{config.SSO_API}/update_location", json=req_json, timeout=config.SSO_TIMEOUT, verify=verify)
-    # print(f"[SSO] Update location response: {response.status_code} {response.text}")
+    async with httpx.AsyncClient(verify=_get_verify()) as client:
+        response = await client.post(f"{config.SSO_API}/update_location", json=req_json, timeout=config.SSO_TIMEOUT)
+    logger.debug("Update location response: %d %s", response.status_code, response.text)
 
 
 def check_sso_login(username: str, password: str) -> tuple[str, str]:
     """
     Check the SSO login credentials.
-    
+
     Args:
         username (str): The username to check.
         password (str): The password to check.
-        
+
     Returns:
         tuple[str, str]: A tuple containing the real username and password.
     """
-    print(f"[SSO] Checking login for {username}")
-    # Use a custom CA bundle if provided in config, otherwise default
-    verify = getattr(config, 'SSO_CA_BUNDLE', True)
-    # print(f"[SSO] Using CA bundle: {verify}")
+    logger.info("Checking login for %s", username)
+    logger.debug("Using CA bundle: %s", _get_verify())
 
-    response = requests.post(f"{config.SSO_API}/auth", json={
-        "username": username,
-        "password": password
-    }, timeout=config.SSO_TIMEOUT, verify=verify)
+    response = httpx.post(
+        f"{config.SSO_API}/auth",
+        json={"username": username, "password": password},
+        timeout=config.SSO_TIMEOUT,
+        verify=_get_verify(),
+    )
 
     if response.status_code != 200:
         return None, None
 
-    return response.json()["real_user"], response.json()["real_pass"]
+    data = response.json()
+    return data["real_user"], data["real_pass"]
