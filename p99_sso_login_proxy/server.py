@@ -67,7 +67,8 @@ class LoginProxy(asyncio.DatagramProtocol):
         struct LoginBaseMessage_Struct {
             int32_t sequence;     // request type/login sequence (2: handshake, 3: login, 4: serverlist, ...)
             bool    compressed;   // true: deflated
-            int8_t  encrypt_type; // 1: invert (unused) 2: des (2 for encrypted player logins and order expansions) (client uses what it sent, ignores in reply)
+            int8_t  encrypt_type; // 1: invert (unused) 2: des (2 for encrypted player logins and order expansions)
+                                  // (client uses what it sent, ignores in reply)
             int32_t unk3;         // unused?
         };
 

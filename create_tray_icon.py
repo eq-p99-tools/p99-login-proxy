@@ -37,7 +37,7 @@ def create_tray_icon(disabled=False):
     ]
 
     # Draw filled circle with some transparency
-    circle_fill = color + (200,)  # Add alpha channel (200/255 opacity)
+    circle_fill = (*color, 200)
     draw.ellipse(circle_bbox, fill=circle_fill, outline=color, width=2)
 
     # Try to load a font, fall back to default if not available

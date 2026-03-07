@@ -210,7 +210,7 @@ def _prompt_and_apply_update(releases, latest_version):
                 os.remove(backup_name)
             os.rename(current_exe, backup_name)
             backed_up = True
-        except OSError:
+        except OSError as e:
             LOG.exception("Failed to backup current exe before update")
             _show_update_error(f"Failed to prepare for update: {e}")
             return
@@ -304,7 +304,7 @@ def check_update(notify_no_update=False):
             LOG.info("Checking for update. Current version: %s", config.APP_VERSION)
             releases = get_recent_releases(10)
             wx.CallAfter(_on_releases_fetched, releases, notify_no_update)
-        except Exception:
+        except Exception as e:
             LOG.exception("Failed to check for update")
             if notify_no_update:
                 wx.CallAfter(_show_update_error, str(e))
