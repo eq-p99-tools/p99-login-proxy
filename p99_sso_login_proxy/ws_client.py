@@ -1,6 +1,7 @@
 """WebSocket client for real-time account data from the SSO API."""
 
 import asyncio
+import contextlib
 import json
 import logging
 import ssl
@@ -45,7 +46,7 @@ async def send_heartbeat(character_name: str):
 
 
 async def send_update_location(
-    character_name: str, park_location: str = None, bind_location: str = None, level: int = None
+    character_name: str, park_location: str | None = None, bind_location: str | None = None, level: int | None = None
 ):
     """Send an update_location message over the WebSocket."""
     if _ws and _connected:
@@ -301,8 +302,6 @@ async def stop():
     global _task
     if _task and not _task.done():
         _task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await _task
-        except asyncio.CancelledError:
-            pass
     _task = None

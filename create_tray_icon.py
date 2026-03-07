@@ -1,3 +1,4 @@
+import contextlib
 import os
 
 from PIL import Image, ImageDraw, ImageFont
@@ -96,10 +97,8 @@ def create_tray_icon(disabled=False):
 
     # Force the icon to be recreated by deleting any existing icon first
     if os.path.exists(icon_path):
-        try:
+        with contextlib.suppress(BaseException):
             os.remove(icon_path)
-        except:
-            pass
 
     image.save(icon_path)
     return icon_path

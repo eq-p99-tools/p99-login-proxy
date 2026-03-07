@@ -1,3 +1,4 @@
+import contextlib
 import functools
 import io
 import json
@@ -61,10 +62,7 @@ get = functools.partial(requests.get, auth=_auth, timeout=REQUEST_TIMEOUT)
 
 def get_release_from_github(tag=None):
     """Get a specific release from GitHub"""
-    if tag:
-        resp = get(GITHUB_API_TAGGED_RELEASE_URL.format(tag=tag))
-    else:
-        resp = get(GITHUB_API_LATEST_RELEASE_URL)
+    resp = get(GITHUB_API_TAGGED_RELEASE_URL.format(tag=tag)) if tag else get(GITHUB_API_LATEST_RELEASE_URL)
     resp.raise_for_status()
     tag_data = resp.json()
     version = semver.Version.parse(tag_data["tag_name"].lstrip("v"))
@@ -221,10 +219,8 @@ def _prompt_and_apply_update(releases, latest_version):
     if not newest_exe:
         LOG.error("Failed to download update. Continuing with existing version.")
         if backed_up:
-            try:
+            with contextlib.suppress(OSError):
                 os.rename(backup_name, STABLE_EXE_NAME)
-            except OSError:
-                pass
         _show_update_error("Failed to download update. Continuing with existing version.")
         return
 
