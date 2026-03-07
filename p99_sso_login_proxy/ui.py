@@ -151,6 +151,7 @@ class ProxyUI(wx.Frame):
         Row tuples may contain extra trailing elements beyond the column count;
         those are treated as metadata and not displayed.
         """
+        top_item = list_ctrl.GetTopItem()
         list_ctrl.DeleteAllItems()
         num_cols = list_ctrl.GetColumnCount()
         for i, row in enumerate(rows):
@@ -162,6 +163,10 @@ class ProxyUI(wx.Frame):
                 list_ctrl.SetItemBackgroundColour(i, colour)
             elif i % 2 == 1:
                 list_ctrl.SetItemBackgroundColour(i, COLOR_ALT_ROW)
+        if top_item > 0 and rows:
+            target = min(top_item, len(rows) - 1)
+            list_ctrl.EnsureVisible(len(rows) - 1)
+            list_ctrl.EnsureVisible(target)
 
     def _apply_filter(self, list_ctrl):
         """Re-render a list applying the current search filter.
@@ -470,8 +475,8 @@ class ProxyUI(wx.Frame):
         self.ws_status_text = self._add_label_value_row(eq_tab, cache_info_sizer, "Live Status:", "Connecting...")
         self.ws_status_text.SetToolTip("WebSocket connection status for real-time account updates")
 
-        self.accounts_cached_text = self._add_label_value_row(eq_tab, cache_info_sizer, "Accounts Cached:", "0")
-        self.accounts_cached_text.SetToolTip("Number of accounts and aliases/tags stored in the cache")
+        self.accounts_cached_text = self._add_label_value_row(eq_tab, cache_info_sizer, "Accounts:", "0")
+        self.accounts_cached_text.SetToolTip("Number of accounts, characters, and aliases/tags")
 
         cache_controls_sizer.Add(cache_info_sizer, 1, wx.EXPAND, 0)
 
@@ -688,6 +693,10 @@ class ProxyUI(wx.Frame):
         url = self._sso_api_url_map[idx]
         if url != config.SSO_API:
             config.set_sso_api(url)
+            if hasattr(self, "ws_status_text"):
+                self.ws_status_text.SetLabel("Connecting...")
+                self.ws_status_text.SetForegroundColour(COLOR_WARNING)
+                self.ws_status_text.Refresh()
             ws_client.request_reconnect()
 
     def on_browse_eq_directory(self, event):
@@ -974,8 +983,13 @@ class ProxyUI(wx.Frame):
             self.accounts_cached_text.SetLabel("None")
             self.accounts_cached_text.SetForegroundColour(COLOR_MUTED)
         else:
+            total_characters = sum(
+                len(data.get("characters", {}))
+                for data in config.ACCOUNTS_CACHED.values()
+            )
             self.accounts_cached_text.SetLabel(
-                f"{real_accounts} accounts, {total_accounts - real_accounts} aliases/tags"
+                f"{real_accounts} accounts, {total_characters} characters, "
+                f"{total_accounts - real_accounts} aliases/tags"
             )
             self.accounts_cached_text.SetForegroundColour(COLOR_SUCCESS)
 

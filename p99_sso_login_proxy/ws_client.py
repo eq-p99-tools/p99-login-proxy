@@ -223,16 +223,29 @@ async def _run(reconnect_requested: asyncio.Event):
                 )
 
                 while True:
-                    if reconnect_requested.is_set():
+                    recv_task = asyncio.ensure_future(ws.recv())
+                    reconnect_wait = asyncio.ensure_future(reconnect_requested.wait())
+
+                    done, pending = await asyncio.wait(
+                        {recv_task, reconnect_wait},
+                        return_when=asyncio.FIRST_COMPLETED,
+                        timeout=60,
+                    )
+
+                    for t in pending:
+                        t.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await t
+
+                    if reconnect_wait in done or reconnect_requested.is_set():
                         logger.info("Reconnect requested, closing connection")
                         await ws.close()
                         break
 
-                    try:
-                        raw = await asyncio.wait_for(ws.recv(), timeout=60)
-                    except TimeoutError:
+                    if not done:
                         continue
 
+                    raw = recv_task.result()
                     msg = json.loads(raw)
                     msg_type = msg.get("type")
 
@@ -266,7 +279,7 @@ async def _run(reconnect_requested: asyncio.Event):
         finally:
             _ws = None
             _connected = False
-            _notify_ui()
+            _rebuild_cache({}, [], [])
 
         if auth_error:
             _auth_failed = True
