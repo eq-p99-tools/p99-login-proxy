@@ -177,7 +177,8 @@ class ProxyUI(wx.Frame):
             self._render_list(list_ctrl, data["rows"], row_color_fn)
         else:
             filtered = [
-                row for row in data["rows"]
+                row
+                for row in data["rows"]
                 if all(any(term in cell.lower() for cell in row[:num_cols]) for term in terms)
             ]
             self._render_list(list_ctrl, filtered, row_color_fn)
@@ -364,7 +365,14 @@ class ProxyUI(wx.Frame):
         characters_sizer = wx.BoxSizer(wx.VERTICAL)
         self.characters_list = self._create_list_ctrl(
             characters_tab,
-            [("Character", 80), ("Class", 82), ("Level", 40), ("Park Location", 110), ("Bind Location", 110), ("Account Name", 100)],
+            [
+                ("Character", 80),
+                ("Class", 82),
+                ("Level", 40),
+                ("Park Location", 110),
+                ("Bind Location", 110),
+                ("Account Name", 100),
+            ],
         )
         self.characters_list.Bind(wx.EVT_LIST_COL_CLICK, self.on_characters_list_col_click)
         self._characters_sort_col = 1
@@ -769,9 +777,7 @@ class ProxyUI(wx.Frame):
 
     def on_refresh_account_cache(self, event):
         """Force a WebSocket reconnect for a fresh full_state."""
-        config.LOCAL_ACCOUNTS, config.LOCAL_ACCOUNT_NAME_MAP = utils.load_local_accounts(
-            config.LOCAL_ACCOUNTS_FILE
-        )
+        config.LOCAL_ACCOUNTS, config.LOCAL_ACCOUNT_NAME_MAP = utils.load_local_accounts(config.LOCAL_ACCOUNTS_FILE)
         ws_client.request_reconnect()
         if hasattr(self, "ws_status_text"):
             self.ws_status_text.SetLabel("Connecting...")
@@ -1026,7 +1032,8 @@ class ProxyUI(wx.Frame):
             for char, klass, lvl, park, bind, acct, ll in all_characters
         ]
         self._populate_list(
-            self.characters_list, char_rows,
+            self.characters_list,
+            char_rows,
             row_color_fn=lambda row: _activity_colour(row[6]),
         )
 

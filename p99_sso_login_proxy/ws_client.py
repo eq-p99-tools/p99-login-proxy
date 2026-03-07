@@ -1,4 +1,5 @@
 """WebSocket client for real-time account data from the SSO API."""
+
 import asyncio
 import json
 import logging
@@ -31,16 +32,21 @@ async def send_heartbeat(character_name: str):
     """Send a heartbeat message over the WebSocket."""
     if _ws and _connected:
         try:
-            await _ws.send(json.dumps({
-                "type": "heartbeat",
-                "character_name": character_name,
-            }))
+            await _ws.send(
+                json.dumps(
+                    {
+                        "type": "heartbeat",
+                        "character_name": character_name,
+                    }
+                )
+            )
         except Exception:
             logger.debug("Failed to send heartbeat", exc_info=True)
 
 
-async def send_update_location(character_name: str, park_location: str = None,
-                               bind_location: str = None, level: int = None):
+async def send_update_location(
+    character_name: str, park_location: str = None, bind_location: str = None, level: int = None
+):
     """Send an update_location message over the WebSocket."""
     if _ws and _connected:
         msg = {"type": "update_location", "character_name": character_name}
@@ -60,9 +66,9 @@ def _build_ws_url() -> str:
     """Convert the HTTP(S) SSO_API URL to a ws(s):// URL for the WebSocket endpoint."""
     base = config.SSO_API.rstrip("/")
     if base.startswith("https://"):
-        return "wss://" + base[len("https://"):] + "/ws/accounts"
+        return "wss://" + base[len("https://") :] + "/ws/accounts"
     elif base.startswith("http://"):
-        return "ws://" + base[len("http://"):] + "/ws/accounts"
+        return "ws://" + base[len("http://") :] + "/ws/accounts"
     return "wss://" + base + "/ws/accounts"
 
 
@@ -145,6 +151,7 @@ def _rebuild_cache(account_tree: dict, dynamic_tag_zones=None, dynamic_tag_class
         all_names.extend(utils.get_dynamic_tag_list(dynamic_tag_zones, dynamic_tag_classes))
 
     import datetime
+
     config.ACCOUNTS_CACHED = account_tree
     config.ALL_CACHED_NAMES = list(set(all_names))
     config.CHARACTERS_CACHED = characters
@@ -158,6 +165,7 @@ def _notify_ui():
     """Tell the wx UI to refresh its account displays (thread-safe)."""
     try:
         import wx
+
         app = wx.GetApp()
         if app:
             wx.CallAfter(_ui_refresh)
@@ -168,6 +176,7 @@ def _notify_ui():
 def _ui_refresh():
     """Runs on the wx main thread."""
     import wx
+
     for w in wx.GetTopLevelWindows():
         if hasattr(w, "update_account_cache_display"):
             w.update_account_cache_display()
@@ -203,10 +212,14 @@ async def _run(reconnect_requested: asyncio.Event):
                 close_timeout=5,
             ) as ws:
                 _ws = ws
-                await ws.send(json.dumps({
-                    "type": "auth",
-                    "access_key": config.USER_API_TOKEN,
-                }))
+                await ws.send(
+                    json.dumps(
+                        {
+                            "type": "auth",
+                            "access_key": config.USER_API_TOKEN,
+                        }
+                    )
+                )
 
                 while True:
                     if reconnect_requested.is_set():

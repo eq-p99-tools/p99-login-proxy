@@ -18,6 +18,8 @@ LOG_HANDLER = None
 LOG_OBSERVER = None
 LOG_OBSERVER_THREAD = None
 
+_current_zone: dict[str, str] = {}  # character_name.lower() -> zonekey
+
 
 def _run_async(coro):
     """Schedule a coroutine on the app's asyncio event loop (thread-safe)."""
@@ -95,8 +97,16 @@ class LogFileHandler(FileSystemEventHandler):
         if config.MATCH_ENTERED_ZONE.match(line):
             zone = config.MATCH_ENTERED_ZONE.match(line).group("zone")
             zonekey = zone_translate.zone_to_zonekey(zone)
+            _current_zone[character_name.lower()] = zonekey
             logger.info("`%s` entered zone: %s (%s)", character_name, zone, zonekey)
             _run_async(ws_client.send_update_location(character_name, park_location=zonekey))
+        elif config.MATCH_BIND_CONFIRM.match(line):
+            zonekey = _current_zone.get(character_name.lower())
+            if zonekey:
+                logger.info("`%s` bound in zone: %s", character_name, zonekey)
+                _run_async(ws_client.send_update_location(character_name, bind_location=zonekey))
+            else:
+                logger.warning("`%s` bind detected but current zone is unknown", character_name)
         elif config.MATCH_CHARINFO.match(line):
             zone = config.MATCH_CHARINFO.match(line).group("zone")
             zonekey = zone_translate.zone_to_zonekey(zone)
