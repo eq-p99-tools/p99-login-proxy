@@ -6,7 +6,7 @@ import threading
 
 import wx
 
-from p99_sso_login_proxy import server, sso_api, ui, updater
+from p99_sso_login_proxy import server, ui, updater, ws_client
 
 logger = logging.getLogger("cmd")
 
@@ -47,6 +47,9 @@ class WxAsyncApp(wx.App):
         # Start the proxy server
         self.proxy_task = asyncio.create_task(server.main())
 
+        # Start the WebSocket client for real-time account data
+        self.ws_task = asyncio.create_task(ws_client.start())
+
         # Wait for the exit event to be set
         while not self.exit_event.is_set():
             await asyncio.sleep(0.1)
@@ -58,8 +61,9 @@ class WxAsyncApp(wx.App):
                 wx.CallAfter(ui.error, "Failed to start UDP proxy, check if another instance is running, and restart.")
                 self.stop_event_loop()
 
-        # Cancel the proxy task
+        # Cancel the proxy task and WS client
         self.proxy_task.cancel()
+        self.ws_task.cancel()
 
     def on_power_resume(self, event):
         """Handle power resume event"""
@@ -117,12 +121,6 @@ def main():
         import subprocess
 
         subprocess.Popen(["wine", "eqgame.exe", "patchme"], cwd=eq_dir, start_new_session=True)
-
-    # Fetch user accounts if API token is available
-    try:
-        sso_api.fetch_user_accounts()
-    except Exception:
-        logger.exception("Failed to fetch user accounts")
 
     # Initialize the UI
     main_window = ui.start_ui()

@@ -32,6 +32,8 @@ EQEMU_ADDR = (EQEMU_LOGIN_IP, EQEMU_PORT)
 SSO_API_OPTIONS = [
     ("P99 Login Proxy", "https://proxy.p99loginproxy.net"),
 ]
+if __version_semver__.prerelease:
+    SSO_API_OPTIONS.append(("Localhost", "http://localhost:5998"))
 
 SSO_API = CONFIG.get("DEFAULT", "sso_api", fallback=SSO_API_OPTIONS[0][1])
 SSO_TIMEOUT = CONFIG.getint("DEFAULT", "sso_timeout", fallback=10)

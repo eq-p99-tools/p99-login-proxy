@@ -9,7 +9,7 @@ import wx
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from p99_sso_login_proxy import config, sso_api, zone_translate
+from p99_sso_login_proxy import config, ws_client, zone_translate
 
 logger = logging.getLogger("log_handler")
 
@@ -71,7 +71,7 @@ class LogFileHandler(FileSystemEventHandler):
             if time.time() - modified_time > 30:
                 logger.debug("Not modified within the last 30s, not sending heartbeat for `%s`", character_name)
                 return
-            _run_async(sso_api.heartbeat(character_name))
+            _run_async(ws_client.send_heartbeat(character_name))
 
     def on_modified(self, event):
         if not config.USER_API_TOKEN:
@@ -96,12 +96,12 @@ class LogFileHandler(FileSystemEventHandler):
             zone = config.MATCH_ENTERED_ZONE.match(line).group("zone")
             zonekey = zone_translate.zone_to_zonekey(zone)
             logger.info("`%s` entered zone: %s (%s)", character_name, zone, zonekey)
-            _run_async(sso_api.update_location(character_name, park_location=zonekey))
+            _run_async(ws_client.send_update_location(character_name, park_location=zonekey))
         elif config.MATCH_CHARINFO.match(line):
             zone = config.MATCH_CHARINFO.match(line).group("zone")
             zonekey = zone_translate.zone_to_zonekey(zone)
             logger.info("`%s` is bound in zone: %s (%s)", character_name, zone, zonekey)
-            _run_async(sso_api.update_location(character_name, bind_location=zonekey))
+            _run_async(ws_client.send_update_location(character_name, bind_location=zonekey))
 
 
 def set_log_watch_directory(eq_directory, wx_app):

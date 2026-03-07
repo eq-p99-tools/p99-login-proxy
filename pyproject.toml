@@ -45,6 +45,7 @@ dependencies = [
     "markdown>=3.8",
     "watchdog>=6.0.0",
     "httpx>=0.28.1",
+    "websockets>=13.0",
 ]
 
 [project.scripts]

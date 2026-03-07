@@ -1,4 +1,3 @@
-import datetime
 import logging
 import os
 import platform
@@ -7,7 +6,7 @@ import threading
 import wx
 import wx.html
 
-from p99_sso_login_proxy import config, eq_config, log_handler, sso_api, utils, zone_translate
+from p99_sso_login_proxy import config, eq_config, log_handler, utils, ws_client, zone_translate
 from p99_sso_login_proxy.ui_classes import local_account_dialog, proxy_stats, taskbar_icon
 
 logger = logging.getLogger("ui")
@@ -80,9 +79,11 @@ class ProxyUI(wx.Frame):
         self.uptime_timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.update_stats, self.uptime_timer)
         self.uptime_timer.Start(1000)
-        self.cache_timer = wx.Timer(self)
-        self.Bind(wx.EVT_TIMER, self.update_account_cache_time, self.cache_timer)
-        self.cache_timer.Start(10 * 60 * 1000)
+        self.ws_status_timer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self._on_ws_status_tick, self.ws_status_timer)
+        self.ws_status_timer.Start(5000)
+        self._ws_reconnect_timer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self._on_ws_reconnect_debounce, self._ws_reconnect_timer)
 
         self.set_icon()
 
@@ -358,9 +359,9 @@ class ProxyUI(wx.Frame):
         sso_sizer.Add(sso_notebook, 1, wx.ALL | wx.EXPAND, 5)
 
         refresh_btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        self.refresh_accounts_btn = wx.Button(sso_tab, label="Refresh SSO Account List")
+        self.refresh_accounts_btn = wx.Button(sso_tab, label="Force Reconnect")
         self.refresh_accounts_btn.Bind(wx.EVT_BUTTON, self.on_refresh_account_cache)
-        self.refresh_accounts_btn.SetToolTip("Refresh the account cache from the SSO server")
+        self.refresh_accounts_btn.SetToolTip("Disconnect and reconnect to the SSO server for fresh data")
         refresh_btn_sizer.Add(self.refresh_accounts_btn, 0, wx.BOTTOM, 5)
 
         sso_sizer.Add(refresh_btn_sizer, 0, wx.ALL | wx.CENTER, 5)
@@ -405,25 +406,24 @@ class ProxyUI(wx.Frame):
         eq_status_sizer.Add(eqhost_btn_sizer, 0, wx.ALL | wx.CENTER, 5)
         eq_sizer.Add(eq_status_sizer, 0, wx.ALL | wx.EXPAND, 10)
 
-        # Account Cache section
-        account_cache_box = wx.StaticBox(eq_tab, label="Account Cache")
+        # Account Data section
+        account_cache_box = wx.StaticBox(eq_tab, label="Account Data")
         account_cache_sizer = wx.StaticBoxSizer(account_cache_box, wx.VERTICAL)
 
         cache_controls_sizer = wx.BoxSizer(wx.HORIZONTAL)
         cache_info_sizer = wx.BoxSizer(wx.VERTICAL)
 
-        self.cache_time_text = self._add_label_value_row(eq_tab, cache_info_sizer, "Cache Time:", "Unset")
-        self.cache_time_text.SetToolTip("Time when account data was last fetched from the SSO server")
-        self.update_account_cache_time()
+        self.ws_status_text = self._add_label_value_row(eq_tab, cache_info_sizer, "Live Status:", "Connecting...")
+        self.ws_status_text.SetToolTip("WebSocket connection status for real-time account updates")
 
         self.accounts_cached_text = self._add_label_value_row(eq_tab, cache_info_sizer, "Accounts Cached:", "0")
         self.accounts_cached_text.SetToolTip("Number of accounts and aliases/tags stored in the cache")
 
         cache_controls_sizer.Add(cache_info_sizer, 1, wx.EXPAND, 0)
 
-        self.refresh_cache_btn = wx.Button(eq_tab, label="Refresh Cache")
+        self.refresh_cache_btn = wx.Button(eq_tab, label="Force Reconnect")
         self.refresh_cache_btn.Bind(wx.EVT_BUTTON, self.on_refresh_account_cache)
-        self.refresh_cache_btn.SetToolTip("Refresh the account cache from the SSO server")
+        self.refresh_cache_btn.SetToolTip("Disconnect and reconnect to the SSO server for fresh data")
         cache_controls_sizer.Add(self.refresh_cache_btn, 0, wx.ALL | wx.ALIGN_CENTER, 5)
 
         account_cache_sizer.Add(cache_controls_sizer, 0, wx.ALL | wx.EXPAND, 5)
@@ -634,6 +634,7 @@ class ProxyUI(wx.Frame):
         url = self._sso_api_url_map[idx]
         if url != config.SSO_API:
             config.set_sso_api(url)
+            ws_client.request_reconnect()
 
     def on_browse_eq_directory(self, event):
         """Let the user pick the EverQuest installation directory."""
@@ -688,6 +689,7 @@ class ProxyUI(wx.Frame):
     def on_api_token_changed(self, event):
         token = self.api_token_field.GetValue()
         config.set_user_api_token(token)
+        self._schedule_ws_reconnect()
 
     def on_token_focus(self, event):
         logger.debug("API token field focused")
@@ -719,43 +721,17 @@ class ProxyUI(wx.Frame):
                 self.api_token_field.SetWindowStyleFlag(style)
         event.Skip()
 
-    def _fetch_accounts_in_background(self, on_done=None, show_busy=False):
-        """Run fetch_user_accounts in a background thread to avoid blocking the UI."""
-        if show_busy:
-            wx.BeginBusyCursor()
-
-        def _worker():
-            try:
-                sso_api.fetch_user_accounts()
-            except Exception:
-                logger.exception("Failed to fetch account cache in background")
-            finally:
-                wx.CallAfter(self._on_background_fetch_done, on_done, show_busy)
-
-        threading.Thread(target=_worker, daemon=True).start()
-
-    def _on_background_fetch_done(self, on_done, show_busy):
-        """Called on the wx thread after background fetch completes."""
-        if show_busy and wx.IsBusy():
-            wx.EndBusyCursor()
-        if on_done:
-            on_done()
-
     def on_refresh_account_cache(self, event):
-        """Refresh the account cache from the SSO server"""
-
-        def _after_fetch():
-            try:
-                config.LOCAL_ACCOUNTS, config.LOCAL_ACCOUNT_NAME_MAP = utils.load_local_accounts(
-                    config.LOCAL_ACCOUNTS_FILE
-                )
-                self.update_account_cache_display()
-                self.update_account_cache_time()
-            except Exception as e:
-                logger.exception("Failed to refresh account cache")
-                wx.MessageBox(f"Failed to refresh account cache: {e!s}", "Error", wx.OK | wx.ICON_ERROR)
-
-        self._fetch_accounts_in_background(on_done=_after_fetch, show_busy=True)
+        """Force a WebSocket reconnect for a fresh full_state."""
+        config.LOCAL_ACCOUNTS, config.LOCAL_ACCOUNT_NAME_MAP = utils.load_local_accounts(
+            config.LOCAL_ACCOUNTS_FILE
+        )
+        ws_client.request_reconnect()
+        if hasattr(self, "ws_status_text"):
+            self.ws_status_text.SetLabel("Connecting...")
+            self.ws_status_text.SetForegroundColour(COLOR_WARNING)
+            self.ws_status_text.Refresh()
+        self.update_account_cache_display()
 
     def on_exit_button(self, event):
         """Exit the application when the exit button is clicked"""
@@ -772,39 +748,32 @@ class ProxyUI(wx.Frame):
             except Exception:
                 logger.warning("Failed to load icon from %s", path, exc_info=True)
 
-    def update_account_cache_time(self, event=None) -> None:
-        """Update the account cache time display, fetching in background if stale."""
-        try:
-            cache_text_color = COLOR_SUCCESS
-            needs_fetch = False
+    def _schedule_ws_reconnect(self, delay_ms=1500):
+        """Debounce: restart the timer so the reconnect fires only after the user stops typing."""
+        self._ws_reconnect_timer.Stop()
+        self._ws_reconnect_timer.StartOnce(delay_ms)
 
-            if datetime.datetime.min == config.ACCOUNTS_CACHE_TIMESTAMP:
-                if config.USER_API_TOKEN:
-                    needs_fetch = True
-                cache_time = "Not cached yet"
-                cache_text_color = COLOR_ERROR
-            else:
-                cache_time = config.ACCOUNTS_CACHE_TIMESTAMP.strftime("%Y-%m-%d %H:%M:%S")
-                time_diff = datetime.datetime.now() - config.ACCOUNTS_CACHE_TIMESTAMP
+    def _on_ws_reconnect_debounce(self, event=None):
+        """Fires after the debounce period -- trigger a WS reconnect."""
+        ws_client.request_reconnect()
 
-                if time_diff.total_seconds() > 2 * 60 * 60:
-                    logger.info("Account cache is stale, updating: %s", time_diff)
-                    cache_text_color = COLOR_ERROR
-                    needs_fetch = True
-                elif time_diff.total_seconds() > 1 * 60 * 60:
-                    logger.info("Account cache is getting stale: %s", time_diff)
-                    cache_text_color = COLOR_WARNING
-                logger.debug("Updating account cache time: %s (%s)", cache_time, time_diff)
-
-            if hasattr(self, "cache_time_text"):
-                self.cache_time_text.SetForegroundColour(cache_text_color)
-                self.cache_time_text.SetLabel(cache_time)
-                self.cache_time_text.Refresh()
-
-            if needs_fetch:
-                self._fetch_accounts_in_background(on_done=self.update_account_cache_time)
-        except Exception:
-            logger.exception("Failed to update account cache time")
+    def _on_ws_status_tick(self, event=None):
+        """Periodically update the WebSocket connection status label."""
+        if not hasattr(self, "ws_status_text"):
+            return
+        if ws_client.is_connected():
+            self.ws_status_text.SetLabel("Connected (Live)")
+            self.ws_status_text.SetForegroundColour(COLOR_SUCCESS)
+        elif ws_client.is_auth_failed():
+            self.ws_status_text.SetLabel("Auth Failed")
+            self.ws_status_text.SetForegroundColour(COLOR_ERROR)
+        elif config.USER_API_TOKEN:
+            self.ws_status_text.SetLabel("Connecting...")
+            self.ws_status_text.SetForegroundColour(COLOR_WARNING)
+        else:
+            self.ws_status_text.SetLabel("No API Token")
+            self.ws_status_text.SetForegroundColour(COLOR_MUTED)
+        self.ws_status_text.Refresh()
 
     # --- Local account management ---
 
