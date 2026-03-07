@@ -229,7 +229,7 @@ async def _run(reconnect_requested: asyncio.Event):
 
                     try:
                         raw = await asyncio.wait_for(ws.recv(), timeout=60)
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         continue
 
                     msg = json.loads(raw)

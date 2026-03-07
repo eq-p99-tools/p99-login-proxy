@@ -9,7 +9,6 @@ import logging
 import os
 import string
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
 
 from p99_sso_login_proxy import config
 
@@ -40,7 +39,7 @@ DEFAULT_PROXY_ADDRESS = (
 )
 
 
-def get_available_drives() -> List[str]:
+def get_available_drives() -> list[str]:
     """
     Get a list of available drive letters on Windows.
 
@@ -76,7 +75,7 @@ def is_valid_eq_directory(path: str) -> bool:
     return False
 
 
-def find_eq_directory() -> Optional[str]:
+def find_eq_directory() -> str | None:
     """
     Find the EverQuest installation directory using multiple methods.
     Checks the explicit config override first, then falls back to auto-detection.
@@ -124,7 +123,7 @@ def clear_cache():
     _cache["eqclient_path"] = None
 
 
-def get_eqhost_path(eq_dir: Optional[str] = None) -> Optional[str]:
+def get_eqhost_path(eq_dir: str | None = None) -> str | None:
     """
     Get the path to the eqhost.txt file.
 
@@ -157,7 +156,7 @@ def get_eqhost_path(eq_dir: Optional[str] = None) -> Optional[str]:
     return None
 
 
-def get_eqclient_path(eq_dir: Optional[str] = None) -> Optional[str]:
+def get_eqclient_path(eq_dir: str | None = None) -> str | None:
     """
     Get the path to the eqclient.ini file.
 
@@ -187,7 +186,7 @@ def get_eqclient_path(eq_dir: Optional[str] = None) -> Optional[str]:
     return None
 
 
-def read_eqhost_file(eqhost_path: Optional[str] = None) -> List[str]:
+def read_eqhost_file(eqhost_path: str | None = None) -> list[str]:
     """
     Read the contents of the eqhost.txt file.
 
@@ -214,7 +213,7 @@ def read_eqhost_file(eqhost_path: Optional[str] = None) -> List[str]:
         return []
 
 
-def write_eqhost_file(lines: List[str], eqhost_path: Optional[str] = None) -> Tuple[bool, Optional[str]]:
+def write_eqhost_file(lines: list[str], eqhost_path: str | None = None) -> tuple[bool, str | None]:
     """
     Write contents to the eqhost.txt file.
 
@@ -262,7 +261,7 @@ class EqHostEntry:
     is_proxy: bool  # Whether it matches the proxy address
 
 
-def _parse_eqhost_lines(lines: List[str]) -> List[EqHostEntry]:
+def _parse_eqhost_lines(lines: list[str]) -> list[EqHostEntry]:
     """Parse raw eqhost.txt lines into structured entries."""
     entries = []
     for line in lines:
@@ -287,7 +286,7 @@ def _parse_eqhost_lines(lines: List[str]) -> List[EqHostEntry]:
     return entries
 
 
-def _serialize_eqhost_entries(entries: List[EqHostEntry]) -> List[str]:
+def _serialize_eqhost_entries(entries: list[EqHostEntry]) -> list[str]:
     """Serialize structured entries back into eqhost.txt lines."""
     result = []
     for entry in entries:
@@ -300,7 +299,7 @@ def _serialize_eqhost_entries(entries: List[EqHostEntry]) -> List[str]:
     return result
 
 
-def is_using_proxy(eq_dir: Optional[str] = None) -> Tuple[bool, Optional[str]]:
+def is_using_proxy(eq_dir: str | None = None) -> tuple[bool, str | None]:
     """
     Check if EverQuest is configured to use the proxy.
 
@@ -321,7 +320,7 @@ def is_using_proxy(eq_dir: Optional[str] = None) -> Tuple[bool, Optional[str]]:
     return any(DEFAULT_PROXY_ADDRESS in line and not line.startswith("#") for line in lines), eqhost_path
 
 
-def enable_proxy() -> Tuple[bool, Optional[str]]:
+def enable_proxy() -> tuple[bool, str | None]:
     """
     Configure EverQuest to use the proxy in a non-destructive way.
     - Adds proxy line to the end if not present
@@ -360,7 +359,7 @@ def enable_proxy() -> Tuple[bool, Optional[str]]:
     return write_eqhost_file(_serialize_eqhost_entries(entries), eqhost_path)
 
 
-def disable_proxy() -> Tuple[bool, Optional[str]]:
+def disable_proxy() -> tuple[bool, str | None]:
     """
     Configure EverQuest to use the official login server instead of the proxy in a non-destructive way.
     - Comments out the proxy line if present
