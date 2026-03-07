@@ -39,7 +39,8 @@ async def send_heartbeat(character_name: str):
             logger.debug("Failed to send heartbeat", exc_info=True)
 
 
-async def send_update_location(character_name: str, park_location: str = None, bind_location: str = None):
+async def send_update_location(character_name: str, park_location: str = None,
+                               bind_location: str = None, level: int = None):
     """Send an update_location message over the WebSocket."""
     if _ws and _connected:
         msg = {"type": "update_location", "character_name": character_name}
@@ -47,6 +48,8 @@ async def send_update_location(character_name: str, park_location: str = None, b
             msg["park_location"] = park_location
         if bind_location:
             msg["bind_location"] = bind_location
+        if level is not None:
+            msg["level"] = level
         try:
             await _ws.send(json.dumps(msg))
         except Exception:

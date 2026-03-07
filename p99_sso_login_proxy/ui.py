@@ -1,3 +1,4 @@
+import datetime
 import logging
 import os
 import platform
@@ -21,6 +22,34 @@ COLOR_WARNING = wx.Colour(255, 130, 0)
 COLOR_MUTED = wx.Colour(128, 128, 128)
 COLOR_VALUE_TEXT = wx.Colour(44, 62, 80)
 COLOR_ALT_ROW = wx.Colour(240, 245, 250)
+COLOR_ACTIVE_RED = wx.Colour(255, 120, 120)
+
+ACTIVITY_FADE_SECONDS = 120
+
+
+def _activity_colour(last_login_iso: str | None) -> wx.Colour | None:
+    """Return a background colour that fades from red to transparent over ACTIVITY_FADE_SECONDS.
+
+    Returns None once fully faded so normal alternating-row colours apply.
+    """
+    if not last_login_iso:
+        return None
+    try:
+        then = datetime.datetime.fromisoformat(last_login_iso)
+    except (ValueError, TypeError):
+        return None
+    elapsed = (datetime.datetime.now(tz=then.tzinfo) - then).total_seconds()
+    if elapsed < 0:
+        elapsed = 0
+    if elapsed >= ACTIVITY_FADE_SECONDS:
+        return None
+    # Blend from COLOR_ACTIVE_RED toward the default list background
+    bg = wx.SystemSettings.GetColour(wx.SYS_COLOUR_LISTBOX)
+    t = elapsed / ACTIVITY_FADE_SECONDS
+    r = int(COLOR_ACTIVE_RED.Red() + (bg.Red() - COLOR_ACTIVE_RED.Red()) * t)
+    g = int(COLOR_ACTIVE_RED.Green() + (bg.Green() - COLOR_ACTIVE_RED.Green()) * t)
+    b = int(COLOR_ACTIVE_RED.Blue() + (bg.Blue() - COLOR_ACTIVE_RED.Blue()) * t)
+    return wx.Colour(r, g, b)
 
 
 def warning(message):
@@ -59,10 +88,10 @@ class ProxyUI(wx.Frame):
     def __init__(self, parent=None, id=wx.ID_ANY, title=f"{config.APP_NAME} v{config.APP_VERSION}"):
         if platform.system() == "Windows":
             style = wx.DEFAULT_FRAME_STYLE & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX)
-            size = (550, 550)
+            size = (616, 550)
         else:
             style = wx.DEFAULT_FRAME_STYLE
-            size = (700, 664)
+            size = (756, 664)
         super().__init__(parent, id, title, size=size, style=style)
 
         self.exit_event = threading.Event()
@@ -84,6 +113,9 @@ class ProxyUI(wx.Frame):
         self.ws_status_timer.Start(5000)
         self._ws_reconnect_timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self._on_ws_reconnect_debounce, self._ws_reconnect_timer)
+        self._char_fade_timer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self._on_char_fade_tick, self._char_fade_timer)
+        self._char_fade_timer.Start(10000)
 
         self.set_icon()
 
@@ -104,22 +136,31 @@ class ProxyUI(wx.Frame):
         box_sizer.Add(sizer, 0, wx.EXPAND | wx.ALL, 5)
         return value
 
-    def _populate_list(self, list_ctrl, rows):
+    def _populate_list(self, list_ctrl, rows, row_color_fn=None):
         """Store rows and render through the search filter if one exists."""
         if list_ctrl in self._list_filter_data:
             self._list_filter_data[list_ctrl]["rows"] = rows
+            self._list_filter_data[list_ctrl]["row_color_fn"] = row_color_fn
             self._apply_filter(list_ctrl)
         else:
-            self._render_list(list_ctrl, rows)
+            self._render_list(list_ctrl, rows, row_color_fn)
 
-    def _render_list(self, list_ctrl, rows):
-        """Render rows into a ListCtrl with alternating row colors."""
+    def _render_list(self, list_ctrl, rows, row_color_fn=None):
+        """Render rows into a ListCtrl with optional per-row colouring.
+
+        Row tuples may contain extra trailing elements beyond the column count;
+        those are treated as metadata and not displayed.
+        """
         list_ctrl.DeleteAllItems()
+        num_cols = list_ctrl.GetColumnCount()
         for i, row in enumerate(rows):
             list_ctrl.InsertItem(i, row[0])
-            for col, value in enumerate(row[1:], 1):
+            for col, value in enumerate(row[1:num_cols], 1):
                 list_ctrl.SetItem(i, col, value)
-            if i % 2 == 1:
+            colour = row_color_fn(row) if row_color_fn else None
+            if colour:
+                list_ctrl.SetItemBackgroundColour(i, colour)
+            elif i % 2 == 1:
                 list_ctrl.SetItemBackgroundColour(i, COLOR_ALT_ROW)
 
     def _apply_filter(self, list_ctrl):
@@ -129,12 +170,17 @@ class ProxyUI(wx.Frame):
         match every word (in any column) to be included.
         """
         data = self._list_filter_data[list_ctrl]
+        num_cols = list_ctrl.GetColumnCount()
+        row_color_fn = data.get("row_color_fn")
         terms = data["search"].GetValue().lower().split()
         if not terms:
-            self._render_list(list_ctrl, data["rows"])
+            self._render_list(list_ctrl, data["rows"], row_color_fn)
         else:
-            filtered = [row for row in data["rows"] if all(any(term in cell.lower() for cell in row) for term in terms)]
-            self._render_list(list_ctrl, filtered)
+            filtered = [
+                row for row in data["rows"]
+                if all(any(term in cell.lower() for cell in row[:num_cols]) for term in terms)
+            ]
+            self._render_list(list_ctrl, filtered, row_color_fn)
 
     def _add_search_ctrl(self, parent, sizer, list_ctrl):
         """Add a search box above a list control for typeahead filtering."""
@@ -291,7 +337,7 @@ class ProxyUI(wx.Frame):
         accounts_tab = wx.Panel(sso_notebook)
         accounts_sizer = wx.BoxSizer(wx.VERTICAL)
         self.accounts_list = self._create_list_ctrl(
-            accounts_tab, [("Account Name", 150), ("Aliases", 150), ("Tags", 150)]
+            accounts_tab, [("Account Name", 150), ("Aliases", 186), ("Tags", 186)]
         )
         self._add_search_ctrl(accounts_tab, accounts_sizer, self.accounts_list)
         accounts_sizer.Add(self.accounts_list, 1, wx.ALL | wx.EXPAND, 5)
@@ -300,7 +346,7 @@ class ProxyUI(wx.Frame):
         # Aliases sub-tab
         aliases_tab = wx.Panel(sso_notebook)
         aliases_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.aliases_list = self._create_list_ctrl(aliases_tab, [("Alias", 150), ("Account Name", 300)])
+        self.aliases_list = self._create_list_ctrl(aliases_tab, [("Alias", 150), ("Account Name", 372)])
         self._add_search_ctrl(aliases_tab, aliases_sizer, self.aliases_list)
         aliases_sizer.Add(self.aliases_list, 1, wx.ALL | wx.EXPAND, 5)
         aliases_tab.SetSizer(aliases_sizer)
@@ -308,7 +354,7 @@ class ProxyUI(wx.Frame):
         # Tags sub-tab
         tags_tab = wx.Panel(sso_notebook)
         tags_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.tags_list = self._create_list_ctrl(tags_tab, [("Tag", 150), ("Account Names", 300)])
+        self.tags_list = self._create_list_ctrl(tags_tab, [("Tag", 150), ("Account Names", 372)])
         self._add_search_ctrl(tags_tab, tags_sizer, self.tags_list)
         tags_sizer.Add(self.tags_list, 1, wx.ALL | wx.EXPAND, 5)
         tags_tab.SetSizer(tags_sizer)
@@ -318,7 +364,7 @@ class ProxyUI(wx.Frame):
         characters_sizer = wx.BoxSizer(wx.VERTICAL)
         self.characters_list = self._create_list_ctrl(
             characters_tab,
-            [("Character", 80), ("Class", 70), ("Park Location", 110), ("Bind Location", 110), ("Account Name", 100)],
+            [("Character", 80), ("Class", 82), ("Level", 40), ("Park Location", 110), ("Bind Location", 110), ("Account Name", 100)],
         )
         self.characters_list.Bind(wx.EVT_LIST_COL_CLICK, self.on_characters_list_col_click)
         self._characters_sort_col = 1
@@ -330,7 +376,7 @@ class ProxyUI(wx.Frame):
         # Local accounts sub-tab
         local_tab = wx.Panel(sso_notebook)
         local_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.local_accounts_list = self._create_list_ctrl(local_tab, [("Account Name", 200), ("Aliases", 250)])
+        self.local_accounts_list = self._create_list_ctrl(local_tab, [("Account Name", 200), ("Aliases", 322)])
         self._add_search_ctrl(local_tab, local_sizer, self.local_accounts_list)
         local_sizer.Add(self.local_accounts_list, 1, wx.ALL | wx.EXPAND, 5)
 
@@ -748,6 +794,11 @@ class ProxyUI(wx.Frame):
             except Exception:
                 logger.warning("Failed to load icon from %s", path, exc_info=True)
 
+    def _on_char_fade_tick(self, event=None):
+        """Re-render the characters list so activity background colours fade over time."""
+        if hasattr(self, "characters_list") and self.characters_list in self._list_filter_data:
+            self._apply_filter(self.characters_list)
+
     def _schedule_ws_reconnect(self, delay_ms=1500):
         """Debounce: restart the timer so the reconnect fires only after the user stops typing."""
         self._ws_reconnect_timer.Stop()
@@ -953,25 +1004,31 @@ class ProxyUI(wx.Frame):
         tag_rows = [(tag, ", ".join(sorted(accounts))) for tag, accounts in sorted(tag_to_accounts.items())]
         self._populate_list(self.tags_list, tag_rows)
 
-        # Characters
+        # Characters -- last_login appended as hidden 7th element for activity colouring
         all_characters = []
         for account, data in config.ACCOUNTS_CACHED.items():
+            last_login = data.get("last_login")
             characters = data.get("characters", {})
             for character in sorted(characters):
                 bind_text = zone_translate.zonekey_to_zone(characters[character]["bind"])
                 park_text = zone_translate.zonekey_to_zone(characters[character]["park"])
                 class_text = characters[character]["class"]
-                all_characters.append((character, class_text, park_text, bind_text, account))
+                level = characters[character].get("level")
+                level_text = str(level) if level is not None else ""
+                all_characters.append((character, class_text, level_text, park_text, bind_text, account, last_login))
 
         sort_col = self._characters_sort_col
         sort_asc = self._characters_sort_asc
         all_characters.sort(key=lambda x: ((x[sort_col] or ""), x[0]), reverse=not sort_asc)
 
         char_rows = [
-            (char, klass, park or "Unknown", bind or "Unknown", acct)
-            for char, klass, park, bind, acct in all_characters
+            (char, klass, lvl, park or "Unknown", bind or "Unknown", acct, ll)
+            for char, klass, lvl, park, bind, acct, ll in all_characters
         ]
-        self._populate_list(self.characters_list, char_rows)
+        self._populate_list(
+            self.characters_list, char_rows,
+            row_color_fn=lambda row: _activity_colour(row[6]),
+        )
 
     def update_eq_status(self):
         """Update the EverQuest configuration status display"""

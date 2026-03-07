@@ -111,3 +111,5 @@ def set_proxy_enabled(value: bool):
 TIMESTAMP = r"\[(?P<time>\w{3} \w{3} \d{2} \d\d:\d\d:\d\d \d{4})\] +"
 MATCH_ENTERED_ZONE = re.compile(rf"{TIMESTAMP}You have entered (?P<zone>.*?)\.")
 MATCH_CHARINFO = re.compile(f"{TIMESTAMP}You are currently bound in: (?P<zone>.*)")
+MATCH_WHO_SELF = re.compile(rf"{TIMESTAMP}\[(?P<level>\d+) [\w ]+\] (?P<name>\w+) ")
+MATCH_LEVEL_UP = re.compile(rf"{TIMESTAMP}You have gained a level! Welcome to level (?P<level>\d+)!")

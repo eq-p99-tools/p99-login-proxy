@@ -102,6 +102,15 @@ class LogFileHandler(FileSystemEventHandler):
             zonekey = zone_translate.zone_to_zonekey(zone)
             logger.info("`%s` is bound in zone: %s (%s)", character_name, zone, zonekey)
             _run_async(ws_client.send_update_location(character_name, bind_location=zonekey))
+        elif m := config.MATCH_WHO_SELF.match(line):
+            if m.group("name").lower() == character_name.lower():
+                level = int(m.group("level"))
+                logger.info("`%s` detected level %d from /who", character_name, level)
+                _run_async(ws_client.send_update_location(character_name, level=level))
+        elif m := config.MATCH_LEVEL_UP.match(line):
+            level = int(m.group("level"))
+            logger.info("`%s` leveled up to %d", character_name, level)
+            _run_async(ws_client.send_update_location(character_name, level=level))
 
 
 def set_log_watch_directory(eq_directory, wx_app):
