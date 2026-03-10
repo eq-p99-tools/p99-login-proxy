@@ -386,7 +386,7 @@ class ProxyUI(wx.Frame):
                 ("Park Location", 115),
                 ("Bind Location", 115),
                 ("Account Name", 100),
-                ("Last Login", 82),
+                ("Logged In By", 82),
             ],
         )
         self.characters_list.Bind(wx.EVT_LIST_COL_CLICK, self.on_characters_list_col_click)

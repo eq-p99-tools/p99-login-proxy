@@ -19,11 +19,12 @@ from p99_sso_login_proxy import config
 # Set up logging
 logger = logging.getLogger("eq_config")
 
-# Simple cache for paths
+# Simple cache for paths and expensive computations
 _cache = {
     "eq_directory": None,
     "eqhost_path": None,
     "eqclient_path": None,
+    "rustle_present": None,
 }
 
 # Default EverQuest installation paths to check
@@ -125,6 +126,7 @@ def clear_cache():
     _cache["eq_directory"] = None
     _cache["eqhost_path"] = None
     _cache["eqclient_path"] = None
+    _cache["rustle_present"] = None
 
 
 def get_eqhost_path(eq_dir: str | None = None) -> str | None:
@@ -453,18 +455,82 @@ def read_eqclient_log_enabled() -> bool | None:
         return None
 
 
+_RUSTLE_FINGERPRINTS = {
+    "EQUI_Animations.xml": [
+        "a_rustle",
+        "rustlin",
+    ],
+    "EQUI_ActionsWindow.xml": [
+        "rustle-logo",
+        "rise of the apes",
+    ],
+}
+
+
+def _check_dir_for_rustle(dir_path: str) -> bool:
+    """Return True if any file in *dir_path* contains a Rustle fingerprint."""
+    for filename, markers in _RUSTLE_FINGERPRINTS.items():
+        filepath = os.path.join(dir_path, filename)
+        if not os.path.isfile(filepath):
+            continue
+        try:
+            with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read().lower()
+            if any(m in content for m in markers):
+                return True
+        except OSError:
+            logger.debug("Could not read %s for Rustle detection", filepath)
+    return False
+
+
+def detect_rustle_ui() -> bool:
+    """Scan every subdirectory under ``<eq_dir>/uifiles/`` for Rustle UI
+    fingerprints.  The result is cached in ``_cache["rustle_present"]`` so
+    subsequent calls (and ``get_client_settings()``) are free.
+
+    Returns True if Rustle markers are found in *any* subdirectory.
+    """
+    eq_dir = find_eq_directory()
+    if not eq_dir:
+        _cache["rustle_present"] = False
+        return False
+
+    uifiles_dir = os.path.join(eq_dir, "uifiles")
+    if not os.path.isdir(uifiles_dir):
+        _cache["rustle_present"] = False
+        return False
+
+    try:
+        for entry in os.scandir(uifiles_dir):
+            if not entry.is_dir():
+                continue
+            if _check_dir_for_rustle(entry.path):
+                logger.warning("Rustle UI detected in %s", entry.path)
+                _cache["rustle_present"] = True
+                return True
+    except OSError:
+        logger.exception("Error scanning uifiles directory")
+
+    _cache["rustle_present"] = False
+    return False
+
+
 def get_client_settings() -> dict:
     """
     Return a dict of client settings to send to the SSO server.
-    Currently includes log_enabled from eqclient.ini.
     Returns an empty dict if the EQ directory is not found (no eqclient.ini).
     A missing Log= line is treated as False (logging not enabled).
+    ``rustle_present`` is only included after ``detect_rustle_ui()`` has been
+    called at least once (i.e. after the first WebSocket connection).
     """
     eqclient_path = get_eqclient_path()
     if not eqclient_path:
         return {}
     log_enabled = read_eqclient_log_enabled()
-    return {"log_enabled": bool(log_enabled)}
+    settings: dict = {"log_enabled": bool(log_enabled)}
+    if _cache["rustle_present"] is not None:
+        settings["rustle_present"] = _cache["rustle_present"]
+    return settings
 
 
 def _try_clear_readonly(path: str) -> None:

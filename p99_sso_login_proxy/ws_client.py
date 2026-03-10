@@ -219,6 +219,7 @@ async def _run(reconnect_requested: asyncio.Event):
                 close_timeout=5,
             ) as ws:
                 _ws = ws
+                eq_config.detect_rustle_ui()
                 await ws.send(
                     json.dumps(
                         {
