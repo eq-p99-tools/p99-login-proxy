@@ -22,13 +22,12 @@ COLOR_WARNING = wx.Colour(255, 130, 0)
 COLOR_MUTED = wx.Colour(128, 128, 128)
 COLOR_VALUE_TEXT = wx.Colour(44, 62, 80)
 COLOR_ALT_ROW = wx.Colour(240, 245, 250)
-COLOR_ACTIVE_RED = wx.Colour(255, 120, 120)
+COLOR_ACTIVE_AMBER = wx.Colour(255, 195, 120)
+COLOR_ACTIVE_BLUE = wx.Colour(130, 170, 255)
 
-ACTIVITY_FADE_SECONDS = 120
 
-
-def _activity_colour(last_login_iso: str | None) -> wx.Colour | None:
-    """Return a background colour that fades from red to transparent over ACTIVITY_FADE_SECONDS.
+def _activity_colour(last_login_iso: str | None, base_color: wx.Colour = COLOR_ACTIVE_AMBER) -> wx.Colour | None:
+    """Return a background colour that fades from *base_color* to transparent over config.ACTIVITY_FADE_SECONDS.
 
     Returns None once fully faded so normal alternating-row colours apply.
     """
@@ -43,14 +42,13 @@ def _activity_colour(last_login_iso: str | None) -> wx.Colour | None:
     elapsed = (datetime.datetime.now(tz=datetime.timezone.utc) - then).total_seconds()
     if elapsed < 0:
         elapsed = 0
-    if elapsed >= ACTIVITY_FADE_SECONDS:
+    if elapsed >= config.ACTIVITY_FADE_SECONDS:
         return None
-    # Blend from COLOR_ACTIVE_RED toward the default list background
     bg = wx.SystemSettings.GetColour(wx.SYS_COLOUR_LISTBOX)
-    t = elapsed / ACTIVITY_FADE_SECONDS
-    r = int(COLOR_ACTIVE_RED.Red() + (bg.Red() - COLOR_ACTIVE_RED.Red()) * t)
-    g = int(COLOR_ACTIVE_RED.Green() + (bg.Green() - COLOR_ACTIVE_RED.Green()) * t)
-    b = int(COLOR_ACTIVE_RED.Blue() + (bg.Blue() - COLOR_ACTIVE_RED.Blue()) * t)
+    t = elapsed / config.ACTIVITY_FADE_SECONDS
+    r = int(base_color.Red() + (bg.Red() - base_color.Red()) * t)
+    g = int(base_color.Green() + (bg.Green() - base_color.Green()) * t)
+    b = int(base_color.Blue() + (bg.Blue() - base_color.Blue()) * t)
     return wx.Colour(r, g, b)
 
 
@@ -392,7 +390,25 @@ class ProxyUI(wx.Frame):
         self.characters_list.Bind(wx.EVT_LIST_COL_CLICK, self.on_characters_list_col_click)
         self._characters_sort_col = 1
         self._characters_sort_asc = True
-        self._add_search_ctrl(characters_tab, characters_sizer, self.characters_list)
+        search_ctrl = self._add_search_ctrl(characters_tab, characters_sizer, self.characters_list)
+        characters_sizer.Detach(search_ctrl)
+
+        search_row = wx.BoxSizer(wx.HORIZONTAL)
+        search_row.Add(search_ctrl, 1, wx.EXPAND)
+
+        def _make_swatch(parent, colour, label):
+            swatch = wx.Panel(parent, size=(12, 12))
+            swatch.SetBackgroundColour(colour)
+            swatch.SetMinSize((12, 12))
+            text = wx.StaticText(parent, label=label)
+            return swatch, text
+
+        for colour, label in ((COLOR_ACTIVE_AMBER, "Logged In"), (COLOR_ACTIVE_BLUE, "Blocked")):
+            swatch, text = _make_swatch(characters_tab, colour, label)
+            search_row.Add(swatch, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
+            search_row.Add(text, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 3)
+
+        characters_sizer.Add(search_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 5)
         characters_sizer.Add(self.characters_list, 1, wx.ALL | wx.EXPAND, 5)
         characters_tab.SetSizer(characters_sizer)
 
@@ -829,9 +845,9 @@ class ProxyUI(wx.Frame):
                 logger.warning("Failed to load icon from %s", path, exc_info=True)
 
     def _on_char_fade_tick(self, event=None):
-        """Re-render the characters list so activity background colours fade over time."""
+        """Re-render the characters list so activity colours and text fade over time."""
         if hasattr(self, "characters_list") and self.characters_list in self._list_filter_data:
-            self._apply_filter(self.characters_list)
+            self._refresh_characters_list()
 
     def _schedule_ws_reconnect(self, delay_ms=1500):
         """Debounce: restart the timer so the reconnect fires only after the user stops typing."""
@@ -1058,11 +1074,15 @@ class ProxyUI(wx.Frame):
         tag_rows = [(tag, ", ".join(sorted(accounts))) for tag, accounts in sorted(tag_to_accounts.items())]
         self._populate_list(self.tags_list, tag_rows)
 
-        # Characters -- last_login appended as hidden 8th element for activity colouring
+        self._refresh_characters_list()
+
+    def _refresh_characters_list(self):
+        """Rebuild and render the characters list from cached account data."""
         all_characters = []
         for account, data in config.ACCOUNTS_CACHED.items():
             last_login = data.get("last_login")
             last_login_by = data.get("last_login_by") or ""
+            active_character = data.get("active_character") or ""
             characters = data.get("characters", {})
             for character in sorted(characters):
                 bind_text = zone_translate.zonekey_to_zone(characters[character]["bind"])
@@ -1070,12 +1090,13 @@ class ProxyUI(wx.Frame):
                 class_text = characters[character]["class"]
                 level = characters[character].get("level")
                 level_text = str(level) if level is not None else ""
-                all_characters.append((character, class_text, level_text, park_text, bind_text, account, last_login_by, last_login))
+                is_logged_in = (character == active_character)
+                all_characters.append((character, class_text, level_text, park_text, bind_text, account, last_login_by, last_login, is_logged_in))
 
         char_rows = [
             (char, klass, lvl, park or "Unknown", bind or "Unknown", acct,
-             login_by if _activity_colour(ll) is not None else "", ll)
-            for char, klass, lvl, park, bind, acct, login_by, ll in all_characters
+             login_by if _activity_colour(ll) is not None else "", ll, is_li)
+            for char, klass, lvl, park, bind, acct, login_by, ll, is_li in all_characters
         ]
 
         sort_col = self._characters_sort_col
@@ -1084,7 +1105,8 @@ class ProxyUI(wx.Frame):
         self._populate_list(
             self.characters_list,
             char_rows,
-            row_color_fn=lambda row: _activity_colour(row[7]),
+            row_color_fn=lambda row: _activity_colour(
+                row[7], COLOR_ACTIVE_AMBER if row[8] else COLOR_ACTIVE_BLUE),
         )
 
     def update_eq_status(self):

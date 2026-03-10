@@ -86,6 +86,8 @@ CHARACTERS_CACHED = []
 ACCOUNTS_CACHE_REAL_COUNT = 0
 ACCOUNTS_CACHE_TIMESTAMP = datetime.datetime.min
 
+ACTIVITY_FADE_SECONDS = 90
+
 LOCAL_ACCOUNTS_FILE = CONFIG.get("DEFAULT", "local_accounts_file", fallback="local_accounts.csv")
 LOCAL_ACCOUNTS, LOCAL_ACCOUNT_NAME_MAP = utils.load_local_accounts(LOCAL_ACCOUNTS_FILE)
 

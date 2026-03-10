@@ -133,7 +133,7 @@ def _apply_delta(data: dict):
                     chars[name] = cdata
                 entry["characters"] = chars
 
-            for scalar in ("last_login", "last_login_by"):
+            for scalar in ("last_login", "last_login_by", "active_character"):
                 if scalar in fields:
                     entry[scalar] = fields[scalar]
 
