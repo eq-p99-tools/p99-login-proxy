@@ -5,8 +5,12 @@ This module handles finding the EverQuest installation directory and managing
 the eqhost.txt file which controls which login server the game connects to.
 """
 
+import configparser
 import logging
 import os
+import re
+import shutil
+import stat
 import string
 from dataclasses import dataclass
 
@@ -421,6 +425,123 @@ def get_eq_status() -> dict:
     }
 
     return status
+
+
+def read_eqclient_log_enabled() -> bool | None:
+    """
+    Read the Log= setting from eqclient.ini.
+
+    Returns:
+        True if Log=TRUE (case-insensitive), False if present but not true,
+        None if the file or key cannot be found.
+    """
+    eqclient_path = get_eqclient_path()
+    if not eqclient_path:
+        return None
+    try:
+        parser = configparser.ConfigParser()
+        parser.optionxform = str.lower
+        parser.read(eqclient_path)
+        # Section names are case-sensitive in configparser, so find [Defaults]
+        # regardless of casing.
+        section = next((s for s in parser.sections() if s.lower() == "defaults"), None)
+        if section and parser.has_option(section, "log"):
+            return parser.get(section, "log").strip().lower() == "true"
+        return None
+    except Exception:
+        logger.exception("Error reading Log setting from eqclient.ini")
+        return None
+
+
+def get_client_settings() -> dict:
+    """
+    Return a dict of client settings to send to the SSO server.
+    Currently includes log_enabled from eqclient.ini.
+    Returns an empty dict if the EQ directory is not found (no eqclient.ini).
+    A missing Log= line is treated as False (logging not enabled).
+    """
+    eqclient_path = get_eqclient_path()
+    if not eqclient_path:
+        return {}
+    log_enabled = read_eqclient_log_enabled()
+    return {"log_enabled": bool(log_enabled)}
+
+
+def _try_clear_readonly(path: str) -> None:
+    """Best-effort attempt to remove the read-only flag from a file or directory."""
+    try:
+        current = os.stat(path).st_mode
+        if not current & stat.S_IWRITE:
+            os.chmod(path, current | stat.S_IWRITE)
+            logger.info(f"Cleared read-only flag from {path}")
+    except OSError:
+        logger.exception(f"Error clearing read-only flag from {path}")
+        pass
+
+
+def ensure_eqclient_log_enabled() -> bool:
+    """
+    Attempt to ensure Log=TRUE is set in eqclient.ini.
+
+    Steps:
+    1. Read the file contents and compute what the new content should be.
+    2. If the content is already correct, return True without touching anything.
+    3. Try to clear read-only on the EQ directory and the ini file itself
+       (useful when running as admin).
+    4. Back up the file to eqclient.ini.bak (also acts as a write-permission
+       check — if the directory is still read-only this will fail and we bail out).
+    5. Write the updated content.
+    6. Silently swallow any IO/permission errors and return False on failure.
+
+    Returns:
+        True if logging is enabled after this call, False otherwise.
+    """
+    eqclient_path = get_eqclient_path()
+    if not eqclient_path:
+        return False
+
+    try:
+        with open(eqclient_path, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+
+        # Replace any existing Log= line (case-insensitive key, any value)
+        new_content, count = re.subn(
+            r"(?im)^(log\s*=\s*).*$",
+            r"Log=TRUE",
+            content,
+        )
+
+        if count == 0:
+            # Key not present at all — insert after [Defaults] header if found,
+            # otherwise just append at end of file.
+            new_content, inserted = re.subn(
+                r"(?im)^(\[defaults\][^\S\n]*)(\r?\n)",
+                r"\1\2Log=TRUE\2",
+                content,
+                count=1,
+            )
+            if not inserted:
+                new_content = content.rstrip("\n") + "\nLog=TRUE\n"
+
+        if new_content == content:
+            # Already correct — no changes needed, no backup required.
+            return True
+
+        _try_clear_readonly(os.path.dirname(eqclient_path))
+        _try_clear_readonly(eqclient_path)
+
+        backup_path = eqclient_path + ".bak"
+        shutil.copyfile(eqclient_path, backup_path)
+        logger.info("Backed up eqclient.ini to %s", backup_path)
+
+        with open(eqclient_path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+
+        logger.info("Set Log=TRUE in eqclient.ini")
+        return True
+    except Exception:
+        logger.debug("Could not set Log=TRUE in eqclient.ini (file may be read-only)")
+        return False
 
 
 if __name__ == "__main__":

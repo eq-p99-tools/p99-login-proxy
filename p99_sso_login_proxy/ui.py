@@ -93,15 +93,17 @@ class ProxyUI(wx.Frame):
             size = (708, 550)
         else:
             style = wx.DEFAULT_FRAME_STYLE
-            size = (800, 664)
+            size = (760, 664)
         super().__init__(parent, id, title, size=size, style=style)
 
         self.exit_event = threading.Event()
         self._list_filter_data = {}
+        self._ws_error_shown = False
 
         PROXY_STATS.add_listener(self)
         self.Bind(proxy_stats.EVT_STATS_UPDATED_BINDER, self.on_stats_updated)
         self.Bind(proxy_stats.EVT_USER_CONNECTED_BINDER, self.on_user_connected)
+        self.Bind(proxy_stats.EVT_AUTH_ERROR_BINDER, self.on_auth_error)
 
         self.init_ui()
 
@@ -123,6 +125,8 @@ class ProxyUI(wx.Frame):
 
         if config.PROXY_ENABLED and eq_config.find_eq_directory():
             eq_config.enable_proxy()
+
+        eq_config.ensure_eqclient_log_enabled()
 
         wx.CallAfter(self.update_eq_status)
 
@@ -382,7 +386,7 @@ class ProxyUI(wx.Frame):
                 ("Park Location", 115),
                 ("Bind Location", 115),
                 ("Account Name", 100),
-                ("Logged In By", 82),
+                ("Last Login", 82),
             ],
         )
         self.characters_list.Bind(wx.EVT_LIST_COL_CLICK, self.on_characters_list_col_click)
@@ -562,6 +566,11 @@ class ProxyUI(wx.Frame):
         self.last_username_label.SetLabel(username)
         self.show_user_connected_notification(username)
 
+    def on_auth_error(self, event):
+        """Handle server-rejected auth attempt — show a one-time popup per message."""
+        detail = event.GetDetail() or "Authentication rejected by server"
+        wx.MessageBox(detail, "SSO Login Rejected", wx.OK | wx.ICON_WARNING)
+
     def update_stats(self, event=None):
         """Update all statistics in the UI"""
         self.address_value.SetLabel(f"{PROXY_STATS.listening_address}:{PROXY_STATS.listening_port}")
@@ -699,6 +708,7 @@ class ProxyUI(wx.Frame):
         name = self._sso_api_name_map[idx]
         url = self._sso_api_url_map[idx]
         if name != config.SSO_API_NAME:
+            self._ws_error_shown = False
             new_token = config.set_sso_api(name, url)
             self.api_token_field.ChangeValue(new_token)
             if hasattr(self, "ws_status_text"):
@@ -794,6 +804,7 @@ class ProxyUI(wx.Frame):
 
     def on_refresh_account_cache(self, event):
         """Force a WebSocket reconnect for a fresh full_state."""
+        self._ws_error_shown = False
         config.LOCAL_ACCOUNTS, config.LOCAL_ACCOUNT_NAME_MAP = utils.load_local_accounts(config.LOCAL_ACCOUNTS_FILE)
         ws_client.request_reconnect()
         if hasattr(self, "ws_status_text"):
@@ -836,11 +847,18 @@ class ProxyUI(wx.Frame):
         if not hasattr(self, "ws_status_text"):
             return
         if ws_client.is_connected():
+            self._ws_error_shown = False
             self.ws_status_text.SetLabel("Connected (Live)")
             self.ws_status_text.SetForegroundColour(COLOR_SUCCESS)
         elif ws_client.is_auth_failed():
-            self.ws_status_text.SetLabel("Auth Failed")
+            detail = ws_client.get_auth_failed_detail() or "Auth Failed"
+            label = detail if len(detail) <= 60 else detail[:57] + "..."
+            self.ws_status_text.SetLabel(label)
+            self.ws_status_text.SetToolTip(detail)
             self.ws_status_text.SetForegroundColour(COLOR_ERROR)
+            if not self._ws_error_shown:
+                self._ws_error_shown = True
+                wx.MessageBox(detail, "SSO Connection Error", wx.OK | wx.ICON_ERROR)
         elif config.USER_API_TOKEN:
             self.ws_status_text.SetLabel("Connecting...")
             self.ws_status_text.SetForegroundColour(COLOR_WARNING)
@@ -1054,14 +1072,15 @@ class ProxyUI(wx.Frame):
                 level_text = str(level) if level is not None else ""
                 all_characters.append((character, class_text, level_text, park_text, bind_text, account, last_login_by, last_login))
 
-        sort_col = self._characters_sort_col
-        sort_asc = self._characters_sort_asc
-        all_characters.sort(key=lambda x: ((x[sort_col] or ""), x[0]), reverse=not sort_asc)
-
         char_rows = [
-            (char, klass, lvl, park or "Unknown", bind or "Unknown", acct, login_by, ll)
+            (char, klass, lvl, park or "Unknown", bind or "Unknown", acct,
+             login_by if _activity_colour(ll) is not None else "", ll)
             for char, klass, lvl, park, bind, acct, login_by, ll in all_characters
         ]
+
+        sort_col = self._characters_sort_col
+        sort_asc = self._characters_sort_asc
+        char_rows.sort(key=lambda x: ((x[sort_col] or ""), x[0]), reverse=not sort_asc)
         self._populate_list(
             self.characters_list,
             char_rows,

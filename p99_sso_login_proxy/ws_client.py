@@ -8,14 +8,15 @@ import ssl
 
 import websockets
 
-from p99_sso_login_proxy import config, utils
+from p99_sso_login_proxy import config, eq_config, utils
+from p99_sso_login_proxy import __version__
 
 logger = logging.getLogger("ws_client")
 
 _ws: websockets.WebSocketClientProtocol | None = None
 _task: asyncio.Task | None = None
 _connected = False
-_auth_failed = False
+_auth_failed_detail: str | None = None
 
 RECONNECT_MIN = 1
 RECONNECT_MAX = 60
@@ -26,7 +27,11 @@ def is_connected() -> bool:
 
 
 def is_auth_failed() -> bool:
-    return _auth_failed
+    return _auth_failed_detail is not None
+
+
+def get_auth_failed_detail() -> str | None:
+    return _auth_failed_detail
 
 
 async def send_heartbeat(character_name: str):
@@ -188,12 +193,12 @@ def _ui_refresh():
 
 async def _run(reconnect_requested: asyncio.Event):
     """Main WebSocket loop with auto-reconnect."""
-    global _ws, _connected, _auth_failed
+    global _ws, _connected, _auth_failed_detail
     delay = RECONNECT_MIN
 
     while True:
         reconnect_requested.clear()
-        _auth_failed = False
+        _auth_failed_detail = None
 
         if not config.USER_API_TOKEN:
             _notify_ui()
@@ -205,7 +210,7 @@ async def _run(reconnect_requested: asyncio.Event):
         ssl_ctx = _get_ssl_context()
         logger.info("Connecting to %s", url)
 
-        auth_error = False
+        auth_error = None
         try:
             async with websockets.connect(
                 url,
@@ -219,6 +224,8 @@ async def _run(reconnect_requested: asyncio.Event):
                         {
                             "type": "auth",
                             "access_key": config.USER_API_TOKEN,
+                            "client_version": __version__,
+                            "client_settings": eq_config.get_client_settings(),
                         }
                     )
                 )
@@ -269,8 +276,9 @@ async def _run(reconnect_requested: asyncio.Event):
                         await ws.send(json.dumps({"type": "pong"}))
 
                     elif msg_type == "error":
-                        logger.error("Server error: %s", msg.get("detail"))
-                        auth_error = True
+                        error_detail = msg.get("detail", "Authentication failed")
+                        logger.error("Server error: %s", error_detail)
+                        auth_error = error_detail
                         break
 
         except asyncio.CancelledError:
@@ -283,7 +291,7 @@ async def _run(reconnect_requested: asyncio.Event):
             _rebuild_cache({}, [], [])
 
         if auth_error:
-            _auth_failed = True
+            _auth_failed_detail = auth_error
             _notify_ui()
             logger.info("Auth failed, parking until reconnect is requested")
             await reconnect_requested.wait()

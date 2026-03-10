@@ -9,7 +9,7 @@ import time
 
 from Cryptodome.Cipher import DES
 
-from p99_sso_login_proxy import config, sequence, sso_api, structs, ui
+from p99_sso_login_proxy import config, eq_config, sequence, sso_api, structs, ui
 
 logger = logging.getLogger("server")
 
@@ -119,7 +119,14 @@ class LoginProxy(asyncio.DatagramProtocol):
                     )
                 # If a user API token is provided, use it instead of the password
                 elif config.USER_API_TOKEN:
-                    new_user, new_pass = sso_api.check_sso_login(username, config.USER_API_TOKEN)
+                    new_user, new_pass, error_detail = sso_api.check_sso_login(
+                        username,
+                        config.USER_API_TOKEN,
+                        client_settings=eq_config.get_client_settings(),
+                    )
+                    if error_detail:
+                        logger.warning("SSO login rejected for %s: %s", username, error_detail)
+                        ui.PROXY_STATS.auth_error(username, error_detail)
                     logger.info("Overwriting client supplied password with SSO password for %s: %s", username, new_user)
 
                 if new_user and new_pass:

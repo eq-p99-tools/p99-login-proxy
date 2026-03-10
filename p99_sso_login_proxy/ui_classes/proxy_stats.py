@@ -5,10 +5,12 @@ import wx
 # Define custom event IDs
 EVT_STATS_UPDATED = wx.NewEventType()
 EVT_USER_CONNECTED = wx.NewEventType()
+EVT_AUTH_ERROR = wx.NewEventType()
 
 # Create event binder objects
 EVT_STATS_UPDATED_BINDER = wx.PyEventBinder(EVT_STATS_UPDATED, 1)
 EVT_USER_CONNECTED_BINDER = wx.PyEventBinder(EVT_USER_CONNECTED, 1)
+EVT_AUTH_ERROR_BINDER = wx.PyEventBinder(EVT_AUTH_ERROR, 1)
 
 
 # Custom event classes
@@ -24,6 +26,19 @@ class UserConnectedEvent(wx.PyCommandEvent):
 
     def GetUsername(self):
         return self._username
+
+
+class AuthErrorEvent(wx.PyCommandEvent):
+    def __init__(self, etype, eid, username="", detail=""):
+        wx.PyCommandEvent.__init__(self, etype, eid)
+        self._username = username
+        self._detail = detail
+
+    def GetUsername(self):
+        return self._username
+
+    def GetDetail(self):
+        return self._detail
 
 
 # Global connection statistics
@@ -105,3 +120,13 @@ class ProxyStats:
     def user_login(self, username):
         """Signal that a user has logged in"""
         self.notify_user_connected(username)
+
+    def notify_auth_error(self, username, detail):
+        """Notify all listeners of a server-rejected auth attempt."""
+        for listener in self.listeners:
+            evt = AuthErrorEvent(EVT_AUTH_ERROR, listener.GetId(), username, detail)
+            wx.PostEvent(listener, evt)
+
+    def auth_error(self, username, detail):
+        """Signal that the server rejected a login attempt with a reason."""
+        self.notify_auth_error(username, detail)
