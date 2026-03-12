@@ -284,6 +284,11 @@ async def _run(reconnect_requested: asyncio.Event):
 
         except asyncio.CancelledError:
             raise
+        except (websockets.exceptions.InvalidStatus,
+                websockets.exceptions.ConnectionClosedError,
+                ConnectionError,
+                OSError) as exc:
+            logger.info("WebSocket connection lost (%s), reconnecting in %ds", exc, delay)
         except Exception:
             logger.warning("WebSocket disconnected, reconnecting in %ds", delay, exc_info=True)
         finally:

@@ -94,8 +94,8 @@ class LogFileHandler(FileSystemEventHandler):
         character_name = self.latest_log_file.split("_")[1]
         if character_name.lower() not in config.CHARACTERS_CACHED:
             return
-        if config.MATCH_ENTERED_ZONE.match(line):
-            zone = config.MATCH_ENTERED_ZONE.match(line).group("zone")
+        if m := config.MATCH_ENTERED_ZONE.match(line):
+            zone = m.group("zone")
             zonekey = zone_translate.zone_to_zonekey(zone)
             _current_zone[character_name.lower()] = zonekey
             logger.info("`%s` entered zone: %s (%s)", character_name, zone, zonekey)
@@ -107,11 +107,18 @@ class LogFileHandler(FileSystemEventHandler):
                 _run_async(ws_client.send_update_location(character_name, bind_location=zonekey))
             else:
                 logger.warning("`%s` bind detected but current zone is unknown", character_name)
-        elif config.MATCH_CHARINFO.match(line):
-            zone = config.MATCH_CHARINFO.match(line).group("zone")
+        elif m := config.MATCH_CHARINFO.match(line):
+            zone = m.group("zone")
             zonekey = zone_translate.zone_to_zonekey(zone)
             logger.info("`%s` is bound in zone: %s (%s)", character_name, zone, zonekey)
             _run_async(ws_client.send_update_location(character_name, bind_location=zonekey))
+        elif m := config.MATCH_WHO_ZONE.match(line):
+            zone = m.group("zone")
+            if zone != "EverQuest":
+                zonekey = zone_translate.zone_to_zonekey(zone)
+                _current_zone[character_name.lower()] = zonekey
+                logger.info("`%s` zone from /who: %s (%s)", character_name, zone, zonekey)
+                _run_async(ws_client.send_update_location(character_name, park_location=zonekey))
         elif m := config.MATCH_WHO_SELF.match(line):
             if m.group("name").lower() == character_name.lower():
                 level = int(m.group("level"))
