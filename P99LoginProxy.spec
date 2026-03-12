@@ -51,5 +51,5 @@ import os
 
 os.chdir('dist')
 zipfile.ZipFile(f"P99LoginProxy-{config.APP_VERSION}.zip", "w", zipfile.ZIP_DEFLATED).write(
-    f"P99LoginProxy-{config.APP_VERSION}.exe", arcname="P99LoginProxy.exe")
+    f"P99LoginProxy-{config.APP_VERSION}.exe")
 os.chdir('..')
