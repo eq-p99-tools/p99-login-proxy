@@ -83,6 +83,7 @@ class LogFileHandler(FileSystemEventHandler):
             logger.info("New log file: %s", latest)
             self.latest_log_file = latest
             self._seek_to_latest_position()
+            self.send_heartbeat()
         if event.src_path == self.latest_log_file:
             with open(self.latest_log_file, errors="ignore") as f:
                 f.seek(self._position)

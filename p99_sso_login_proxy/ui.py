@@ -1090,8 +1090,8 @@ class ProxyUI(wx.Frame):
                 class_text = characters[character]["class"]
                 level = characters[character].get("level")
                 level_text = str(level) if level is not None else ""
-                is_logged_in = (character == active_character)
-                all_characters.append((character, class_text, level_text, park_text, bind_text, account, last_login_by, last_login, is_logged_in))
+                is_blocked = bool(active_character) and character != active_character
+                all_characters.append((character, class_text, level_text, park_text, bind_text, account, last_login_by, last_login, is_blocked))
 
         char_rows = [
             (char, klass, lvl, park or "Unknown", bind or "Unknown", acct,
@@ -1106,7 +1106,7 @@ class ProxyUI(wx.Frame):
             self.characters_list,
             char_rows,
             row_color_fn=lambda row: _activity_colour(
-                row[7], COLOR_ACTIVE_AMBER if row[8] else COLOR_ACTIVE_BLUE),
+                row[7], COLOR_ACTIVE_BLUE if row[8] else COLOR_ACTIVE_AMBER),
         )
 
     def update_eq_status(self):
