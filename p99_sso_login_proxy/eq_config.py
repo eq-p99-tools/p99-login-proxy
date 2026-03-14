@@ -456,13 +456,9 @@ def read_eqclient_log_enabled() -> bool | None:
 
 
 _RUSTLE_FINGERPRINTS = {
-    "EQUI_Animations.xml": [
-        "a_rustle",
-        "rustlin",
-    ],
-    "EQUI_ActionsWindow.xml": [
-        "rustle-logo",
-        "rise of the apes",
+    "EQUI_Inventory.xml": [
+        "iw_bag1_slot10",
+        "iw_bag1_slot9",
     ],
 }
 

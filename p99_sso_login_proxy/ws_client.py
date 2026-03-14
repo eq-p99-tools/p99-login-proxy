@@ -219,7 +219,16 @@ async def _run(reconnect_requested: asyncio.Event):
                 close_timeout=5,
             ) as ws:
                 _ws = ws
-                eq_config.detect_rustle_ui()
+                if eq_config.detect_rustle_ui() and config.WARN_RUSTLE:
+                    import wx
+                    wx.CallAfter(
+                        wx.MessageBox,
+                        "A modified UI skin with non-standard inventory slots was "
+                        "detected in your EverQuest uifiles directory. This may "
+                        "cause issues or be blocked by some servers.",
+                        "Rustle UI Detected",
+                        wx.OK | wx.ICON_WARNING,
+                    )
                 await ws.send(
                     json.dumps(
                         {
