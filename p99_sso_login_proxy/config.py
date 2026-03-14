@@ -60,6 +60,8 @@ ALWAYS_ON_TOP = CONFIG.getboolean("DEFAULT", "always_on_top", fallback=False)
 
 WARN_RUSTLE = CONFIG.getboolean("DEFAULT", "warn_rustle", fallback=False)
 
+OPT_INTO_PRERELEASES = CONFIG.getboolean("DEFAULT", "opt_into_prereleases", fallback=False)
+
 EQ_DIRECTORY = CONFIG.get("DEFAULT", "eq_directory", fallback="")
 
 # Whether to run in proxy-only mode (no SSO authentication)

@@ -87,6 +87,7 @@ def get_recent_releases(max_releases=10):
                     "body": release.get("body", ""),
                     "published_at": release.get("published_at", ""),
                     "assets_url": release.get("assets_url", ""),
+                    "prerelease": release.get("prerelease", False),
                 }
             )
 
@@ -271,7 +272,25 @@ def _on_releases_fetched(releases, notify_no_update):
     if top_window:
         top_window.on_updated_changelog()
 
-    latest_version = releases[0]["version"]
+    if config.APP_VERSION.prerelease or config.OPT_INTO_PRERELEASES:
+        update_candidates = releases
+    else:
+        update_candidates = [r for r in releases if not r["prerelease"]]
+
+    if not update_candidates:
+        LOG.info("No update candidates found.")
+        if notify_no_update:
+            dlg = wx.MessageDialog(
+                None,
+                f"Version: {config.APP_VERSION}\n\nThere is no update available, you are running the latest version.",
+                "No Update Available",
+                wx.OK | wx.ICON_INFORMATION,
+            )
+            dlg.ShowModal()
+            dlg.Destroy()
+        return
+
+    latest_version = update_candidates[0]["version"]
     if latest_version > config.APP_VERSION:
         LOG.info("Update available: %s", latest_version)
         _prompt_and_apply_update(releases, latest_version)
