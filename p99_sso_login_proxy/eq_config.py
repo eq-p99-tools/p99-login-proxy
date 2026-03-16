@@ -457,8 +457,22 @@ def read_eqclient_log_enabled() -> bool | None:
 
 _RUSTLE_FINGERPRINTS = {
     "EQUI_Inventory.xml": [
-        "iw_bag1_slot10",
         "iw_bag1_slot9",
+        "iw_bag1_slot10",
+        "iw_bag2_slot9",
+        "iw_bag2_slot10",
+        "iw_bag3_slot9",
+        "iw_bag3_slot10",
+        "iw_bag4_slot9",
+        "iw_bag4_slot10",
+        "iw_bag5_slot9",
+        "iw_bag5_slot10",
+        "iw_bag6_slot9",
+        "iw_bag6_slot10",
+        "iw_bag7_slot9",
+        "iw_bag7_slot10",
+        "iw_bag8_slot9",
+        "iw_bag8_slot10",
     ],
 }
 
