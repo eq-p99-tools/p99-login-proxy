@@ -8,6 +8,24 @@ from p99_sso_login_proxy import config, eq_config, updater, utils
 logger = logging.getLogger("taskbar_icon")
 
 
+def create_tray_icon(frame):
+    """Return a TaskBarIcon, or None if the tray isn't usable."""
+    if not wx.adv.TaskBarIcon.IsAvailable():
+        logger.warning(
+            "System tray not available. On Linux, install "
+            "libayatana-appindicator3 (or libappindicator3)"
+            " and restart to enable tray icon support."
+        )
+        return None
+    try:
+        return TaskBarIcon(frame)
+    except Exception:
+        logger.warning(
+            "Failed to create tray icon", exc_info=True
+        )
+        return None
+
+
 class TaskBarIcon(wx.adv.TaskBarIcon):
     def __init__(self, frame):
         super().__init__()

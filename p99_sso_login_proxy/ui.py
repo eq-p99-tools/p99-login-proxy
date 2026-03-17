@@ -105,7 +105,7 @@ class ProxyUI(wx.Frame):
 
         self.init_ui()
 
-        self.tray_icon = taskbar_icon.TaskBarIcon(self)
+        self.tray_icon = taskbar_icon.create_tray_icon(self)
 
         self.uptime_timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.update_stats, self.uptime_timer)
@@ -616,14 +616,16 @@ class ProxyUI(wx.Frame):
             )
 
     def on_close(self, event):
-        """Handle window close event - minimize to tray instead of closing"""
-        self.Hide()
+        """Handle window close event - minimize to tray if available, otherwise really close."""
         if self.tray_icon:
+            self.Hide()
             self.tray_icon.ShowBalloon(
                 config.APP_NAME,
                 f"{config.APP_NAME} is still running in the system tray.",
                 2000,
             )
+        else:
+            self.close_application()
 
     def close_application(self):
         """Actually close the application"""
