@@ -8,6 +8,7 @@ the eqhost.txt file which controls which login server the game connects to.
 import configparser
 import logging
 import os
+import platform
 import re
 import shutil
 import stat
@@ -72,12 +73,54 @@ def is_valid_eq_directory(path: str) -> bool:
     if not os.path.exists(path) or not os.path.isdir(path):
         return False
 
-    # Check for eqgame.exe
+    # On case-sensitive filesystems (Linux), do a case-insensitive scan
+    if platform.system() != "Windows":
+        try:
+            for entry in os.listdir(path):
+                if entry.lower() == "eqgame.exe":
+                    logger.info(f"Found {entry} in {path}")
+                    return True
+        except OSError:
+            pass
+        return False
+
     if os.path.exists(os.path.join(path, "eqgame.exe")):
         logger.info(f"Found eqgame.exe in {path}")
         return True
 
     return False
+
+
+def _find_wine_eq_directories() -> list[str]:
+    """Return candidate EQ directories inside Wine/Proton prefixes on Linux."""
+    candidates = []
+    home = os.path.expanduser("~")
+
+    wine_prefixes = [
+        os.path.join(home, ".wine"),
+        os.environ.get("WINEPREFIX", ""),
+    ]
+
+    # Lutris Wine prefixes
+    lutris_dir = os.path.join(home, "Games")
+    if os.path.isdir(lutris_dir):
+        try:
+            for entry in os.scandir(lutris_dir):
+                if entry.is_dir():
+                    wine_prefixes.append(entry.path)
+        except OSError:
+            pass
+
+    for prefix in wine_prefixes:
+        if not prefix or not os.path.isdir(prefix):
+            continue
+        drive_c = os.path.join(prefix, "drive_c")
+        if not os.path.isdir(drive_c):
+            continue
+        for eq_subpath in DEFAULT_EQ_PATHS:
+            candidates.append(os.path.join(drive_c, eq_subpath))
+
+    return candidates
 
 
 def find_eq_directory() -> str | None:
@@ -106,12 +149,20 @@ def find_eq_directory() -> str | None:
         _cache["eq_directory"] = current_dir
         return current_dir
 
-    # Check common installation paths
+    # Check common installation paths (Windows drive letters)
     for path in DEFAULT_EQ_PATHS:
         for drive in get_available_drives():
             check_dir = os.path.join(drive, path)
             if os.path.exists(check_dir) and is_valid_eq_directory(check_dir):
                 logger.info(f"Found EverQuest directory in a default path: {check_dir}")
+                _cache["eq_directory"] = check_dir
+                return check_dir
+
+    # Check Wine/Proton prefixes on Linux
+    if platform.system() != "Windows":
+        for check_dir in _find_wine_eq_directories():
+            if os.path.exists(check_dir) and is_valid_eq_directory(check_dir):
+                logger.info(f"Found EverQuest directory in Wine prefix: {check_dir}")
                 _cache["eq_directory"] = check_dir
                 return check_dir
 

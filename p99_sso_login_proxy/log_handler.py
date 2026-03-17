@@ -31,17 +31,31 @@ def _run_async(coro):
         logger.warning("Async loop not available, coroutine was dropped")
 
 
+def _character_from_log_path(path: str) -> str:
+    """Extract the character name from an EQ log file path.
+
+    Log filenames follow the pattern ``eqlog_CharName_server.txt``.
+    We use only the basename so that underscores in parent directories
+    (e.g. Wine's ``drive_c``) don't corrupt the result.
+    """
+    return os.path.basename(path).split("_")[1]
+
+
 class LogFileHandler(FileSystemEventHandler):
     def __init__(self, get_latest_log_file, wx_app):
         super().__init__()
         self._wx_app = wx_app
         self.get_latest_log_file = get_latest_log_file
         self._position = 0
+        self._first_event_logged = False
         self.latest_log_file = self.get_latest_log_file()
         if self.latest_log_file and config.USER_API_TOKEN:
-            logger.info("New log file: %s", self.latest_log_file)
+            logger.info("Tracking log file: %s (character: %s)",
+                        self.latest_log_file, _character_from_log_path(self.latest_log_file))
             self._seek_to_latest_position()
             self.send_heartbeat()  # Send an initial heartbeat if we've got a logfile
+        elif not self.latest_log_file:
+            logger.warning("No eqlog_*.txt files found in watch directory")
 
         self.heartbeat_timer = wx.Timer(self._wx_app)
         self._wx_app.Bind(wx.EVT_TIMER, self.send_heartbeat, self.heartbeat_timer)
@@ -64,7 +78,7 @@ class LogFileHandler(FileSystemEventHandler):
 
     def send_heartbeat(self, event=None):
         if self.latest_log_file and config.USER_API_TOKEN:
-            character_name = self.latest_log_file.split("_")[1]
+            character_name = _character_from_log_path(self.latest_log_file)
             if character_name.lower() not in config.CHARACTERS_CACHED:
                 return
             # Check the modified time of the logfile
@@ -78,9 +92,14 @@ class LogFileHandler(FileSystemEventHandler):
     def on_modified(self, event):
         if not config.USER_API_TOKEN:
             return
+        if not self._first_event_logged:
+            self._first_event_logged = True
+            logger.info("First watchdog event received: %s (is_directory=%s)",
+                        event.src_path, event.is_directory)
         latest = self.get_latest_log_file()
         if latest != self.latest_log_file:
-            logger.info("New log file: %s", latest)
+            logger.info("Switched to log file: %s (character: %s)",
+                        latest, _character_from_log_path(latest) if latest else "?")
             self.latest_log_file = latest
             self._seek_to_latest_position()
             self.send_heartbeat()
@@ -92,7 +111,7 @@ class LogFileHandler(FileSystemEventHandler):
                 self._position = f.tell()
 
     def handle_log_line(self, line):
-        character_name = self.latest_log_file.split("_")[1]
+        character_name = _character_from_log_path(self.latest_log_file)
         if character_name.lower() not in config.CHARACTERS_CACHED:
             return
         if m := config.MATCH_ENTERED_ZONE.match(line):
@@ -135,16 +154,20 @@ def set_log_watch_directory(eq_directory, wx_app):
     global LOG_WATCH_DIRECTORY, LOG_HANDLER, LOG_OBSERVER, LOG_OBSERVER_THREAD
 
     def find_logs_subdir(directory):
-        for entry in os.listdir(directory):
+        try:
+            entries = os.listdir(directory)
+        except OSError:
+            logger.warning("Cannot list EQ directory: %s", directory)
+            return None
+        for entry in entries:
             if entry.lower() == "logs" and os.path.isdir(os.path.join(directory, entry)):
                 return os.path.join(directory, entry)
         return None
 
     log_directory = find_logs_subdir(eq_directory)
     if not log_directory:
-        logger.warning("No log directory found in: %s", eq_directory)
+        logger.warning("No Logs subdirectory found in: %s", eq_directory)
         return
-    logger.info("Setting log watch directory to: %s", log_directory)
     LOG_WATCH_DIRECTORY = log_directory
 
     def get_latest_log_file():
@@ -152,8 +175,11 @@ def set_log_watch_directory(eq_directory, wx_app):
         return max(files, key=os.path.getmtime) if files else None
 
     if not LOG_OBSERVER:
+        log_files = glob.glob(os.path.join(LOG_WATCH_DIRECTORY, "eqlog_*.txt"))
+        logger.info("Starting log watcher on: %s (%d log files found)", LOG_WATCH_DIRECTORY, len(log_files))
         LOG_HANDLER = LogFileHandler(get_latest_log_file, wx_app)
         LOG_OBSERVER = Observer()
         LOG_OBSERVER.schedule(LOG_HANDLER, LOG_WATCH_DIRECTORY, recursive=False)
         LOG_OBSERVER_THREAD = threading.Thread(target=LOG_OBSERVER.start, daemon=True)
         LOG_OBSERVER_THREAD.start()
+        logger.info("Watchdog observer started (backend: %s)", type(LOG_OBSERVER).__name__)

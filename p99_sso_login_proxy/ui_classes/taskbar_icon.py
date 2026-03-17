@@ -13,6 +13,7 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
         super().__init__()
         self.frame = frame
         self.last_tooltip = f"{config.APP_NAME}"
+        self._last_icon_filename = None
 
         self.update_icon()
         self.Bind(wx.adv.EVT_TASKBAR_LEFT_DCLICK, self.on_left_dclick)
@@ -46,7 +47,7 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
         return menu
 
     def update_icon(self, tooltip=None):
-        self.last_tooltip = tooltip = tooltip or self.last_tooltip
+        tooltip = tooltip or self.last_tooltip
 
         using_proxy, _ = eq_config.is_using_proxy()
 
@@ -57,12 +58,22 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
         else:
             icon_filename = "tray_icon_disabled.png"
 
+        icon_changed = icon_filename != self._last_icon_filename
+        tooltip_changed = tooltip != self.last_tooltip
+
+        if not icon_changed and not tooltip_changed:
+            return
+
+        self.last_tooltip = tooltip
+
         path = utils.find_resource_path(icon_filename)
         if path:
             try:
                 icon = wx.Icon(path)
                 self.SetIcon(icon, tooltip)
-                self.frame.SetIcon(icon)
+                if icon_changed:
+                    self.frame.SetIcon(icon)
+                self._last_icon_filename = icon_filename
                 return
             except Exception:
                 logger.warning("Failed to load icon from %s", path, exc_info=True)
