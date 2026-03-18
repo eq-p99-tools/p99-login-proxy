@@ -12,8 +12,12 @@ from p99_sso_login_proxy import config, eq_config, updater, utils
 logger = logging.getLogger("taskbar_icon")
 
 
+def _in_venv():
+    return sys.prefix != sys.base_prefix
+
+
 def _linux_appindicator_hint():
-    """Return a distro-specific install command for AppIndicator."""
+    """Return distro-specific install instructions for AppIndicator."""
     try:
         osrel = platform.freedesktop_os_release()
         ids = {osrel.get("ID", "")} | set(
@@ -21,22 +25,43 @@ def _linux_appindicator_hint():
     except OSError:
         ids = set()
 
+    # GIR typelib packages (always system-level, no pip equivalent)
     if ids & {"debian", "ubuntu"}:
-        return ("sudo apt install python3-gi "
-                "gir1.2-ayatanaappindicator3-0.1")
-    if ids & {"arch", "manjaro"}:
-        return ("sudo pacman -S python-gobject "
-                "libayatana-appindicator")
-    if ids & {"fedora", "rhel", "centos"}:
-        return ("sudo dnf install python3-gobject "
-                "libayatana-appindicator-gtk3")
-    if ids & {"opensuse", "suse"}:
-        return ("sudo zypper install python3-gobject "
-                "typelib-1_0-AyatanaAppIndicator3-0_1")
-    return (
-        "Install PyGObject and libayatana-appindicator3 "
-        "using your distribution's package manager"
+        sys_cmd = ("sudo apt install gir1.2-ayatanaappindicator3-0.1 "
+                   "python3-gi")
+        dev_cmd = ("sudo apt install libgirepository1.0-dev libcairo2-dev "
+                   "pkg-config python3-dev gcc")
+    elif ids & {"arch", "manjaro"}:
+        sys_cmd = "sudo pacman -S python-gobject libayatana-appindicator"
+        dev_cmd = None  # Arch's python-gobject works in venvs via RPATH
+    elif ids & {"fedora", "rhel", "centos"}:
+        sys_cmd = ("sudo dnf install python3-gobject "
+                   "libayatana-appindicator-gtk3")
+        dev_cmd = ("sudo dnf install gobject-introspection-devel "
+                   "cairo-gobject-devel pkg-config python3-devel gcc")
+    elif ids & {"opensuse", "suse"}:
+        sys_cmd = ("sudo zypper install python3-gobject "
+                   "typelib-1_0-AyatanaAppIndicator3-0_1")
+        dev_cmd = ("sudo zypper install gobject-introspection-devel "
+                   "cairo-devel pkg-config python3-devel gcc")
+    else:
+        sys_cmd = ("Install PyGObject and libayatana-appindicator3 "
+                   "using your distribution's package manager")
+        dev_cmd = None
+
+    if not _in_venv():
+        return sys_cmd
+
+    lines = [sys_cmd]
+    lines.append(
+        "Running in a venv -- the system python3-gi package won't be "
+        "visible. Either recreate the venv with --system-site-packages, "
+        "or install PyGObject into the venv:"
     )
+    if dev_cmd:
+        lines.append(f"  {dev_cmd}")
+    lines.append("  pip install PyGObject")
+    return "\n".join(lines)
 
 
 def _icon_filename_for_state():
