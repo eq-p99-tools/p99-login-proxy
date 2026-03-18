@@ -578,9 +578,16 @@ class ProxyUI(wx.Frame):
 
     def on_user_connected(self, event):
         """Handle user connected event"""
-        username = event.GetUsername()
-        self.last_username_label.SetLabel(username)
-        self.show_user_connected_notification(username)
+        alias = event.GetAlias()
+        account = event.GetAccount()
+        method = event.GetMethod()
+
+        if alias != account:
+            self.last_username_label.SetLabel(f"{alias} \u2192 {account}")
+        else:
+            self.last_username_label.SetLabel(account)
+
+        self.show_user_connected_notification(alias, account, method)
 
     def on_auth_error(self, event):
         """Handle server-rejected auth attempt — show a one-time popup per message."""
@@ -606,23 +613,34 @@ class ProxyUI(wx.Frame):
             )
             self.tray_icon.update_icon(tooltip=tooltip)
 
-    def show_user_connected_notification(self, username):
-        """Show a tray notification when a user connects"""
-        if self.tray_icon:
-            self.tray_icon.ShowBalloon(
-                "User Connected",
-                f"User has connected to the proxy as '{username}'.",
-                3000,
-            )
+    def show_user_connected_notification(self, alias, account, method):
+        """Show a tray notification summarising the login."""
+        if not self.tray_icon:
+            return
+
+        method_labels = {
+            "sso": "SSO",
+            "local": "Local Account",
+            "proxy_only": "Proxy Only",
+            "skip_sso": "SSO Skipped",
+            "passthrough": "Passthrough",
+        }
+        label = method_labels.get(method, method)
+
+        if alias != account:
+            body = f"{alias} \u2192 {account} ({label})"
+        else:
+            body = f"{account} ({label})"
+
+        self.tray_icon.ShowBalloon("Login Proxied", body)
 
     def on_close(self, event):
         """Handle window close event - minimize to tray if available, otherwise really close."""
         if self.tray_icon:
             self.Hide()
             self.tray_icon.ShowBalloon(
-                config.APP_NAME,
-                f"{config.APP_NAME} is still running in the system tray.",
-                2000,
+                "Minimized to Tray",
+                "Still running in the background.",
             )
         else:
             self.close_application()
@@ -630,7 +648,6 @@ class ProxyUI(wx.Frame):
     def close_application(self):
         """Actually close the application"""
         if self.tray_icon:
-            self.tray_icon.RemoveIcon()
             self.tray_icon.Destroy()
 
         using_proxy, _ = eq_config.is_using_proxy()
@@ -841,8 +858,6 @@ class ProxyUI(wx.Frame):
             try:
                 icon = wx.Icon(path, wx.BITMAP_TYPE_ANY)
                 self.SetIcon(icon)
-                if self.tray_icon:
-                    self.tray_icon.SetIcon(icon, config.APP_NAME)
             except Exception:
                 logger.warning("Failed to load icon from %s", path, exc_info=True)
 

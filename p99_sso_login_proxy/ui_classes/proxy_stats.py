@@ -20,12 +20,20 @@ class StatsUpdatedEvent(wx.PyCommandEvent):
 
 
 class UserConnectedEvent(wx.PyCommandEvent):
-    def __init__(self, etype, eid, username=""):
+    def __init__(self, etype, eid, alias="", account="", method=""):
         wx.PyCommandEvent.__init__(self, etype, eid)
-        self._username = username
+        self._alias = alias
+        self._account = account
+        self._method = method
 
-    def GetUsername(self):
-        return self._username
+    def GetAlias(self):
+        return self._alias
+
+    def GetAccount(self):
+        return self._account
+
+    def GetMethod(self):
+        return self._method
 
 
 class AuthErrorEvent(wx.PyCommandEvent):
@@ -75,10 +83,10 @@ class ProxyStats:
             evt = StatsUpdatedEvent(EVT_STATS_UPDATED, listener.GetId())
             wx.PostEvent(listener, evt)
 
-    def notify_user_connected(self, username):
+    def notify_user_connected(self, alias, account, method):
         """Notify all listeners that a user has connected"""
         for listener in self.listeners:
-            evt = UserConnectedEvent(EVT_USER_CONNECTED, listener.GetId(), username)
+            evt = UserConnectedEvent(EVT_USER_CONNECTED, listener.GetId(), alias, account, method)
             wx.PostEvent(listener, evt)
 
     def update_status(self, status):
@@ -117,9 +125,14 @@ class ProxyStats:
         else:
             return f"{seconds}s"
 
-    def user_login(self, username):
-        """Signal that a user has logged in"""
-        self.notify_user_connected(username)
+    def user_login(self, alias, account, method):
+        """Signal that a user has logged in.
+
+        alias:   what the user typed in the EQ login screen
+        account: the effective account name sent to the login server
+        method:  one of "sso", "local", "proxy_only", "skip_sso", "passthrough"
+        """
+        self.notify_user_connected(alias, account, method)
 
     def notify_auth_error(self, username, detail):
         """Notify all listeners of a server-rejected auth attempt."""

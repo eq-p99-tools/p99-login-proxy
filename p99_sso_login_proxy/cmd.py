@@ -98,8 +98,84 @@ class WxAsyncApp(wx.App):
         self.ExitMainLoop()
 
 
+_AUMID = "P99LoginProxy"
+
+
+def _setup_win32_aumid():
+    """Set the AUMID and register a Start Menu shortcut so toast
+    notifications display our app name and icon."""
+    import ctypes
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(_AUMID)
+
+    try:
+        import glob
+        import os
+
+        from PIL import Image
+
+        from p99_sso_login_proxy import config, utils
+
+        png_path = utils.find_resource_path("tray_icon.png")
+        if not png_path:
+            return
+
+        data_dir = os.path.join(
+            os.environ.get("LOCALAPPDATA",
+                           os.path.expanduser("~")),
+            "P99LoginProxy",
+        )
+        os.makedirs(data_dir, exist_ok=True)
+        ico_path = os.path.join(data_dir, "icon.ico")
+
+        img = Image.open(png_path).convert("RGBA")
+        img.save(ico_path, format="ICO",
+                 sizes=[(s, s) for s in (16, 32, 48, 256)
+                        if s <= img.width])
+
+        start_menu = os.path.join(
+            os.environ["APPDATA"],
+            "Microsoft", "Windows", "Start Menu",
+            "Programs",
+        )
+        lnk_name = (f"{config.APP_NAME}"
+                     f" v{config.APP_VERSION}.lnk")
+        lnk_path = os.path.join(start_menu, lnk_name)
+
+        for old in glob.glob(
+                os.path.join(start_menu, "P99 Login Proxy*.lnk")):
+            if old != lnk_path:
+                os.remove(old)
+
+        import pythoncom  # noqa: E402 (pywin32)
+        from win32com.client import Dispatch
+        from win32com.propsys import propsys, pscon
+
+        shell = Dispatch("WScript.Shell")
+        shortcut = shell.CreateShortCut(lnk_path)
+        shortcut.TargetPath = sys.executable
+        shortcut.IconLocation = ico_path
+        shortcut.Description = (
+            f"{config.APP_NAME} v{config.APP_VERSION}")
+        shortcut.save()
+
+        store = propsys.SHGetPropertyStoreFromParsingName(
+            lnk_path, None, 0x2,
+            propsys.IID_IPropertyStore)
+        store.SetValue(
+            pscon.PKEY_AppUserModel_ID,
+            propsys.PROPVARIANTType(_AUMID))
+        store.Commit()
+
+        logger.info("Notification shortcut: %s", lnk_path)
+    except Exception:
+        logger.debug("Could not create notification shortcut",
+                     exc_info=True)
+
+
 def main():
-    # Create the wxPython application with asyncio integration
+    if platform.system() == "Windows":
+        _setup_win32_aumid()
+
     wx_app = WxAsyncApp()
 
     def start_eq_windows(eq_dir):

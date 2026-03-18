@@ -86,61 +86,58 @@ class LoginProxy(asyncio.DatagramProtocol):
             decrypted_text = cipher.decrypt(data)
             user, password = decrypted_text.rstrip(b"\x00").split(b"\x00")
 
-            # Notify UI about user login
             username = user.decode().lower()
             password = password.decode()
-            ui.PROXY_STATS.user_login(username)
+            result_buf = buf
+            effective_account = username
+            method = None
 
-            # No SSO at all, just return the packet
             if config.PROXY_ONLY:
                 logger.debug("Proxy only mode enabled, skipping SSO API call.")
-                return buf
-
-            # First skip processing any explicitly called out account names
-            if username in config.SKIP_SSO_ACCOUNTS:
+                method = "proxy_only"
+            elif username in config.SKIP_SSO_ACCOUNTS:
                 logger.debug("Skipping SSO check for %s (in skip list)", username)
-                return buf
-
-            # Next skip processing any accounts that are not in the cached account list or local account list
-            if username not in config.ALL_CACHED_NAMES and username not in config.LOCAL_ACCOUNT_NAME_MAP:
+                method = "skip_sso"
+            elif username not in config.ALL_CACHED_NAMES and username not in config.LOCAL_ACCOUNT_NAME_MAP:
                 logger.debug("Skipping SSO check for %s (not in cached account list)", username)
-                return buf
+                method = "passthrough"
+            else:
+                try:
+                    new_user = None
+                    new_pass = None
 
-            try:
-                new_user = None
-                new_pass = None
+                    if username in config.LOCAL_ACCOUNT_NAME_MAP:
+                        new_user = config.LOCAL_ACCOUNT_NAME_MAP[username]
+                        new_pass = config.LOCAL_ACCOUNTS[new_user]["password"]
+                        logger.info("Overwriting client supplied password with local account for %s: %s",
+                                    username, new_user)
+                    elif config.USER_API_TOKEN:
+                        new_user, new_pass, error_detail = sso_api.check_sso_login(
+                            username,
+                            config.USER_API_TOKEN,
+                            client_settings=eq_config.get_client_settings(),
+                        )
+                        if error_detail:
+                            logger.warning("SSO login rejected for %s: %s", username, error_detail)
+                            ui.PROXY_STATS.auth_error(username, error_detail)
 
-                # If this is a local account, just use that
-                if username in config.LOCAL_ACCOUNT_NAME_MAP:
-                    new_user = config.LOCAL_ACCOUNT_NAME_MAP[username]
-                    new_pass = config.LOCAL_ACCOUNTS[new_user]["password"]
-                    logger.info(
-                        "Overwriting client supplied password with local account for %s: %s", username, new_user
-                    )
-                # If a user API token is provided, use it instead of the password
-                elif config.USER_API_TOKEN:
-                    new_user, new_pass, error_detail = sso_api.check_sso_login(
-                        username,
-                        config.USER_API_TOKEN,
-                        client_settings=eq_config.get_client_settings(),
-                    )
-                    if error_detail:
-                        logger.warning("SSO login rejected for %s: %s", username, error_detail)
-                        ui.PROXY_STATS.auth_error(username, error_detail)
-                    logger.info("Overwriting client supplied password with SSO password for %s: %s", username, new_user)
+                    if new_user and new_pass:
+                        logger.info("Auth rewrite successful for %s -> %s", username, new_user)
+                        cipher = DES.new(config.ENCRYPTION_KEY, DES.MODE_CBC, config.iv())
+                        plaintext = new_user.encode() + b"\x00" + new_pass.encode() + b"\x00"
+                        padded_plaintext = plaintext.ljust((int(len(plaintext) / 8) + 1) * 8, b"\x00")
+                        encrypted_text = cipher.encrypt(padded_plaintext)
+                        result_buf = buf[: 14 + structs.SIZE_OF_LOGIN_BASE_MESSAGE] + encrypted_text
+                        result_buf[7] = len(result_buf) - 8
+                        effective_account = new_user
+                        method = "local" if username in config.LOCAL_ACCOUNT_NAME_MAP else "sso"
+                except Exception:
+                    logger.exception("Failed to check login for %s", username)
 
-                if new_user and new_pass:
-                    logger.info("Auth rewrite successful for %s, replacing password.", username)
-                    cipher = DES.new(config.ENCRYPTION_KEY, DES.MODE_CBC, config.iv())
-                    plaintext = new_user.encode() + b"\x00" + new_pass.encode() + b"\x00"
-                    padded_plaintext = plaintext.ljust((int(len(plaintext) / 8) + 1) * 8, b"\x00")
-                    encrypted_text = cipher.encrypt(padded_plaintext)
-                    new_login = buf[: 14 + structs.SIZE_OF_LOGIN_BASE_MESSAGE] + encrypted_text
-                    new_login[7] = len(new_login) - 8
-                    ui.PROXY_STATS.user_login(new_user)
-                    return new_login
-            except Exception:
-                logger.exception("Failed to check login for %s", username)
+            if method:
+                ui.PROXY_STATS.user_login(alias=username, account=effective_account, method=method)
+
+            return result_buf
 
         return buf
 
