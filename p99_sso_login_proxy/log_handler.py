@@ -57,6 +57,8 @@ class LogFileHandler(FileSystemEventHandler):
         elif not self.latest_log_file:
             logger.warning("No eqlog_*.txt files found in watch directory")
 
+        self._idle_skip_count = 0
+
         self.heartbeat_timer = wx.Timer(self._wx_app)
         self._wx_app.Bind(wx.EVT_TIMER, self.send_heartbeat, self.heartbeat_timer)
         self.heartbeat_timer.Start(20000)  # Heartbeat every 20 seconds
@@ -85,8 +87,13 @@ class LogFileHandler(FileSystemEventHandler):
             modified_time = os.path.getmtime(self.latest_log_file)
             # If not modified within the last 30s, don't send a heartbeat
             if time.time() - modified_time > 30:
-                logger.debug("Not modified within the last 30s, not sending heartbeat for `%s`", character_name)
+                self._idle_skip_count += 1
+                if self._idle_skip_count <= 5:
+                    logger.debug("Not modified within the last 30s, not sending heartbeat for `%s`", character_name)
+                    if self._idle_skip_count == 5:
+                        logger.debug("Suppressing further idle heartbeat messages until next heartbeat")
                 return
+            self._idle_skip_count = 0
             _run_async(ws_client.send_heartbeat(character_name))
 
     def on_modified(self, event):

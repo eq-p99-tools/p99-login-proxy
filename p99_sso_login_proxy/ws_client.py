@@ -279,7 +279,16 @@ async def _run(reconnect_requested: asyncio.Event):
 
                     elif msg_type == "delta":
                         changes = msg.get("changes", [])
-                        logger.debug("Received delta with %d changes", len(changes))
+                        parts = []
+                        for c in changes:
+                            action = c.get("action", "?")
+                            acct = c.get("account", "?")
+                            if action == "update":
+                                fields = ", ".join(c.get("fields", {}).keys())
+                                parts.append(f"update {acct} ({fields})")
+                            else:
+                                parts.append(f"{action} {acct}")
+                        logger.debug("Received delta: %s", "; ".join(parts))
                         _apply_delta(msg)
 
                     elif msg_type == "ping":

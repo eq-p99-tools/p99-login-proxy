@@ -3,6 +3,8 @@ import logging
 import os
 import platform
 import threading
+from collections import deque
+from heapq import merge as _heapmerge
 
 import wx
 import wx.html
@@ -24,6 +26,129 @@ COLOR_VALUE_TEXT = wx.Colour(44, 62, 80)
 COLOR_ALT_ROW = wx.Colour(240, 245, 250)
 COLOR_ACTIVE_AMBER = wx.Colour(255, 195, 120)
 COLOR_ACTIVE_BLUE = wx.Colour(130, 170, 255)
+
+_LOG_LEVEL_COLORS = {
+    logging.DEBUG: wx.Colour(128, 128, 128),
+    logging.INFO: wx.Colour(0, 0, 0),
+    logging.WARNING: wx.Colour(200, 120, 0),
+    logging.ERROR: wx.Colour(220, 0, 0),
+    logging.CRITICAL: wx.Colour(160, 0, 0),
+}
+
+_LOG_LEVEL_NAMES = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
+
+class WxLogHandler(logging.Handler):
+    """Logging handler with independent per-level ring buffers.
+
+    Each standard level (DEBUG … CRITICAL) keeps its own history so a flood of
+    DEBUG messages never evicts WARNING/ERROR history.  When the display level
+    changes the buffers are merged in chronological order and re-rendered.
+    """
+
+    MAX_PER_LEVEL = 5_000
+    MAX_DISPLAY_CHARS = 500_000
+    _LEVELS = (logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR, logging.CRITICAL)
+
+    def __init__(self, text_ctrl: wx.TextCtrl, auto_scroll_cb: wx.CheckBox,
+                 level_choice: wx.Choice):
+        super().__init__(level=logging.DEBUG)
+        self._text_ctrl = text_ctrl
+        self._auto_scroll_cb = auto_scroll_cb
+        self._level_choice = level_choice
+        self._buffers: dict[int, deque[tuple[int, str, int]]] = {
+            lvl: deque(maxlen=self.MAX_PER_LEVEL) for lvl in self._LEVELS
+        }
+        self._seq = 0
+        self.setFormatter(logging.Formatter(
+            "%(asctime)s [%(levelname)-8s] %(name)s: %(message)s",
+            datefmt="%H:%M:%S",
+        ))
+
+    @property
+    def _display_level(self) -> int:
+        name = self._level_choice.GetStringSelection()
+        return getattr(logging, name, logging.INFO)
+
+    def _bucket(self, levelno: int) -> int:
+        """Map an arbitrary numeric level to the nearest standard level."""
+        for lvl in reversed(self._LEVELS):
+            if levelno >= lvl:
+                return lvl
+        return self._LEVELS[0]
+
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            wx.CallAfter(self._on_record, msg, record.levelno)
+        except Exception:
+            self.handleError(record)
+
+    def _on_record(self, msg: str, levelno: int):
+        try:
+            ctrl = self._text_ctrl
+            if not ctrl:
+                return
+        except RuntimeError:
+            return
+
+        self._seq += 1
+        self._buffers[self._bucket(levelno)].append((self._seq, msg, levelno))
+        if levelno >= self._display_level:
+            self._write_line(msg, levelno)
+
+    def _write_line(self, msg: str, levelno: int):
+        ctrl = self._text_ctrl
+        auto = self._auto_scroll_cb.GetValue()
+        if not auto:
+            ctrl.Freeze()
+
+        colour = _LOG_LEVEL_COLORS.get(levelno, wx.Colour(0, 0, 0))
+        ctrl.SetDefaultStyle(wx.TextAttr(colour))
+        ctrl.AppendText(msg + "\n")
+
+        if ctrl.GetLastPosition() > self.MAX_DISPLAY_CHARS:
+            ctrl.Remove(0, ctrl.GetLastPosition() // 4)
+
+        if auto:
+            ctrl.ShowPosition(ctrl.GetLastPosition())
+        else:
+            ctrl.Thaw()
+
+    def refilter(self):
+        """Re-render the display by merging per-level buffers chronologically."""
+        try:
+            ctrl = self._text_ctrl
+            if not ctrl:
+                return
+        except RuntimeError:
+            return
+
+        display_level = self._display_level
+        merged = _heapmerge(*(
+            buf for lvl, buf in self._buffers.items() if lvl >= display_level
+        ))
+
+        ctrl.Freeze()
+        ctrl.Clear()
+        for _seq, msg, levelno in merged:
+            colour = _LOG_LEVEL_COLORS.get(levelno, wx.Colour(0, 0, 0))
+            ctrl.SetDefaultStyle(wx.TextAttr(colour))
+            ctrl.AppendText(msg + "\n")
+        ctrl.Thaw()
+        if self._auto_scroll_cb.GetValue():
+            ctrl.ShowPosition(ctrl.GetLastPosition())
+
+    def clear_buffer(self):
+        """Clear both the display and all backing buffers."""
+        for buf in self._buffers.values():
+            buf.clear()
+        self._seq = 0
+        try:
+            if self._text_ctrl:
+                self._text_ctrl.Clear()
+        except RuntimeError:
+            pass
 
 
 def _activity_colour(last_login_iso: str | None, base_color: wx.Colour = COLOR_ACTIVE_AMBER) -> wx.Colour | None:
@@ -104,6 +229,11 @@ class ProxyUI(wx.Frame):
         self.Bind(proxy_stats.EVT_AUTH_ERROR_BINDER, self.on_auth_error)
 
         self.init_ui()
+
+        self._log_handler = WxLogHandler(self.log_text, self.log_auto_scroll_cb, self.log_level_choice)
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.DEBUG)
+        root_logger.addHandler(self._log_handler)
 
         self.tray_icon = taskbar_icon.create_tray_icon(self)
 
@@ -230,8 +360,6 @@ class ProxyUI(wx.Frame):
         self.last_username_label = self._add_label_value_row(proxy_tab, status_box_sizer, "Last Username:", "")
         self.uptime_value = self._add_label_value_row(proxy_tab, status_box_sizer, "Uptime:", PROXY_STATS.get_uptime())
 
-        proxy_sizer.Add(status_box_sizer, 0, wx.EXPAND | wx.ALL, 10)
-
         # Statistics section
         stats_box = wx.StaticBox(proxy_tab, label="Statistics")
         stats_box_sizer = wx.StaticBoxSizer(stats_box, wx.VERTICAL)
@@ -246,7 +374,10 @@ class ProxyUI(wx.Frame):
             proxy_tab, stats_box_sizer, "Completed Connections:", str(PROXY_STATS.completed_connections)
         )
 
-        proxy_sizer.Add(stats_box_sizer, 0, wx.EXPAND | wx.ALL, 10)
+        top_row_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        top_row_sizer.Add(status_box_sizer, 1, wx.EXPAND | wx.RIGHT, 5)
+        top_row_sizer.Add(stats_box_sizer, 1, wx.EXPAND | wx.LEFT, 5)
+        proxy_sizer.Add(top_row_sizer, 0, wx.EXPAND | wx.ALL, 10)
 
         # Settings section
         action_box = wx.StaticBox(proxy_tab, label="Settings")
@@ -336,6 +467,29 @@ class ProxyUI(wx.Frame):
 
         action_sizer.Add(sso_api_sizer, 0, wx.EXPAND | wx.ALL, 5)
         proxy_sizer.Add(action_sizer, 0, wx.ALL | wx.EXPAND, 10)
+
+        # Account Data section
+        account_cache_box = wx.StaticBox(proxy_tab, label="Account Data")
+        account_cache_sizer = wx.StaticBoxSizer(account_cache_box, wx.VERTICAL)
+
+        cache_controls_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        cache_info_sizer = wx.BoxSizer(wx.VERTICAL)
+
+        self.ws_status_text = self._add_label_value_row(proxy_tab, cache_info_sizer, "Live Status:", "Connecting...")
+        self.ws_status_text.SetToolTip("WebSocket connection status for real-time account updates")
+
+        self.accounts_cached_text = self._add_label_value_row(proxy_tab, cache_info_sizer, "Accounts:", "0")
+        self.accounts_cached_text.SetToolTip("Number of accounts, characters, and aliases/tags")
+
+        cache_controls_sizer.Add(cache_info_sizer, 1, wx.EXPAND, 0)
+
+        self.refresh_cache_btn = wx.Button(proxy_tab, label="Force Reconnect")
+        self.refresh_cache_btn.Bind(wx.EVT_BUTTON, self.on_refresh_account_cache)
+        self.refresh_cache_btn.SetToolTip("Disconnect and reconnect to the SSO server for fresh data")
+        cache_controls_sizer.Add(self.refresh_cache_btn, 0, wx.ALL | wx.ALIGN_CENTER, 5)
+
+        account_cache_sizer.Add(cache_controls_sizer, 0, wx.ALL | wx.EXPAND, 5)
+        proxy_sizer.Add(account_cache_sizer, 0, wx.ALL | wx.EXPAND, 10)
 
         proxy_tab.SetSizer(proxy_sizer)
         return proxy_tab
@@ -475,7 +629,7 @@ class ProxyUI(wx.Frame):
 
         self.eqhost_text = self._add_label_value_row(eq_tab, eq_status_sizer, "eqhost.txt Path:", "Checking...")
 
-        self.eqhost_contents = wx.TextCtrl(eq_tab, style=wx.TE_MULTILINE, size=(-1, 100))
+        self.eqhost_contents = wx.TextCtrl(eq_tab, style=wx.TE_MULTILINE)
         eq_status_sizer.Add(StatusLabel(eq_tab, "eqhost.txt Content:"), 0, wx.ALL, 5)
         eq_status_sizer.Add(self.eqhost_contents, 1, wx.ALL | wx.EXPAND, 5)
 
@@ -489,30 +643,7 @@ class ProxyUI(wx.Frame):
         eqhost_btn_sizer.Add(self.reset_eqhost_btn, 0, wx.ALL, 5)
 
         eq_status_sizer.Add(eqhost_btn_sizer, 0, wx.ALL | wx.CENTER, 5)
-        eq_sizer.Add(eq_status_sizer, 0, wx.ALL | wx.EXPAND, 10)
-
-        # Account Data section
-        account_cache_box = wx.StaticBox(eq_tab, label="Account Data")
-        account_cache_sizer = wx.StaticBoxSizer(account_cache_box, wx.VERTICAL)
-
-        cache_controls_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        cache_info_sizer = wx.BoxSizer(wx.VERTICAL)
-
-        self.ws_status_text = self._add_label_value_row(eq_tab, cache_info_sizer, "Live Status:", "Connecting...")
-        self.ws_status_text.SetToolTip("WebSocket connection status for real-time account updates")
-
-        self.accounts_cached_text = self._add_label_value_row(eq_tab, cache_info_sizer, "Accounts:", "0")
-        self.accounts_cached_text.SetToolTip("Number of accounts, characters, and aliases/tags")
-
-        cache_controls_sizer.Add(cache_info_sizer, 1, wx.EXPAND, 0)
-
-        self.refresh_cache_btn = wx.Button(eq_tab, label="Force Reconnect")
-        self.refresh_cache_btn.Bind(wx.EVT_BUTTON, self.on_refresh_account_cache)
-        self.refresh_cache_btn.SetToolTip("Disconnect and reconnect to the SSO server for fresh data")
-        cache_controls_sizer.Add(self.refresh_cache_btn, 0, wx.ALL | wx.ALIGN_CENTER, 5)
-
-        account_cache_sizer.Add(cache_controls_sizer, 0, wx.ALL | wx.EXPAND, 5)
-        eq_sizer.Add(account_cache_sizer, 0, wx.ALL | wx.EXPAND, 10)
+        eq_sizer.Add(eq_status_sizer, 1, wx.ALL | wx.EXPAND, 10)
 
         eq_tab.SetSizer(eq_sizer)
         return eq_tab
@@ -531,6 +662,50 @@ class ProxyUI(wx.Frame):
         changelog_tab.SetSizer(changelog_sizer)
         return changelog_tab
 
+    def _make_log_text_ctrl(self, parent, word_wrap=False):
+        style = wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_RICH2
+        if not word_wrap:
+            style |= wx.HSCROLL
+        ctrl = wx.TextCtrl(parent, style=style)
+        ctrl.SetFont(self._log_font)
+        return ctrl
+
+    def _create_log_tab(self, notebook):
+        log_tab = wx.Panel(notebook)
+        log_sizer = wx.BoxSizer(wx.VERTICAL)
+
+        controls_sizer = wx.BoxSizer(wx.HORIZONTAL)
+
+        self.log_auto_scroll_cb = wx.CheckBox(log_tab, label="Auto-scroll")
+        self.log_auto_scroll_cb.SetValue(True)
+        controls_sizer.Add(self.log_auto_scroll_cb, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
+
+        self.log_word_wrap_cb = wx.CheckBox(log_tab, label="Word wrap")
+        self.log_word_wrap_cb.SetValue(False)
+        self.log_word_wrap_cb.Bind(wx.EVT_CHECKBOX, self._on_log_word_wrap)
+        controls_sizer.Add(self.log_word_wrap_cb, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 15)
+
+        level_label = wx.StaticText(log_tab, label="Level:")
+        controls_sizer.Add(level_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+
+        self.log_level_choice = wx.Choice(log_tab, choices=_LOG_LEVEL_NAMES)
+        self.log_level_choice.SetSelection(_LOG_LEVEL_NAMES.index("INFO"))
+        self.log_level_choice.Bind(wx.EVT_CHOICE, self._on_log_level_changed)
+        controls_sizer.Add(self.log_level_choice, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 15)
+
+        clear_btn = wx.Button(log_tab, label="Clear")
+        clear_btn.Bind(wx.EVT_BUTTON, self._on_log_clear)
+        controls_sizer.Add(clear_btn, 0, wx.ALIGN_CENTER_VERTICAL)
+
+        log_sizer.Add(controls_sizer, 0, wx.ALL, 5)
+
+        self._log_font = wx.Font(9, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
+        self.log_text = self._make_log_text_ctrl(log_tab, word_wrap=False)
+        log_sizer.Add(self.log_text, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
+
+        log_tab.SetSizer(log_sizer)
+        return log_tab
+
     def init_ui(self):
         panel = wx.Panel(self)
         main_sizer = wx.BoxSizer(wx.VERTICAL)
@@ -543,11 +718,13 @@ class ProxyUI(wx.Frame):
         proxy_tab = self._create_proxy_tab(notebook)
         sso_tab = self._create_sso_tab(notebook)
         eq_tab = self._create_eq_tab(notebook)
+        log_tab = self._create_log_tab(notebook)
         changelog_tab = self._create_changelog_tab(notebook)
 
         notebook.AddPage(proxy_tab, "Proxy")
         notebook.AddPage(sso_tab, "SSO")
         notebook.AddPage(eq_tab, "Advanced")
+        notebook.AddPage(log_tab, "Log")
         notebook.AddPage(changelog_tab, "Changelog")
 
         main_sizer.Add(notebook, 1, wx.EXPAND | wx.ALL, 10)
@@ -575,6 +752,7 @@ class ProxyUI(wx.Frame):
     def on_stats_updated(self, event):
         """Handle stats updated event"""
         self.update_stats()
+        self._update_tray_tooltip()
 
     def on_user_connected(self, event):
         """Handle user connected event"""
@@ -602,16 +780,19 @@ class ProxyUI(wx.Frame):
         self.active_value.SetLabel(str(PROXY_STATS.active_connections))
         self.completed_value.SetLabel(str(PROXY_STATS.completed_connections))
 
-        if self.tray_icon:
-            tooltip = (
-                f"{config.APP_NAME}\n"
-                f"Status: {PROXY_STATS.proxy_status}\n"
-                f"Connections: {PROXY_STATS.active_connections} active, "
-                f"{PROXY_STATS.total_connections} total\n"
-                f"Local Accounts: {len(config.LOCAL_ACCOUNTS)}\n"
-                f"SSO Accounts: {config.ACCOUNTS_CACHE_REAL_COUNT}"
-            )
-            self.tray_icon.update_icon(tooltip=tooltip)
+    def _update_tray_tooltip(self):
+        """Rebuild the tray icon tooltip and image from current state."""
+        if not self.tray_icon:
+            return
+        tooltip = (
+            f"{config.APP_NAME}\n"
+            f"Status: {PROXY_STATS.proxy_status}\n"
+            f"Connections: {PROXY_STATS.active_connections} active, "
+            f"{PROXY_STATS.total_connections} total\n"
+            f"Local Accounts: {len(config.LOCAL_ACCOUNTS)}\n"
+            f"SSO Accounts: {config.ACCOUNTS_CACHE_REAL_COUNT}"
+        )
+        self.tray_icon.update_icon(tooltip=tooltip)
 
     def show_user_connected_notification(self, alias, account, method):
         """Show a tray notification summarising the login."""
@@ -647,6 +828,9 @@ class ProxyUI(wx.Frame):
 
     def close_application(self):
         """Actually close the application"""
+        if hasattr(self, "_log_handler"):
+            logging.getLogger().removeHandler(self._log_handler)
+
         if self.tray_icon:
             self.tray_icon.Destroy()
 
@@ -900,6 +1084,28 @@ class ProxyUI(wx.Frame):
             self.ws_status_text.SetForegroundColour(COLOR_MUTED)
         self.ws_status_text.Refresh()
 
+    # --- Log tab handlers ---
+
+    def _on_log_level_changed(self, event):
+        self._log_handler.refilter()
+
+    def _on_log_clear(self, event):
+        self._log_handler.clear_buffer()
+
+    def _on_log_word_wrap(self, event):
+        parent = self.log_text.GetParent()
+        sizer = parent.GetSizer()
+
+        old = self.log_text
+        new = self._make_log_text_ctrl(parent, word_wrap=self.log_word_wrap_cb.GetValue())
+        sizer.Replace(old, new)
+        old.Destroy()
+
+        self.log_text = new
+        self._log_handler._text_ctrl = new
+        self._log_handler.refilter()
+        sizer.Layout()
+
     # --- Local account management ---
 
     def on_add_local_account(self, event):
@@ -1092,6 +1298,7 @@ class ProxyUI(wx.Frame):
         self._populate_list(self.tags_list, tag_rows)
 
         self._refresh_characters_list()
+        self._update_tray_tooltip()
 
     def _refresh_characters_list(self):
         """Rebuild and render the characters list from cached account data."""
@@ -1165,8 +1372,7 @@ class ProxyUI(wx.Frame):
         else:
             self.proxy_mode_choice.SetSelection(0)
 
-        if self.tray_icon:
-            self.tray_icon.update_icon()
+        self._update_tray_tooltip()
 
 
 def start_ui():

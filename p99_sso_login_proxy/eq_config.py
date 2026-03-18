@@ -194,7 +194,7 @@ def get_eqhost_path(eq_dir: str | None = None) -> str | None:
     # Only use cache when no explicit eq_dir is provided
     if not eq_dir:
         if _cache.get("eqhost_path"):
-            logger.debug(f"Using cached eqhost.txt path: {_cache['eqhost_path']}")
+            # logger.debug(f"Using cached eqhost.txt path: {_cache['eqhost_path']}")
             return _cache["eqhost_path"]
         eq_dir = find_eq_directory()
         if not eq_dir:

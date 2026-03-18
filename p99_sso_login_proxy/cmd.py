@@ -10,6 +10,8 @@ from p99_sso_login_proxy import server, ui, updater, ws_client
 
 logger = logging.getLogger("cmd")
 
+logging.getLogger("websockets").setLevel(logging.INFO)
+
 
 # Class to integrate wxPython with asyncio
 class WxAsyncApp(wx.App):
