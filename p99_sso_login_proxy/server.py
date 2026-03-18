@@ -7,10 +7,12 @@ import functools
 import logging
 import time
 
-from p99_sso_login_proxy import config, eq_config, sequence, sso_api, ui
-from p99_sso_login_proxy import soe_protocol as soe, login_protocol as lp
+from p99_sso_login_proxy import config, eq_config, sso_api, ui
+from p99_sso_login_proxy import soe_protocol as soe
+from p99_sso_login_proxy.login_protocol import LoginPacket
+from p99_sso_login_proxy.session import ProxySessionState
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("server")
 
 
 def debug_write_packet(buf: bytes, login_to_client):
@@ -40,19 +42,19 @@ class LoginProxy(asyncio.DatagramProtocol):
     transport: asyncio.DatagramTransport
     last_recv_time: float
     in_session: bool
-    sequence: sequence.Sequence
+    session: ProxySessionState
     client_addr: tuple[str, int] | None
 
     def __init__(self):
         super().__init__()
         self.in_session = False
         self.last_recv_time = 0.0
-        self.sequence = sequence.Sequence()
+        self.session = ProxySessionState()
         # Update UI stats
         ui.PROXY_STATS.update_status("Initializing")
 
-    def sequence_free(self):
-        self.sequence.reset()
+    def session_free(self):
+        self.session.reset()
 
     def connection_made(self, transport):
         self.transport = transport
@@ -71,26 +73,12 @@ class LoginProxy(asyncio.DatagramProtocol):
         """Detect a login packet, decrypt credentials, optionally
         rewrite with SSO or local-account credentials, and
         re-encrypt."""
-        if len(buf) < 30:
+        login = LoginPacket.parse(
+            buf, config.ENCRYPTION_KEY, config.iv())
+        if login is None:
             return buf
 
-        if not lp.is_combined_login_packet(buf):
-            return buf
-
-        sub2, sub2_offset, sub2_len = (
-            lp.extract_login_from_combined(buf)
-        )
-
-        # OP_Packet header(4) + app opcode(2) + LoginBaseMessage
-        enc_offset = 4 + 2 + lp.LOGIN_BASE_SIZE
-        if len(sub2) <= enc_offset:
-            return buf
-        encrypted = sub2[enc_offset:]
-
-        username, password = lp.decrypt_login_credentials(
-            encrypted, config.ENCRYPTION_KEY, config.iv())
-
-        username = username.lower()
+        username = login.username.lower()
         result_buf = buf
         effective_account = username
         method = None
@@ -143,22 +131,9 @@ class LoginProxy(asyncio.DatagramProtocol):
                     logger.info(
                         "Auth rewrite successful for %s -> %s",
                         username, new_user)
-                    new_encrypted = lp.encrypt_login_credentials(
+                    result_buf = login.rewrite_credentials(
                         new_user, new_pass,
                         config.ENCRYPTION_KEY, config.iv())
-
-                    abs_enc_start = sub2_offset + enc_offset
-                    abs_enc_end = sub2_offset + sub2_len
-                    result_buf = bytearray(
-                        buf[:abs_enc_start]
-                        + new_encrypted
-                        + buf[abs_enc_end:]
-                    )
-
-                    new_sub2_len = (
-                        enc_offset + len(new_encrypted))
-                    result_buf[sub2_offset - 1] = new_sub2_len
-
                     effective_account = new_user
                     method = (
                         "local"
@@ -200,7 +175,7 @@ class LoginProxy(asyncio.DatagramProtocol):
                 self.in_session,
                 recv_time - self.last_recv_time,
             )
-            self.sequence_free()
+            self.session_free()
             if not self.in_session:
                 # New connection
                 logger.debug(
@@ -214,7 +189,7 @@ class LoginProxy(asyncio.DatagramProtocol):
 
         if opcode == soe.TransportOp.Combined:
             logger.debug("Adjusting combined packet sequence")
-            self.sequence.adjust_combined(data)
+            self.session.adjust_combined(data)
             original_data = data.copy()
             data = self.check_rewrite_auth(data)
             if data != original_data:
@@ -224,13 +199,13 @@ class LoginProxy(asyncio.DatagramProtocol):
             logger.debug(
                 "Session disconnect received, cleaning up")
             self.in_session = False
-            self.sequence_free()
+            self.session_free()
             # Update UI stats for completed connection
             ui.PROXY_STATS.connection_completed()
 
         elif opcode == soe.TransportOp.Ack:
             logger.debug("Adjusting ACK sequence values")
-            self.sequence.adjust_ack(data)
+            self.session.adjust_ack(data)
 
         elif opcode == soe.TransportOp.KeepAlive:
             logger.debug("Keep-alive packet received")
@@ -264,7 +239,7 @@ class LoginProxy(asyncio.DatagramProtocol):
 
         if opcode == soe.TransportOp.SessionResponse:
             self.in_session = True
-            self.sequence_free()
+            self.session_free()
             logger.debug(
                 "Session response received, session established")
 
@@ -272,7 +247,7 @@ class LoginProxy(asyncio.DatagramProtocol):
             logger.debug(
                 "Received combined packet,"
                 " splitting into individual packets")
-            self.sequence.recv_combined(
+            self.session.recv_combined(
                 data,
                 functools.partial(self.handle_server_packet),
                 start_index, length,
@@ -282,7 +257,7 @@ class LoginProxy(asyncio.DatagramProtocol):
 
         elif opcode == soe.TransportOp.Packet:
             logger.debug("Processing standard packet")
-            maybe_server_list = self.sequence.recv_packet(
+            maybe_server_list = self.session.recv_packet(
                 data, start_index, length)
             if maybe_server_list is not None:
                 data = maybe_server_list
@@ -291,7 +266,7 @@ class LoginProxy(asyncio.DatagramProtocol):
 
         elif opcode == soe.TransportOp.Fragment:
             logger.debug("Processing fragment packet")
-            maybe_server_list = self.sequence.recv_fragment(
+            maybe_server_list = self.session.recv_fragment(
                 data, start_index, length)
             if maybe_server_list is not None:
                 # We're finished with the server list, forward it
