@@ -88,6 +88,19 @@ class TaskBarIcon:
             logger.warning("Tray icon startup timed out (%s)",
                            backend)
 
+        if backend.endswith("_xorg"):
+            logger.warning(
+                "Using X11 tray backend — menus will not work "
+                "on most modern desktops. Install PyGObject and "
+                "AppIndicator for full tray support:\n"
+                "  Debian/Ubuntu: sudo apt install python3-gi "
+                "gir1.2-ayatanaappindicator3-0.1\n"
+                "  Arch/Manjaro: sudo pacman -S python-gobject "
+                "libayatana-appindicator\n"
+                "  Fedora: sudo dnf install python3-gobject "
+                "libayatana-appindicator-gtk3"
+            )
+
     def _on_ready(self, icon):
         icon.visible = True
         self._started.set()
