@@ -69,26 +69,49 @@ class TaskBarIcon:
             ),
         )
 
-        thread = threading.Thread(target=self._run, daemon=True)
-        thread.start()
+        if sys.platform == "win32":
+            thread = threading.Thread(target=self._run_threaded,
+                                      daemon=True)
+            thread.start()
+        else:
+            self._run_detached()
+
         self._started.wait(timeout=10)
 
         if self._run_error:
             raise self._run_error
+
+        backend = type(self._icon).__module__
         if self._started.is_set():
-            logger.info("Tray icon started (pystray)")
+            logger.info("Tray icon started (pystray/%s)", backend)
         else:
-            logger.warning("Tray icon startup timed out")
+            logger.warning("Tray icon startup timed out (%s)",
+                           backend)
 
-    def _run(self):
-        def on_ready(icon):
-            icon.visible = True
-            self._started.set()
+    def _on_ready(self, icon):
+        icon.visible = True
+        self._started.set()
 
+    def _run_threaded(self):
+        """Run pystray in its own thread (Windows)."""
         try:
-            self._icon.run(setup=on_ready)
+            self._icon.run(setup=self._on_ready)
         except Exception as exc:
             logger.error("pystray run failed", exc_info=True)
+            self._run_error = exc
+            self._started.set()
+
+    def _run_detached(self):
+        """Attach pystray to the host GTK main loop (Linux/macOS).
+
+        wxPython on Linux already runs a GLib main loop, so pystray
+        must share it rather than starting its own.  This ensures GTK
+        menu widgets work correctly.
+        """
+        try:
+            self._icon.run_detached(setup=self._on_ready)
+        except Exception as exc:
+            logger.error("pystray run_detached failed", exc_info=True)
             self._run_error = exc
             self._started.set()
 
