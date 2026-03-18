@@ -1,4 +1,5 @@
 import logging
+import platform
 import sys
 import threading
 
@@ -9,6 +10,33 @@ from PIL import Image
 from p99_sso_login_proxy import config, eq_config, updater, utils
 
 logger = logging.getLogger("taskbar_icon")
+
+
+def _linux_appindicator_hint():
+    """Return a distro-specific install command for AppIndicator."""
+    try:
+        osrel = platform.freedesktop_os_release()
+        ids = {osrel.get("ID", "")} | set(
+            osrel.get("ID_LIKE", "").split())
+    except OSError:
+        ids = set()
+
+    if ids & {"debian", "ubuntu"}:
+        return ("sudo apt install python3-gi "
+                "gir1.2-ayatanaappindicator3-0.1")
+    if ids & {"arch", "manjaro"}:
+        return ("sudo pacman -S python-gobject "
+                "libayatana-appindicator")
+    if ids & {"fedora", "rhel", "centos"}:
+        return ("sudo dnf install python3-gobject "
+                "libayatana-appindicator-gtk3")
+    if ids & {"opensuse", "suse"}:
+        return ("sudo zypper install python3-gobject "
+                "typelib-1_0-AyatanaAppIndicator3-0_1")
+    return (
+        "Install PyGObject and libayatana-appindicator3 "
+        "using your distribution's package manager"
+    )
 
 
 def _icon_filename_for_state():
@@ -90,15 +118,10 @@ class TaskBarIcon:
 
         if backend.endswith("_xorg"):
             logger.warning(
-                "Using X11 tray backend — menus will not work "
+                "Using X11 tray backend -- menus will not work "
                 "on most modern desktops. Install PyGObject and "
-                "AppIndicator for full tray support:\n"
-                "  Debian/Ubuntu: sudo apt install python3-gi "
-                "gir1.2-ayatanaappindicator3-0.1\n"
-                "  Arch/Manjaro: sudo pacman -S python-gobject "
-                "libayatana-appindicator\n"
-                "  Fedora: sudo dnf install python3-gobject "
-                "libayatana-appindicator-gtk3"
+                "AppIndicator for full tray support:\n  %s",
+                _linux_appindicator_hint(),
             )
 
     def _on_ready(self, icon):
