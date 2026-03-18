@@ -1,234 +1,196 @@
 # Based in large part on the original work by Zaela:
 # https://github.com/Zaela/p99-login-middlemand
+"""Sequence translation and server-list filtering for the login proxy.
+
+The proxy sits between the EQ client and the login server and may
+collapse multi-fragment responses (the server list) into a single
+packet for the client.  This means the two sides' sequence numbers
+diverge, so the proxy must rewrite them in both directions:
+
+* **Server → Client**: every OP_Packet/OP_Fragment sequence is
+  rewritten to the client's monotonically-increasing counter.
+* **Client → Server**: every OP_Ack the client sends (referencing the
+  client-side sequence space) is rewritten back to the server's space.
+"""
+
+from __future__ import annotations
+
 import logging
+from typing import Callable
 
-from p99_sso_login_proxy import structs
+from p99_sso_login_proxy import soe_protocol as soe, login_protocol as lp
 
-logger = logging.getLogger("sequence")
-
-
-class Packet:
-    def __init__(self):
-        self.is_fragment = False
-        # self.length = 0
-        self.data = None
+logger = logging.getLogger(__name__)
 
 
 class Sequence:
+    """Manages sequence-number translation and server-list reassembly."""
+
     def __init__(self):
-        self.packets = []
-        self.capacity = 0
-        self.count = 0
-        self.frag_start = 0
-        self.frag_count = 0
-        self.seq_to_local = 0
-        self.seq_from_remote = 0
-        self.seq_from_remote_offset = 0
+        self.seq_to_client: int = 0
+        self.seq_from_server: int = 0
+        self._fragment_assembler = soe.FragmentAssembler()
+        self._pending_app_opcode: int | None = None
 
-    def adjust_combined(self, buffer: bytearray):
+    @property
+    def packets(self) -> list:
+        """Legacy compat — returns an empty list for ``sequence_free()``."""
+        return []
+
+    def reset(self):
+        self.seq_to_client = 0
+        self.seq_from_server = 0
+        self._fragment_assembler.reset()
+        self._pending_app_opcode = None
+
+    # ------------------------------------------------------------------
+    # Client → Server  (rewrite ACK sequences)
+    # ------------------------------------------------------------------
+    def adjust_combined(self, buf: bytearray) -> None:
+        """Rewrite ACK sub-packets inside a client-to-server OP_Combined."""
+        end = len(buf)
         pos = 2
-        length = len(buffer)
-        if length < 4:
-            return
-        while True:
-            sublen = buffer[pos]
+        while pos < end:
+            sublen = buf[pos]
             pos += 1
-            if (pos + sublen) > length or sublen == 0:
-                return
-            # data = buffer[pos:pos + sublen]
-            # if struct.unpack('!H', data[:2])[0] == 0x15:
-            if structs.get_protocol_opcode(buffer[pos : pos + sublen]) == structs.OPCodes.OP_Combined:
-                self.adjust_ack(buffer, pos, sublen)
+            if sublen == 0xFF and pos + 2 <= end:
+                sublen = int.from_bytes(buf[pos:pos + 2], "big")
+                pos += 2
+            if sublen == 0 or pos + sublen > end:
+                break
+            sub_op = soe.get_transport_opcode(buf[pos:])
+            if sub_op == soe.TransportOp.Ack:
+                self._rewrite_ack(buf, pos)
             pos += sublen
-            if pos >= length:
-                return
 
-    def adjust_ack(self, data: bytearray, start_index: int, length: int):
-        if length < 4:
-            return
-        # struct.pack_into('!H', data, 2, self.seq_from_remote - 1)
-        new_bytes = (max(self.seq_from_remote - 1, 0)).to_bytes(2, byteorder="big")
-        data[2 + start_index : 4 + start_index] = new_bytes
+    def adjust_ack(self, buf: bytearray, offset: int = 0) -> None:
+        """Rewrite a standalone client-to-server ACK packet."""
+        self._rewrite_ack(buf, offset)
 
-    @staticmethod
-    def recv_combined(buffer: bytearray, recv_func, start_index, length) -> None:
-        # length = len(buffer)
-        pos = 2 + start_index
-        if length < 4:
-            return
-        while True:
-            sublen = buffer[pos]
+    def _rewrite_ack(self, buf: bytearray, offset: int) -> None:
+        """Translate client-side ACK sequence to the server's space."""
+        new_seq = max(self.seq_from_server - 1, 0)
+        soe.set_sequence(buf, offset, new_seq)
+
+    # ------------------------------------------------------------------
+    # Server → Client  (rewrite sequences, reassemble fragments)
+    # ------------------------------------------------------------------
+    def recv_combined(
+        self,
+        buf: bytearray,
+        recv_func: Callable,
+        start_index: int = 0,
+        length: int | None = None,
+    ) -> None:
+        """Split a server-to-client OP_Combined and dispatch each sub-packet."""
+        if length is None:
+            length = len(buf) - start_index
+        end = start_index + length
+        pos = start_index + 2  # skip Combined opcode
+        while pos < end:
+            sublen = buf[pos]
             pos += 1
-            if (pos + sublen) > length or sublen == 0:
-                return
-            recv_func(buffer, start_index=pos, length=sublen, addr=None)
+            if sublen == 0xFF and pos + 2 <= end:
+                sublen = int.from_bytes(buf[pos:pos + 2], "big")
+                pos += 2
+            if sublen == 0 or pos + sublen > end:
+                break
+            recv_func(buf, start_index=pos, length=sublen, addr=None)
             pos += sublen
-            if pos >= length:
-                return
 
-    def recv_packet(self, buffer: bytearray, start_index: int, length: int) -> bytearray or None:
-        seq_val = structs.get_sequence(buffer, start_index)
-        packet = self.get_packet_space(seq_val, length)
-        packet.is_fragment = False
-        # struct.pack_into('!H', buffer, 2 + start_index, self.seq_to_local)
-        new_bytes = self.seq_to_local.to_bytes(2, byteorder="big")
-        buffer[2 + start_index : 4 + start_index] = new_bytes
-        logger.debug("recv_packet 1: %d (%d)", seq_val, self.seq_from_remote)
-        self.seq_to_local += 1
-        if seq_val != self.seq_from_remote:
-            logger.debug("recv_packet 1.5: %d (%d)", seq_val, self.seq_from_remote)
-            return
-        seq_val -= self.seq_from_remote_offset
-        logger.debug("recv_packet 2: %d (%d) -> %d", seq_val, self.seq_from_remote, len(self.packets))
-        for i in range(seq_val, self.count):
-            logger.debug("recv_packet 3: %d (%d)", i, len(self.packets))
-            packet = self.packets[i]
-            # if packet.length > 0:
-            if packet.length > 0:
-                self.seq_from_remote += 1
-                if packet.is_fragment and self.process_first_fragment(packet.data):
-                    maybe_server_list = self.check_fragment_finished()
-                    logger.debug("recv_packet 4: %s", maybe_server_list)
-                    # If this is the server list, the caller should return it to the client
-                    return maybe_server_list
+    def recv_packet(
+        self,
+        buf: bytearray,
+        start_index: int = 0,
+        length: int | None = None,
+    ) -> bytearray | None:
+        """Handle an OP_Packet from the server.
 
-    def recv_fragment(self, data: bytearray, start_index: int, length: int) -> bytearray or None:
-        seq_val = structs.get_sequence(data, 0)
-        packet = self.get_packet_space(seq_val, len(data))
+        Rewrites the sequence number and returns a filtered server list
+        bytearray if the packet completes one, otherwise ``None``.
+        """
+        if length is None:
+            length = len(buf) - start_index
 
-        packet.is_fragment = True
-        packet.data = data[start_index : start_index + length]
+        server_seq = soe.get_sequence(buf, start_index)
+        soe.set_sequence(buf, start_index, self.seq_to_client)
+        self.seq_to_client += 1
 
-        logger.debug("recv_fragment 1: %d (%d); frag_count: %d", seq_val, self.seq_from_remote, self.frag_count)
-        if seq_val == self.seq_from_remote:
-            self.process_first_fragment(data)
-            maybe_server_list = self.check_fragment_finished()
-            # If this is the server list, the caller should return it to the client
-            return maybe_server_list
-        elif self.frag_count > 0:
-            maybe_server_list = self.check_fragment_finished()
-            # If this is the server list, the caller should return it to the client
-            return maybe_server_list
+        if server_seq != self.seq_from_server:
+            logger.debug(
+                "Out-of-order OP_Packet seq=%d expected=%d",
+                server_seq, self.seq_from_server,
+            )
+            return None
+        self.seq_from_server += 1
 
-    def get_packet_space(self, sequence: int, length: int) -> Packet:
-        sequence -= self.seq_from_remote_offset
-        if sequence >= self.count:
-            self.count = sequence + 1
-        while sequence >= len(self.packets):
-            self.packets.append(Packet())
-        packet = self.packets[sequence]
-        packet.length = length
-        packet.data = None
-        return packet
+        return None
 
-    def process_first_fragment(self, data: bytearray) -> bool:
-        frag = structs.FirstFrag.from_buffer_copy(data)
-        logger.debug("process_first_fragment 1: %d (%d)", frag.app_opcode, structs.OPCodes.OP_ServerListResponse.value)
-        if frag.app_opcode != structs.OPCodes.OP_ServerListResponse.value:
-            return False
-        self.frag_start = structs.get_sequence(data, 0)
+    def recv_fragment(
+        self,
+        buf: bytearray,
+        start_index: int = 0,
+        length: int | None = None,
+    ) -> bytearray | None:
+        """Handle an OP_Fragment from the server.
 
-        # All of this was originally:
-        # self.frag_count = ((socket.ntohl(frag.total_len) - (512 - 8)) // (512 - 4)) + 2
-        frag_length_bigendian = frag.total_len.to_bytes(4, byteorder="big")
-        total_len = int.from_bytes(frag_length_bigendian, byteorder="little")
-        first_frag_payload_size = 512 - 8
-        subsequent_frag_payload_size = 512 - 4
-        self.frag_count = ((total_len - first_frag_payload_size) // subsequent_frag_payload_size) + 2
+        Returns a single assembled + filtered server list packet when
+        all fragments have arrived, or ``None`` if still accumulating.
+        """
+        if length is None:
+            length = len(buf) - start_index
+        raw = bytes(buf[start_index:start_index + length])
 
-        return True
+        server_seq = soe.get_sequence(raw, 0)
+        self.seq_from_server = server_seq + 1
 
-    def check_fragment_finished(self) -> bytearray or None:
-        index = self.frag_start - self.seq_from_remote_offset
-        n = self.frag_count
-        count = 1
-        packet = self.packets[index]
-        # got = packet.length - structs.SIZE_OF_FIRST_FRAG + 2
-        got = packet.length - structs.SIZE_OF_FIRST_FRAG + 2
-        logger.debug("check_fragment_finished 1: %d (%d)", got, n)
-        while count < n:
-            index += 1
-            # if index >= len(self.packets):
-            if index >= self.count:
-                return
-            packet = self.packets[index]
-            if not packet.data:
-                return
-            got += packet.length - structs.SIZE_OF_FRAG
-            count += 1
-        server_list = self.filter_server_list(got - 2)
-        return server_list
+        if not self._fragment_assembler.active:
+            header = soe.parse_first_fragment_header(raw)
+            self._pending_app_opcode = header["app_opcode"]
 
-    def filter_server_list(self, total_len):
-        index = self.frag_start - self.seq_from_remote_offset
-        packet = self.packets[index]
-        if packet.length == 0:
-            return
+        assembled = self._fragment_assembler.add(server_seq, raw)
+        if assembled is None:
+            return None
 
-        server_list = bytearray(packet.data[structs.SIZE_OF_FIRST_FRAG :])
-        while len(server_list) < total_len:
-            index += 1
-            packet = self.packets[index]
-            server_list += packet.data[structs.SIZE_OF_FRAG :]
+        app_opcode = self._pending_app_opcode
+        self._fragment_assembler.reset()
+        self._pending_app_opcode = None
 
-        # /* We now have the whole server list in one piece */
-        servers = []
-        # /* List of servers starts at serverList[20] */
-        pos = 20
-        while pos < total_len:
-            # /* Server listings are variable-size */
-            i = pos
+        if app_opcode != lp.AppOp.ServerListResponse:
+            logger.debug("Ignoring non-server-list fragment (app_op=0x%04X)", app_opcode)
+            return None
 
-            ip_addr = server_list[pos:].split(b"\0", 1)[0]
-            pos += len(ip_addr) + 1
+        return self._filter_and_build_server_list(assembled)
 
-            pos += structs.SIZE_OF_INT * 2  # /* ListId, runtimeId */
+    # ------------------------------------------------------------------
+    # Server list filtering
+    # ------------------------------------------------------------------
+    def _filter_and_build_server_list(self, app_payload: bytes) -> bytearray:
+        """Parse, filter to P99 servers, and rebuild as a single OP_Packet.
 
-            name = server_list[pos:].split(b"\0", 1)[0]
-            pos += len(name) + 1  # Move forward past the name we just pulled out
+        *app_payload* already starts with the 2-byte LE app opcode
+        (from the first fragment's data after total_len).
+        """
+        servers, header_bytes = lp.parse_server_list(app_payload)
 
-            language = server_list[pos:].split(b"\0", 1)[0]
-            pos += len(language) + 1
-
-            region = server_list[pos:].split(b"\0", 1)[0]
-            pos += len(region) + 1
-
-            pos += structs.SIZE_OF_INT * 2  # /* Status, player count */
-
-            # /* Time to check the name! */
-            if name.lower().startswith(b"project 1999") or name.lower().startswith(b"an interesting"):
-                servers.append(server_list[i:pos])
-
-        out_buffer = b"".join(
-            [
-                # Starts with a null byte
-                b"\x00",
-                # Then the OP_Packet opcode
-                bytes([structs.OPCodes.OP_Packet.value]),
-                # Then the sequence number as 2 bytes
-                self.seq_to_local.to_bytes(2, byteorder="big"),
-                # Then the OP_ServerListResponse opcode
-                bytes([structs.OPCodes.OP_ServerListResponse.value]),
-                # Then a null byte
-                b"\x00",
-                # Then the first 16 bytes of the server list (the header)
-                server_list[:16],
-                # Then the server count as 4 bytes
-                len(servers).to_bytes(4, byteorder="little"),
-                # Then our compiled server list
-                b"".join(servers),
-            ]
+        filtered = [
+            s for s in servers
+            if s["name"].lower().startswith("project 1999")
+            or s["name"].lower().startswith("an interesting")
+        ]
+        logger.info(
+            "Server list: %d total, %d after filter: %s",
+            len(servers),
+            len(filtered),
+            [s["name"] for s in filtered],
         )
-        logger.debug("filter_server_list: %s", servers)
 
-        self.seq_to_local += 1
-        self.seq_from_remote = self.frag_start + 1
-        self.seq_from_remote_offset = self.seq_from_remote
-        self.frag_count = 0
-        self.frag_start = 0
-        for packet in self.packets:
-            packet.data = None
-            packet.length = 0
-        # self.packets.clear()
+        rebuilt = lp.build_server_list_response(filtered, header_bytes)
 
-        return out_buffer
+        out = bytearray()
+        out += soe.TransportOp.Packet.to_bytes(2, "big")
+        out += self.seq_to_client.to_bytes(2, "big")
+        out += rebuilt
+        self.seq_to_client += 1
+
+        return out
