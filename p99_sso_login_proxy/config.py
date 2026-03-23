@@ -55,6 +55,7 @@ SSO_API_NAME = CONFIG.get("DEFAULT", "sso_api_name", fallback=_url_to_name.get(S
 
 SSO_TIMEOUT = CONFIG.getint("DEFAULT", "sso_timeout", fallback=10)
 SSO_CA_BUNDLE = CONFIG.get("DEFAULT", "sso_ca_bundle", fallback=True)
+SSO_VERIFY_TLS = CONFIG.getboolean("DEFAULT", "sso_verify_tls", fallback=True)
 
 ALWAYS_ON_TOP = CONFIG.getboolean("DEFAULT", "always_on_top", fallback=False)
 

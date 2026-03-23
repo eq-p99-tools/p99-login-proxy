@@ -82,6 +82,11 @@ def _get_ssl_context() -> ssl.SSLContext | None:
     url = _build_ws_url()
     if not url.startswith("wss://"):
         return None
+    if not config.SSO_VERIFY_TLS:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
     ca = config.SSO_CA_BUNDLE
     ctx = ssl.create_default_context()
     if isinstance(ca, str):
