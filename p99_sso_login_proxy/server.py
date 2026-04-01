@@ -7,7 +7,7 @@ import functools
 import logging
 import time
 
-from p99_sso_login_proxy import config, eq_config, sso_api, ui
+from p99_sso_login_proxy import config, eq_config, ui, ws_client
 from p99_sso_login_proxy import soe_protocol as soe
 from p99_sso_login_proxy.login_protocol import LoginPacket
 from p99_sso_login_proxy.session import ProxySessionState
@@ -50,7 +50,7 @@ class LoginProxy(asyncio.DatagramProtocol):
         self.in_session = False
         self.last_recv_time = 0.0
         self.session = ProxySessionState()
-        # Update UI stats
+        self._auth_in_flight = False
         ui.PROXY_STATS.update_status("Initializing")
 
     def session_free(self):
@@ -69,87 +69,102 @@ class LoginProxy(asyncio.DatagramProtocol):
     # ------------------------------------------------------------------
     # Auth credential rewrite
     # ------------------------------------------------------------------
-    def check_rewrite_auth(self, buf: bytearray) -> bytearray:
-        """Detect a login packet, decrypt credentials, optionally
-        rewrite with SSO or local-account credentials, and
-        re-encrypt."""
-        login = LoginPacket.parse(
-            buf, config.ENCRYPTION_KEY, config.iv())
-        if login is None:
-            return buf
+    def _needs_sso(self, username: str) -> bool:
+        """Return True if *username* should go through the SSO API."""
+        return (
+            not config.PROXY_ONLY
+            and username not in config.SKIP_SSO_ACCOUNTS
+            and username not in config.LOCAL_ACCOUNT_NAME_MAP
+            and username in config.ALL_CACHED_NAMES
+            and bool(config.USER_API_TOKEN)
+        )
 
+    def _try_sync_rewrite(
+        self, buf: bytearray, login: LoginPacket,
+    ) -> tuple[bytearray, str | None]:
+        """Handle non-SSO credential rewrites synchronously.
+
+        Returns ``(result_buf, method)`` where *method* is a non-None
+        string if the packet was handled (forwarding should proceed),
+        or ``None`` if the caller should attempt SSO auth instead.
+        """
         username = login.username.lower()
-        result_buf = buf
-        effective_account = username
-        method = None
 
         if config.PROXY_ONLY:
-            logger.debug(
-                "Proxy only mode enabled, skipping SSO API call.")
-            method = "proxy_only"
-        elif username in config.SKIP_SSO_ACCOUNTS:
-            logger.debug(
-                "Skipping SSO check for %s (in skip list)",
-                username)
-            method = "skip_sso"
-        elif (username not in config.ALL_CACHED_NAMES
-              and username not in config.LOCAL_ACCOUNT_NAME_MAP):
-            logger.debug(
-                "Skipping SSO check for %s"
-                " (not in cached account list)", username)
-            method = "passthrough"
-        else:
-            try:
-                new_user = None
-                new_pass = None
+            ui.PROXY_STATS.user_login(
+                alias=username, account=username,
+                method="proxy_only")
+            return buf, "proxy_only"
 
-                if username in config.LOCAL_ACCOUNT_NAME_MAP:
-                    new_user = (
-                        config.LOCAL_ACCOUNT_NAME_MAP[username])
-                    new_pass = (
-                        config.LOCAL_ACCOUNTS[new_user]["password"])
-                    logger.info(
-                        "Overwriting client supplied password"
-                        " with local account for %s: %s",
-                        username, new_user)
-                elif config.USER_API_TOKEN:
-                    new_user, new_pass, error_detail = (
-                        sso_api.check_sso_login(
-                            username,
-                            config.USER_API_TOKEN,
-                            client_settings=(
-                                eq_config.get_client_settings()),
-                        ))
-                    if error_detail:
-                        logger.warning(
-                            "SSO login rejected for %s: %s",
-                            username, error_detail)
-                        ui.PROXY_STATS.auth_error(
-                            username, error_detail)
+        if username in config.SKIP_SSO_ACCOUNTS:
+            ui.PROXY_STATS.user_login(
+                alias=username, account=username,
+                method="skip_sso")
+            return buf, "skip_sso"
 
-                if new_user and new_pass:
-                    logger.info(
-                        "Auth rewrite successful for %s -> %s",
-                        username, new_user)
-                    result_buf = login.rewrite_credentials(
-                        new_user, new_pass,
-                        config.ENCRYPTION_KEY, config.iv())
-                    effective_account = new_user
-                    method = (
-                        "local"
-                        if username in config.LOCAL_ACCOUNT_NAME_MAP
-                        else "sso")
-            except Exception:
-                logger.exception(
-                    "Failed to check login for %s", username)
+        if (username not in config.ALL_CACHED_NAMES
+                and username not in config.LOCAL_ACCOUNT_NAME_MAP):
+            ui.PROXY_STATS.user_login(
+                alias=username, account=username,
+                method="passthrough")
+            return buf, "passthrough"
 
-        if method:
+        if username in config.LOCAL_ACCOUNT_NAME_MAP:
+            new_user = config.LOCAL_ACCOUNT_NAME_MAP[username]
+            new_pass = (
+                config.LOCAL_ACCOUNTS[new_user]["password"])
+            logger.info(
+                "Overwriting client supplied password"
+                " with local account for %s: %s",
+                username, new_user)
+            result_buf = login.rewrite_credentials(
+                new_user, new_pass,
+                config.ENCRYPTION_KEY, config.iv())
             ui.PROXY_STATS.user_login(
                 alias=username,
-                account=effective_account,
-                method=method)
+                account=new_user,
+                method="local")
+            return result_buf, "local"
 
-        return result_buf
+        return buf, None
+
+    async def _async_auth_and_forward(
+        self,
+        data: bytearray,
+        login: LoginPacket,
+        recv_time: float,
+    ) -> None:
+        """Perform SSO auth over WebSocket (with HTTP fallback) and forward."""
+        username = login.username.lower()
+        try:
+            new_user, new_pass, error_detail = (
+                await ws_client.request_login_auth(username))
+
+            if error_detail:
+                logger.warning(
+                    "SSO login rejected for %s: %s",
+                    username, error_detail)
+                ui.PROXY_STATS.auth_error(
+                    username, error_detail)
+
+            if new_user and new_pass:
+                logger.info(
+                    "Auth rewrite successful for %s -> %s",
+                    username, new_user)
+                data = login.rewrite_credentials(
+                    new_user, new_pass,
+                    config.ENCRYPTION_KEY, config.iv())
+                ui.PROXY_STATS.user_login(
+                    alias=username,
+                    account=new_user,
+                    method="sso")
+        except Exception:
+            logger.exception(
+                "Failed to check login for %s", username)
+        finally:
+            self._auth_in_flight = False
+            self.last_recv_time = recv_time
+            self.send_to_loginserver(data)
 
     # ------------------------------------------------------------------
     # Client -> Login Server
@@ -177,7 +192,6 @@ class LoginProxy(asyncio.DatagramProtocol):
             )
             self.session_free()
             if not self.in_session:
-                # New connection
                 logger.debug(
                     "New connection established, updating stats")
                 ui.PROXY_STATS.connection_started()
@@ -190,17 +204,35 @@ class LoginProxy(asyncio.DatagramProtocol):
         if opcode == soe.TransportOp.Combined:
             logger.debug("Adjusting combined packet sequence")
             self.session.adjust_combined(data)
-            original_data = data.copy()
-            data = self.check_rewrite_auth(data)
-            if data != original_data:
-                logger.debug("Authentication data rewritten")
+
+            login = LoginPacket.parse(
+                data, config.ENCRYPTION_KEY, config.iv())
+            if login and self._needs_sso(login.username.lower()):
+                if self._auth_in_flight:
+                    self.last_recv_time = recv_time
+                    logger.debug(
+                        "Dropping retry login packet"
+                        " (auth already in flight)")
+                    return
+                self._auth_in_flight = True
+                self._auth_task = asyncio.ensure_future(
+                    self._async_auth_and_forward(
+                        data, login, recv_time))
+                return
+
+            if login:
+                result_buf, _method = self._try_sync_rewrite(
+                    data, login)
+                if result_buf is not data:
+                    data = result_buf
+                    logger.debug("Authentication data rewritten")
+            # Non-login Combined packets fall through
 
         elif opcode == soe.TransportOp.SessionDisconnect:
             logger.debug(
                 "Session disconnect received, cleaning up")
             self.in_session = False
             self.session_free()
-            # Update UI stats for completed connection
             ui.PROXY_STATS.connection_completed()
 
         elif opcode == soe.TransportOp.Ack:

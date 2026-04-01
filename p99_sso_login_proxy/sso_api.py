@@ -1,9 +1,9 @@
+import contextlib
 import logging
 
 import httpx
 
-from p99_sso_login_proxy import config
-from p99_sso_login_proxy import __version__
+from p99_sso_login_proxy import __version__, config
 
 logger = logging.getLogger("sso_api")
 
@@ -18,20 +18,9 @@ def check_sso_login(
     password: str,
     client_settings: dict | None = None,
 ) -> tuple[str | None, str | None, str | None]:
-    """
-    Check the SSO login credentials.
+    """Synchronous SSO login check (kept for backward compatibility).
 
-    Args:
-        username (str): The username to check.
-        password (str): The password to check (access key).
-        client_settings (dict | None): Optional client settings to send
-            (e.g. ``{"log_enabled": True}``).
-
-    Returns:
-        tuple[str | None, str | None, str | None]:
-            ``(real_user, real_pass, error_detail)`` where ``error_detail``
-            is a human-readable rejection reason from the server, or ``None``
-            on success.
+    Returns ``(real_user, real_pass, error_detail)``.
     """
     logger.info("Checking login for %s", username)
     logger.debug("Using CA bundle: %s", _get_verify())
@@ -50,10 +39,8 @@ def check_sso_login(
 
     if response.status_code != 200:
         detail: str | None = None
-        try:
+        with contextlib.suppress(Exception):
             detail = response.json().get("detail")
-        except Exception:
-            pass
         return None, None, detail
 
     data = response.json()

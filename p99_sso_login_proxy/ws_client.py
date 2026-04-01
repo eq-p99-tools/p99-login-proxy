@@ -5,11 +5,11 @@ import contextlib
 import json
 import logging
 import ssl
+import uuid
 
 import websockets
 
-from p99_sso_login_proxy import config, eq_config, utils
-from p99_sso_login_proxy import __version__
+from p99_sso_login_proxy import __version__, config, eq_config, utils
 
 logger = logging.getLogger("ws_client")
 
@@ -17,6 +17,7 @@ _ws: websockets.WebSocketClientProtocol | None = None
 _task: asyncio.Task | None = None
 _connected = False
 _auth_failed_detail: str | None = None
+_pending_auth: dict[str, asyncio.Future] = {}
 
 RECONNECT_MIN = 1
 RECONNECT_MAX = 60
@@ -66,6 +67,67 @@ async def send_update_location(
             await _ws.send(json.dumps(msg))
         except Exception:
             logger.debug("Failed to send update_location", exc_info=True)
+
+
+async def request_login_auth(
+    username: str,
+) -> tuple[str | None, str | None, str | None]:
+    """Send a login_auth request over the WebSocket and await the response.
+
+    Returns ``(real_user, real_pass, error_detail)`` matching the signature
+    of ``sso_api.check_sso_login`` so callers can switch transparently.
+    Returns ``(None, None, "WebSocket not connected")`` if the WS is down.
+    """
+    if not _ws or not _connected:
+        return None, None, "WebSocket not connected"
+
+    request_id = uuid.uuid4().hex
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future = loop.create_future()
+    _pending_auth[request_id] = future
+
+    try:
+        await _ws.send(
+            json.dumps({
+                "type": "login_auth",
+                "request_id": request_id,
+                "username": username,
+            })
+        )
+        result = await asyncio.wait_for(future, timeout=config.SSO_TIMEOUT)
+        return result
+    except TimeoutError:
+        logger.warning("login_auth request timed out for %s", username)
+        return None, None, "Login auth request timed out"
+    except Exception:
+        logger.debug("login_auth request failed for %s", username, exc_info=True)
+        return None, None, "Login auth request failed"
+    finally:
+        _pending_auth.pop(request_id, None)
+
+
+def _resolve_login_auth_response(msg: dict):
+    """Resolve a pending login_auth future from a server response."""
+    request_id = msg.get("request_id")
+    if not request_id:
+        return
+    future = _pending_auth.get(request_id)
+    if future is None or future.done():
+        return
+
+    error = msg.get("error")
+    if error:
+        future.set_result((None, None, error))
+    else:
+        future.set_result((msg.get("real_user"), msg.get("real_pass"), None))
+
+
+def _cancel_pending_auth():
+    """Cancel all pending login_auth futures (e.g. on disconnect)."""
+    for fut in _pending_auth.values():
+        if not fut.done():
+            fut.cancel()
+    _pending_auth.clear()
 
 
 def _build_ws_url() -> str:
@@ -296,6 +358,9 @@ async def _run(reconnect_requested: asyncio.Event):
                         logger.debug("Received delta: %s", "; ".join(parts))
                         _apply_delta(msg)
 
+                    elif msg_type == "login_auth_response":
+                        _resolve_login_auth_response(msg)
+
                     elif msg_type == "ping":
                         await ws.send(json.dumps({"type": "pong"}))
 
@@ -317,6 +382,7 @@ async def _run(reconnect_requested: asyncio.Event):
         finally:
             _ws = None
             _connected = False
+            _cancel_pending_auth()
             _rebuild_cache({}, [], [])
 
         if auth_error:
