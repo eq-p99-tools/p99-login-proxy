@@ -1,6 +1,7 @@
 """WebSocket client for real-time account data from the SSO API."""
 
 import asyncio
+import base64
 import contextlib
 import json
 import logging
@@ -71,11 +72,12 @@ async def send_update_location(
 
 async def request_login_auth(
     username: str,
-) -> tuple[str | None, str | None, str | None]:
+) -> tuple[str | None, bytes | None, str | None]:
     """Send a login_auth request over the WebSocket and await the response.
 
-    Returns ``(real_user, real_pass, error_detail)`` matching the signature
-    of ``sso_api.check_sso_login`` so callers can switch transparently.
+    Returns ``(real_user, encrypted_credentials, error_detail)``.
+    *encrypted_credentials* is the raw DES-CBC ciphertext (bytes) ready
+    to splice into the login packet.
     Returns ``(None, None, "WebSocket not connected")`` if the WS is down.
     """
     if not _ws or not _connected:
@@ -119,7 +121,9 @@ def _resolve_login_auth_response(msg: dict):
     if error:
         future.set_result((None, None, error))
     else:
-        future.set_result((msg.get("real_user"), msg.get("real_pass"), None))
+        enc_b64 = msg.get("encrypted_credentials", "")
+        encrypted = base64.b64decode(enc_b64) if enc_b64 else None
+        future.set_result((msg.get("real_user"), encrypted, None))
 
 
 def _cancel_pending_auth():

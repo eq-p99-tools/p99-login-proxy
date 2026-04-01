@@ -129,15 +129,36 @@ class WxLogHandler(logging.Handler):
             buf for lvl, buf in self._buffers.items() if lvl >= display_level
         ))
 
-        ctrl.Freeze()
+        # Avoid Freeze/Thaw here: wx.TE_RICH2 on Windows often leaves the viewport
+        # blank until the next paint if frozen while repopulating a large buffer.
         ctrl.Clear()
         for _seq, msg, levelno in merged:
             colour = _LOG_LEVEL_COLORS.get(levelno, wx.Colour(0, 0, 0))
             ctrl.SetDefaultStyle(wx.TextAttr(colour))
             ctrl.AppendText(msg + "\n")
-        ctrl.Thaw()
-        if self._auto_scroll_cb.GetValue():
-            ctrl.ShowPosition(ctrl.GetLastPosition())
+
+        auto = self._auto_scroll_cb.GetValue()
+
+        def _scroll_after_layout() -> None:
+            """Run after layout: RichEdit needs a deferred scroll or the view stays blank."""
+            try:
+                c = self._text_ctrl
+                if not c:
+                    return
+            except RuntimeError:
+                return
+            last = c.GetLastPosition()
+            if auto:
+                c.SetInsertionPointEnd()
+                if last > 0:
+                    c.ShowPosition(last)
+            else:
+                c.SetInsertionPoint(0)
+                c.ShowPosition(0)
+            c.Refresh()
+            c.Update()
+
+        wx.CallAfter(_scroll_after_layout)
 
     def clear_buffer(self):
         """Clear both the display and all backing buffers."""

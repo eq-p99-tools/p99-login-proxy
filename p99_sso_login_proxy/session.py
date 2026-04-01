@@ -173,6 +173,11 @@ class ProxySessionState:
         """
         servers, header_bytes = lp.parse_server_list(
             app_payload)
+        logger.debug(
+            "Unfiltered server list (%d): %s",
+            len(servers),
+            [s.name for s in servers],
+        )
 
         filtered = [
             s for s in servers

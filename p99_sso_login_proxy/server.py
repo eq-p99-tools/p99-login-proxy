@@ -7,7 +7,7 @@ import functools
 import logging
 import time
 
-from p99_sso_login_proxy import config, eq_config, ui, ws_client
+from p99_sso_login_proxy import config, ui, ws_client
 from p99_sso_login_proxy import soe_protocol as soe
 from p99_sso_login_proxy.login_protocol import LoginPacket
 from p99_sso_login_proxy.session import ProxySessionState
@@ -51,6 +51,7 @@ class LoginProxy(asyncio.DatagramProtocol):
         self.last_recv_time = 0.0
         self.session = ProxySessionState()
         self._auth_in_flight = False
+        self._auth_task: asyncio.Task | None = None
         ui.PROXY_STATS.update_status("Initializing")
 
     def session_free(self):
@@ -134,10 +135,10 @@ class LoginProxy(asyncio.DatagramProtocol):
         login: LoginPacket,
         recv_time: float,
     ) -> None:
-        """Perform SSO auth over WebSocket (with HTTP fallback) and forward."""
+        """Perform SSO auth over WebSocket and forward."""
         username = login.username.lower()
         try:
-            new_user, new_pass, error_detail = (
+            new_user, encrypted, error_detail = (
                 await ws_client.request_login_auth(username))
 
             if error_detail:
@@ -147,13 +148,12 @@ class LoginProxy(asyncio.DatagramProtocol):
                 ui.PROXY_STATS.auth_error(
                     username, error_detail)
 
-            if new_user and new_pass:
+            if new_user and encrypted:
                 logger.info(
                     "Auth rewrite successful for %s -> %s",
                     username, new_user)
-                data = login.rewrite_credentials(
-                    new_user, new_pass,
-                    config.ENCRYPTION_KEY, config.iv())
+                data = login.splice_encrypted_credentials(
+                    encrypted)
                 ui.PROXY_STATS.user_login(
                     alias=username,
                     account=new_user,
@@ -176,7 +176,7 @@ class LoginProxy(asyncio.DatagramProtocol):
         recv_time = time.time()
         # debug_write_packet(data, False)
 
-        logger.debug("Received data from client %s", addr)
+        # logger.debug("Received data from client %s", addr)
 
         # Store client address for responses
         self.client_addr = addr
@@ -252,7 +252,7 @@ class LoginProxy(asyncio.DatagramProtocol):
     def handle_server_packet(
         self,
         data: bytes,
-        addr: tuple[str, int],
+        addr: tuple[str, int] | None = None,
         start_index: int = 0,
         length: int | None = None,
     ):
@@ -261,13 +261,14 @@ class LoginProxy(asyncio.DatagramProtocol):
             length = len(data)
         # debug_write_packet(data, True)
         data = bytearray(data)
-        logger.debug(
-            "Received message from login server: %s", data)
+        # logger.debug(
+        #     "Received message from login server: %s", data)
         opcode = soe.get_transport_opcode(data[start_index:])
 
-        logger.debug(
-            "Processing server packet with opcode: %s",
-            soe.transport_name(opcode))
+        if opcode != soe.TransportOp.Fragment:
+            logger.debug(
+                "Processing server packet with opcode: %s",
+                soe.transport_name(opcode))
 
         if opcode == soe.TransportOp.SessionResponse:
             self.in_session = True
@@ -297,7 +298,7 @@ class LoginProxy(asyncio.DatagramProtocol):
                     "Server list packet detected and processed")
 
         elif opcode == soe.TransportOp.Fragment:
-            logger.debug("Processing fragment packet")
+            # logger.debug("Processing fragment packet")
             maybe_server_list = self.session.recv_fragment(
                 data, start_index, length)
             if maybe_server_list is not None:
@@ -308,9 +309,9 @@ class LoginProxy(asyncio.DatagramProtocol):
                     " forwarding to client")
             else:
                 # Don't forward, whole point is to filter this
-                logger.debug(
-                    "Fragment part of server list,"
-                    " not forwarding individually")
+                # logger.debug(
+                #     "Fragment part of server list,"
+                #     " not forwarding individually")
                 return
 
         elif opcode == soe.TransportOp.Ack:
@@ -340,9 +341,9 @@ class LoginProxy(asyncio.DatagramProtocol):
                 "Empty data or no client address,"
                 " not sending to client")
             return
-        logger.debug(
-            "Sending data to client %s: %s",
-            self.client_addr, data)
+        # logger.debug(
+        #     "Sending data to client %s: %s",
+        #     self.client_addr, data)
         self.transport.sendto(data, self.client_addr)
 
     def send_to_loginserver(self, data: bytearray | bytes):
@@ -350,7 +351,7 @@ class LoginProxy(asyncio.DatagramProtocol):
             logger.debug(
                 "Empty data, not sending to loginserver")
             return
-        logger.debug("Sending data to loginserver: %s", data)
+        # logger.debug("Sending data to loginserver: %s", data)
         self.transport.sendto(data, config.EQEMU_ADDR)
 
 

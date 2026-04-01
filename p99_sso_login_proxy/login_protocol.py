@@ -8,8 +8,8 @@ Opcode values confirmed via real P99 Titanium packet captures.
 
 from __future__ import annotations
 
-import struct
 import logging
+import struct
 from dataclasses import dataclass
 from enum import IntEnum
 
@@ -154,7 +154,7 @@ class LoginPacket:
         if not buf.startswith(b"\x00\x03\x04\x00\x15"):
             return None
 
-        if _ACK_END >= len(buf):
+        if len(buf) <= _ACK_END:
             return None
         sub2_len = buf[_ACK_END]
         sub2_start = _ACK_END + 1
@@ -196,17 +196,23 @@ class LoginPacket:
         """Return a new buffer with rewritten credentials."""
         new_enc = encrypt_login_credentials(
             new_user, new_pass, key, iv)
+        return self.splice_encrypted_credentials(new_enc)
 
+    def splice_encrypted_credentials(
+        self,
+        encrypted: bytes,
+    ) -> bytearray:
+        """Return a new buffer with pre-encrypted credentials spliced in."""
         abs_start = self._sub2_offset + self._enc_offset
         abs_end = self._sub2_offset + self._sub2_len
 
         out = bytearray(
             self.buf[:abs_start]
-            + new_enc
+            + encrypted
             + self.buf[abs_end:]
         )
         # Update the sub-packet length byte
-        new_sub_len = self._enc_offset + len(new_enc)
+        new_sub_len = self._enc_offset + len(encrypted)
         out[self._sub2_offset - 1] = new_sub_len
         return out
 
@@ -294,7 +300,7 @@ def parse_server_list(
                 "<II", data[pos:pos + 8])
             pos += 8
         except (struct.error, IndexError, ValueError):
-            logger.warning(
+            logger.debug(
                 "Truncated server entry at offset %d", start)
             break
 
