@@ -315,8 +315,7 @@ class LoginProxy(asyncio.DatagramProtocol):
                 return
 
         elif opcode == soe.TransportOp.Ack:
-            logger.debug("Skipping server ACK packet")
-            return
+            logger.debug("Forwarding server ACK to client")
 
         logger.debug("Forwarding processed packet to client")
         self.send_to_client(data)
