@@ -184,8 +184,8 @@ def _activity_colour(last_login_iso: str | None, base_color: wx.Colour = COLOR_A
     except (ValueError, TypeError):
         return None
     if then.tzinfo is None:
-        then = then.replace(tzinfo=datetime.timezone.utc)
-    elapsed = (datetime.datetime.now(tz=datetime.timezone.utc) - then).total_seconds()
+        then = then.replace(tzinfo=datetime.UTC)
+    elapsed = (datetime.datetime.now(tz=datetime.UTC) - then).total_seconds()
     if elapsed < 0:
         elapsed = 0
     if elapsed >= config.ACTIVITY_FADE_SECONDS:
@@ -496,7 +496,7 @@ class ProxyUI(wx.Frame):
         cache_controls_sizer = wx.BoxSizer(wx.HORIZONTAL)
         cache_info_sizer = wx.BoxSizer(wx.VERTICAL)
 
-        self.ws_status_text = self._add_label_value_row(proxy_tab, cache_info_sizer, "Live Status:", "Connecting...")
+        self.ws_status_text = self._add_label_value_row(proxy_tab, cache_info_sizer, "SSO Service:", "Connecting...")
         self.ws_status_text.SetToolTip("WebSocket connection status for real-time account updates")
 
         self.accounts_cached_text = self._add_label_value_row(proxy_tab, cache_info_sizer, "Accounts:", "0")
@@ -614,7 +614,7 @@ class ProxyUI(wx.Frame):
         sso_notebook.AddPage(accounts_tab, "Accounts")
         sso_notebook.AddPage(aliases_tab, "Aliases")
         sso_notebook.AddPage(tags_tab, "Tags")
-        sso_notebook.AddPage(local_tab, "Local")
+        sso_notebook.AddPage(local_tab, "Local Accounts")
 
         sso_sizer.Add(sso_notebook, 1, wx.ALL | wx.EXPAND, 5)
 
@@ -829,10 +829,7 @@ class ProxyUI(wx.Frame):
         }
         label = method_labels.get(method, method)
 
-        if alias != account:
-            body = f"{alias} \u2192 {account} ({label})"
-        else:
-            body = f"{account} ({label})"
+        body = f"{alias} \u2192 {account} ({label})" if alias != account else f"{account} ({label})"
 
         self.tray_icon.ShowBalloon("Login Proxied", body)
 
@@ -1336,7 +1333,10 @@ class ProxyUI(wx.Frame):
                 level = characters[character].get("level")
                 level_text = str(level) if level is not None else ""
                 is_blocked = bool(active_character) and character != active_character
-                all_characters.append((character, class_text, level_text, park_text, bind_text, account, last_login_by, last_login, is_blocked))
+                all_characters.append(
+                    (character, class_text, level_text, park_text,
+                     bind_text, account, last_login_by, last_login, is_blocked)
+                )
 
         char_rows = [
             (char, klass, lvl, park or "Unknown", bind or "Unknown", acct,
