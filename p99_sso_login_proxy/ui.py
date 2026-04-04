@@ -27,6 +27,30 @@ COLOR_ALT_ROW = wx.Colour(240, 245, 250)
 COLOR_ACTIVE_AMBER = wx.Colour(255, 195, 120)
 COLOR_ACTIVE_BLUE = wx.Colour(130, 170, 255)
 
+# Characters list key columns: wx.ListCtrl plain text — use BMP symbols (not emoji) for reliable display.
+KEY_COLUMN_YES = "\u2713"  # check mark
+KEY_COLUMN_NO = "\u2717"  # ballot X
+
+
+def _characters_tab_key_cell(value: bool | None) -> str:
+    if value is True:
+        return KEY_COLUMN_YES
+    if value is False:
+        return KEY_COLUMN_NO
+    return ""
+
+# SSO sends full CharacterClass enum names; shorten a few for the Characters tab column width
+_CHARACTERS_TAB_CLASS_SHORT = {
+    "Necromancer": "Necro",
+    "ShadowKnight": "SK",
+}
+
+
+def _characters_tab_class_display(klass: str | None) -> str:
+    if not klass:
+        return ""
+    return _CHARACTERS_TAB_CLASS_SHORT.get(klass, klass)
+
 _LOG_LEVEL_COLORS = {
     logging.DEBUG: wx.Colour(128, 128, 128),
     logging.INFO: wx.Colour(0, 0, 0),
@@ -553,13 +577,16 @@ class ProxyUI(wx.Frame):
         self.characters_list = self._create_list_ctrl(
             characters_tab,
             [
-                ("Character", 80),
-                ("Class", 82),
-                ("Level", 40),
-                ("Park Location", 115),
-                ("Bind Location", 115),
+                ("Character", 90),
+                ("Class", 68),
+                ("Lvl", 30),
+                ("ST", 26),
+                ("VP", 26),
+                ("Sb", 26),
+                ("Park Location", 124),
+                ("Bind Location", 124),
+                ("Logged In By", 98),
                 ("Account Name", 100),
-                ("Logged In By", 82),
             ],
         )
         self.characters_list.Bind(wx.EVT_LIST_COL_CLICK, self.on_characters_list_col_click)
@@ -1329,19 +1356,47 @@ class ProxyUI(wx.Frame):
             for character in sorted(characters):
                 bind_text = zone_translate.zonekey_to_zone(characters[character]["bind"])
                 park_text = zone_translate.zonekey_to_zone(characters[character]["park"])
-                class_text = characters[character]["class"]
+                class_text = _characters_tab_class_display(characters[character]["class"])
                 level = characters[character].get("level")
                 level_text = str(level) if level is not None else ""
+                keys_raw = characters[character].get("keys") or {}
+                st_mark = _characters_tab_key_cell(keys_raw.get("st"))
+                vp_mark = _characters_tab_key_cell(keys_raw.get("vp"))
+                seb_mark = _characters_tab_key_cell(keys_raw.get("seb"))
                 is_blocked = bool(active_character) and character != active_character
                 all_characters.append(
-                    (character, class_text, level_text, park_text,
-                     bind_text, account, last_login_by, last_login, is_blocked)
+                    (
+                        character,
+                        class_text,
+                        level_text,
+                        st_mark,
+                        vp_mark,
+                        seb_mark,
+                        park_text,
+                        bind_text,
+                        account,
+                        last_login_by,
+                        last_login,
+                        is_blocked,
+                    )
                 )
 
         char_rows = [
-            (char, klass, lvl, park or "Unknown", bind or "Unknown", acct,
-             login_by if _activity_colour(ll) is not None else "", ll, is_li)
-            for char, klass, lvl, park, bind, acct, login_by, ll, is_li in all_characters
+            (
+                char,
+                klass,
+                lvl,
+                st,
+                vp,
+                sb,
+                park or "Unknown",
+                bind or "Unknown",
+                login_by if _activity_colour(ll) is not None else "",
+                acct,
+                ll,
+                is_li,
+            )
+            for char, klass, lvl, st, vp, sb, park, bind, acct, login_by, ll, is_li in all_characters
         ]
 
         sort_col = self._characters_sort_col
@@ -1351,7 +1406,7 @@ class ProxyUI(wx.Frame):
             self.characters_list,
             char_rows,
             row_color_fn=lambda row: _activity_colour(
-                row[7], COLOR_ACTIVE_BLUE if row[8] else COLOR_ACTIVE_AMBER),
+                row[10], COLOR_ACTIVE_BLUE if row[11] else COLOR_ACTIVE_AMBER),
         )
 
     def update_eq_status(self):
