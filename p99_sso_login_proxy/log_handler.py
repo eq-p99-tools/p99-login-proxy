@@ -9,7 +9,7 @@ import wx
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from p99_sso_login_proxy import config, ws_client, zone_translate
+from p99_sso_login_proxy import config, inventory_parser, ws_client, zone_translate
 
 logger = logging.getLogger("log_handler")
 
@@ -17,6 +17,9 @@ LOG_WATCH_DIRECTORY = None
 LOG_HANDLER = None
 LOG_OBSERVER = None
 LOG_OBSERVER_THREAD = None
+
+INVENTORY_OBSERVER = None
+INVENTORY_OBSERVER_THREAD = None
 
 _current_zone: dict[str, str] = {}  # character_name.lower() -> zonekey
 
@@ -50,8 +53,11 @@ class LogFileHandler(FileSystemEventHandler):
         self._first_event_logged = False
         self.latest_log_file = self.get_latest_log_file()
         if self.latest_log_file and config.USER_API_TOKEN:
-            logger.info("Tracking log file: %s (character: %s)",
-                        self.latest_log_file, _character_from_log_path(self.latest_log_file))
+            logger.info(
+                "Tracking log file: %s (character: %s)",
+                self.latest_log_file,
+                _character_from_log_path(self.latest_log_file),
+            )
             self._seek_to_latest_position()
             self.send_heartbeat()  # Send an initial heartbeat if we've got a logfile
         elif not self.latest_log_file:
@@ -101,12 +107,12 @@ class LogFileHandler(FileSystemEventHandler):
             return
         if not self._first_event_logged:
             self._first_event_logged = True
-            logger.info("First watchdog event received: %s (is_directory=%s)",
-                        event.src_path, event.is_directory)
+            logger.info("First watchdog event received: %s (is_directory=%s)", event.src_path, event.is_directory)
         latest = self.get_latest_log_file()
         if latest != self.latest_log_file:
-            logger.info("Switched to log file: %s (character: %s)",
-                        latest, _character_from_log_path(latest) if latest else "?")
+            logger.info(
+                "Switched to log file: %s (character: %s)", latest, _character_from_log_path(latest) if latest else "?"
+            )
             self.latest_log_file = latest
             self._seek_to_latest_position()
             self.send_heartbeat()
@@ -157,8 +163,50 @@ class LogFileHandler(FileSystemEventHandler):
             _run_async(ws_client.send_update_location(character_name, level=level))
 
 
+def _is_inventory_file_path(path: str) -> bool:
+    return os.path.basename(path).lower().endswith("-inventory.txt")
+
+
+class InventoryFileHandler(FileSystemEventHandler):
+    """Watch EQ root for ``*-Inventory.txt`` writes and report zone keys to the SSO API."""
+
+    def on_created(self, event):
+        self._handle_event(event)
+
+    def on_modified(self, event):
+        self._handle_event(event)
+
+    def _handle_event(self, event):
+        if event.is_directory or not _is_inventory_file_path(event.src_path):
+            return
+        if not config.USER_API_TOKEN:
+            return
+        character_name = inventory_parser.character_name_from_inventory_path(event.src_path)
+        if not character_name or character_name.lower() not in config.CHARACTERS_CACHED:
+            return
+        try:
+            flags = inventory_parser.parse_inventory_file(event.src_path)
+        except Exception:
+            logger.exception("Failed to parse inventory file: %s", event.src_path)
+            return
+        keys = {
+            "seb": flags["key_seb"],
+            "vp": flags["key_vp"],
+            "st": flags["key_st"],
+        }
+        logger.info(
+            "Inventory update for `%s`: seb=%s vp=%s st=%s",
+            character_name,
+            keys["seb"],
+            keys["vp"],
+            keys["st"],
+        )
+        _run_async(ws_client.send_update_location(character_name, keys=keys))
+
+
 def set_log_watch_directory(eq_directory, wx_app):
     global LOG_WATCH_DIRECTORY, LOG_HANDLER, LOG_OBSERVER, LOG_OBSERVER_THREAD
+    global INVENTORY_OBSERVER, INVENTORY_OBSERVER_THREAD
 
     def find_logs_subdir(directory):
         try:
@@ -172,21 +220,29 @@ def set_log_watch_directory(eq_directory, wx_app):
         return None
 
     log_directory = find_logs_subdir(eq_directory)
-    if not log_directory:
+    if log_directory:
+        LOG_WATCH_DIRECTORY = log_directory
+
+        def get_latest_log_file():
+            files = glob.glob(os.path.join(LOG_WATCH_DIRECTORY, "eqlog_*.txt"))
+            return max(files, key=os.path.getmtime) if files else None
+
+        if not LOG_OBSERVER:
+            log_files = glob.glob(os.path.join(LOG_WATCH_DIRECTORY, "eqlog_*.txt"))
+            logger.info("Starting log watcher on: %s (%d log files found)", LOG_WATCH_DIRECTORY, len(log_files))
+            LOG_HANDLER = LogFileHandler(get_latest_log_file, wx_app)
+            LOG_OBSERVER = Observer()
+            LOG_OBSERVER.schedule(LOG_HANDLER, LOG_WATCH_DIRECTORY, recursive=False)
+            LOG_OBSERVER_THREAD = threading.Thread(target=LOG_OBSERVER.start, daemon=True)
+            LOG_OBSERVER_THREAD.start()
+            logger.info("Watchdog observer started (backend: %s)", type(LOG_OBSERVER).__name__)
+    else:
         logger.warning("No Logs subdirectory found in: %s", eq_directory)
-        return
-    LOG_WATCH_DIRECTORY = log_directory
 
-    def get_latest_log_file():
-        files = glob.glob(os.path.join(LOG_WATCH_DIRECTORY, "eqlog_*.txt"))
-        return max(files, key=os.path.getmtime) if files else None
-
-    if not LOG_OBSERVER:
-        log_files = glob.glob(os.path.join(LOG_WATCH_DIRECTORY, "eqlog_*.txt"))
-        logger.info("Starting log watcher on: %s (%d log files found)", LOG_WATCH_DIRECTORY, len(log_files))
-        LOG_HANDLER = LogFileHandler(get_latest_log_file, wx_app)
-        LOG_OBSERVER = Observer()
-        LOG_OBSERVER.schedule(LOG_HANDLER, LOG_WATCH_DIRECTORY, recursive=False)
-        LOG_OBSERVER_THREAD = threading.Thread(target=LOG_OBSERVER.start, daemon=True)
-        LOG_OBSERVER_THREAD.start()
-        logger.info("Watchdog observer started (backend: %s)", type(LOG_OBSERVER).__name__)
+    if not INVENTORY_OBSERVER:
+        inv_handler = InventoryFileHandler()
+        INVENTORY_OBSERVER = Observer()
+        INVENTORY_OBSERVER.schedule(inv_handler, eq_directory, recursive=False)
+        INVENTORY_OBSERVER_THREAD = threading.Thread(target=INVENTORY_OBSERVER.start, daemon=True)
+        INVENTORY_OBSERVER_THREAD.start()
+        logger.info("Inventory file watcher started on: %s", eq_directory)

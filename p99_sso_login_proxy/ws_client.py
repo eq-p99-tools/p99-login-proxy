@@ -53,7 +53,11 @@ async def send_heartbeat(character_name: str):
 
 
 async def send_update_location(
-    character_name: str, park_location: str | None = None, bind_location: str | None = None, level: int | None = None
+    character_name: str,
+    park_location: str | None = None,
+    bind_location: str | None = None,
+    level: int | None = None,
+    keys: dict | None = None,
 ):
     """Send an update_location message over the WebSocket."""
     if _ws and _connected:
@@ -64,6 +68,8 @@ async def send_update_location(
             msg["bind_location"] = bind_location
         if level is not None:
             msg["level"] = level
+        if keys:
+            msg["keys"] = keys
         try:
             await _ws.send(json.dumps(msg))
         except Exception:
@@ -90,11 +96,13 @@ async def request_login_auth(
 
     try:
         await _ws.send(
-            json.dumps({
-                "type": "login_auth",
-                "request_id": request_id,
-                "username": username,
-            })
+            json.dumps(
+                {
+                    "type": "login_auth",
+                    "request_id": request_id,
+                    "username": username,
+                }
+            )
         )
         result = await asyncio.wait_for(future, timeout=config.SSO_TIMEOUT)
         return result
@@ -292,6 +300,7 @@ async def _run(reconnect_requested: asyncio.Event):
                 _ws = ws
                 if eq_config.detect_rustle_ui() and config.WARN_RUSTLE:
                     import wx
+
                     wx.CallAfter(
                         wx.MessageBox,
                         "A modified UI skin with non-standard inventory slots was "
@@ -376,10 +385,12 @@ async def _run(reconnect_requested: asyncio.Event):
 
         except asyncio.CancelledError:
             raise
-        except (websockets.exceptions.InvalidStatus,
-                websockets.exceptions.ConnectionClosedError,
-                ConnectionError,
-                OSError) as exc:
+        except (
+            websockets.exceptions.InvalidStatus,
+            websockets.exceptions.ConnectionClosedError,
+            ConnectionError,
+            OSError,
+        ) as exc:
             logger.info("WebSocket connection lost (%s), reconnecting in %ds", exc, delay)
         except Exception:
             logger.warning("WebSocket disconnected, reconnecting in %ds", delay, exc_info=True)
