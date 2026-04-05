@@ -76,6 +76,51 @@ async def send_update_location(
             logger.debug("Failed to send update_location", exc_info=True)
 
 
+async def send_fte(mob: str, player: str, character_name: str, eq_log_time: str):
+    """Send a first-to-engage line to the SSO API over WebSocket.
+
+    *eq_log_time* is the bracket timestamp from the EQ log (``time`` group).
+    """
+    if _ws and _connected:
+        try:
+            await _ws.send(
+                json.dumps(
+                    {
+                        "type": "fte",
+                        "mob": mob,
+                        "player": player,
+                        "character_name": character_name,
+                        "eq_log_time": eq_log_time,
+                    }
+                )
+            )
+        except Exception:
+            logger.debug("Failed to send fte", exc_info=True)
+
+
+async def send_mob_death(mob: str, eq_log_time: str, character_name: str):
+    """Send a raid-target death line to the SSO API over WebSocket.
+
+    *eq_log_time* is the bracket timestamp from the EQ log (``time`` group), e.g.
+    ``Fri Mar 06 11:13:03 2026``. The server parses it for ``!tod`` and verifies
+    it is near server time.
+    """
+    if _ws and _connected:
+        try:
+            await _ws.send(
+                json.dumps(
+                    {
+                        "type": "mob_death",
+                        "mob": mob,
+                        "eq_log_time": eq_log_time,
+                        "character_name": character_name,
+                    }
+                )
+            )
+        except Exception:
+            logger.debug("Failed to send mob_death", exc_info=True)
+
+
 async def request_login_auth(
     username: str,
 ) -> tuple[str | None, bytes | None, str | None]:
