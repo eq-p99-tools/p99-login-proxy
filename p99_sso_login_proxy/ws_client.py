@@ -19,6 +19,8 @@ _task: asyncio.Task | None = None
 _connected = False
 _auth_failed_detail: str | None = None
 _pending_auth: dict[str, asyncio.Future] = {}
+# character_name.lower() -> last sent update_location payload fields (excl. type)
+_last_sent_location: dict[str, dict[str, object]] = {}
 
 RECONNECT_MIN = 1
 RECONNECT_MAX = 60
@@ -70,10 +72,17 @@ async def send_update_location(
             msg["level"] = level
         if keys:
             msg["keys"] = keys
+        data_fields = {k: v for k, v in msg.items() if k not in ("type", "character_name")}
+        char_key = character_name.lower()
+        prev = _last_sent_location.get(char_key, {})
+        if data_fields and all(prev.get(k) == v for k, v in data_fields.items()):
+            return
         try:
             await _ws.send(json.dumps(msg))
         except Exception:
             logger.debug("Failed to send update_location", exc_info=True)
+        else:
+            _last_sent_location[char_key] = {**prev, **data_fields}
 
 
 async def send_fte(mob: str, player: str, character_name: str, eq_log_time: str):
@@ -443,6 +452,7 @@ async def _run(reconnect_requested: asyncio.Event):
             _ws = None
             _connected = False
             _cancel_pending_auth()
+            _last_sent_location.clear()
             _rebuild_cache({}, [], [])
 
         if auth_error:
