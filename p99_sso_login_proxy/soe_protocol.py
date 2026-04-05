@@ -10,8 +10,8 @@ effectively a no-op.  The logic is retained for completeness.
 
 from __future__ import annotations
 
-import struct
 import logging
+import struct
 from dataclasses import dataclass, field
 from enum import IntEnum
 

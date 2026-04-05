@@ -535,7 +535,7 @@ def _check_dir_for_rustle(dir_path: str) -> bool:
         if not os.path.isfile(filepath):
             continue
         try:
-            with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+            with open(filepath, encoding="utf-8", errors="replace") as f:
                 content = f.read().lower()
             if any(m in content for m in markers):
                 return True
@@ -628,7 +628,7 @@ def ensure_eqclient_log_enabled() -> bool:
         return False
 
     try:
-        with open(eqclient_path, "r", encoding="utf-8", errors="replace") as f:
+        with open(eqclient_path, encoding="utf-8", errors="replace") as f:
             content = f.read()
 
         # Replace any existing Log= line (case-insensitive key, any value)

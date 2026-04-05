@@ -1,3 +1,4 @@
+import contextlib
 import logging
 import platform
 import sys
@@ -223,10 +224,8 @@ class TaskBarIcon:
     def _update_frame_icon(self):
         path = utils.find_resource_path(self._last_icon_filename)
         if path:
-            try:
+            with contextlib.suppress(Exception):
                 self.frame.SetIcon(wx.Icon(path))
-            except Exception:
-                pass
 
     def ShowBalloon(self, title, text):
         if not self._icon:
@@ -273,10 +272,8 @@ class TaskBarIcon:
 
     def RemoveIcon(self):
         if self._icon:
-            try:
+            with contextlib.suppress(Exception):
                 self._icon.stop()
-            except Exception:
-                pass
             self._icon = None
 
     def Destroy(self):

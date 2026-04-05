@@ -16,10 +16,10 @@ diverge, so the proxy must rewrite them in both directions:
 from __future__ import annotations
 
 import logging
-from typing import Callable
+from collections.abc import Callable
 
-from p99_sso_login_proxy import soe_protocol as soe
 from p99_sso_login_proxy import login_protocol as lp
+from p99_sso_login_proxy import soe_protocol as soe
 
 logger = logging.getLogger(__name__)
 

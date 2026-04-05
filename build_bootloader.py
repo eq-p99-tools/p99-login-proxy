@@ -7,9 +7,9 @@ used PyInstaller). Compiling from source produces a unique binary.
 Requirements: a C compiler (MSVC via Visual Studio Build Tools on Windows).
 """
 import os
+import shutil
 import subprocess
 import sys
-import shutil
 import tempfile
 
 PYINSTALLER_REPO = "https://github.com/pyinstaller/pyinstaller.git"

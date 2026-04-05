@@ -256,13 +256,9 @@ class ProxyUI(wx.Frame):
     """Main UI window for the proxy application"""
 
     def __init__(self, parent=None, id=wx.ID_ANY, title=f"{config.APP_NAME} v{config.APP_VERSION}"):
-        if platform.system() == "Windows":
-            style = wx.DEFAULT_FRAME_STYLE & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX)
-            size = (708, 550)
-        else:
-            style = wx.DEFAULT_FRAME_STYLE
-            size = (760, 664)
-        super().__init__(parent, id, title, size=size, style=style)
+        size = (708, 550) if platform.system() == "Windows" else (760, 664)
+        super().__init__(parent, id, title, size=size, style=wx.DEFAULT_FRAME_STYLE)
+        self.SetMinSize((708, 550))
 
         self.exit_event = threading.Event()
         self._list_filter_data = {}
@@ -455,8 +451,7 @@ class ProxyUI(wx.Frame):
         mode_sizer.Add(self.proxy_mode_choice, 0, wx.ALIGN_CENTER_VERTICAL, 0)
         controls_sizer.Add(mode_sizer, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 5)
 
-        aot_spacer_size = 140 if platform.system() == "Windows" else 60
-        controls_sizer.AddSpacer(aot_spacer_size)
+        controls_sizer.AddStretchSpacer(1)
 
         # Always on top checkbox
         self.always_on_top_cb = wx.CheckBox(proxy_tab, label="Always On Top")
