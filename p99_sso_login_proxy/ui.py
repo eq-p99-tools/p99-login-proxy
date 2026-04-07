@@ -58,6 +58,7 @@ from p99_sso_login_proxy.theme import (
     apply_windows_window_frame,
 )
 from p99_sso_login_proxy.ui_classes import local_account_dialog, proxy_stats, taskbar_icon
+from p99_sso_login_proxy.ui_classes.password_visibility import add_password_visibility_toggle
 
 logger = logging.getLogger("ui")
 
@@ -501,11 +502,16 @@ class ProxyUI(QMainWindow):
         token_row = QHBoxLayout()
         token_label = QLabel("API Token:")
         token_label.setFont(QFont(token_label.font().family(), weight=QFont.Weight.Bold))
-        self.api_token_field = QLineEdit()
+        self.api_token_field = QLineEdit(tab)
         self.api_token_field.setEchoMode(QLineEdit.EchoMode.Password)
         self.api_token_field.setText(config.USER_API_TOKEN)
         self.api_token_field.setToolTip(
             "API Token for auto-authentication. When this is set, the password entered in the EQ UI will be ignored."
+        )
+        add_password_visibility_toggle(
+            self.api_token_field,
+            show_tip="Show API token",
+            hide_tip="Hide API token",
         )
         token_row.addWidget(token_label)
         token_row.addWidget(self.api_token_field, 1)
@@ -651,10 +657,22 @@ class ProxyUI(QMainWindow):
         sso_notebook.addTab(local_tab, "Local Accounts")
 
         layout.addWidget(sso_notebook, 1)
+
         self.refresh_accounts_btn = QPushButton("Force Reconnect")
         self.refresh_accounts_btn.clicked.connect(self.on_refresh_account_cache)
         self.refresh_accounts_btn.setToolTip("Disconnect and reconnect to the SSO server for fresh data")
-        layout.addWidget(self.refresh_accounts_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        sso_bottom = QHBoxLayout()
+        sso_accounts_label = QLabel("Accounts:")
+        sso_accounts_label.setFont(QFont(sso_accounts_label.font().family(), weight=QFont.Weight.Bold))
+        self.sso_accounts_cached_text = QLabel("0")
+        self.sso_accounts_cached_text.setStyleSheet(f"color: {COLOR_VALUE_TEXT.name()};")
+        self.sso_accounts_cached_text.setToolTip("Number of accounts, characters, and aliases/tags")
+        sso_bottom.setContentsMargins(12, 6, 12, 0)
+        sso_bottom.addWidget(sso_accounts_label)
+        sso_bottom.addWidget(self.sso_accounts_cached_text, 1)
+        sso_bottom.addWidget(self.refresh_accounts_btn)
+        layout.addLayout(sso_bottom)
 
         notebook.addTab(tab, "SSO")
         return tab
@@ -671,9 +689,9 @@ class ProxyUI(QMainWindow):
         self.eq_dir_text = QLabel("Checking...")
         self.eq_dir_text.setStyleSheet(f"color: {COLOR_VALUE_TEXT.name()};")
         self.browse_eq_btn = QPushButton("Browse\u2026")
-        self.browse_eq_btn.setFixedWidth(70)
+        self.browse_eq_btn.setMinimumWidth(100)
         self.browse_eq_btn.clicked.connect(self.on_browse_eq_directory)
-        self.browse_eq_btn.setToolTip("Select the EverQuest installation directory")
+        self.browse_eq_btn.setToolTip("Browse to eqgame.exe; the install folder is taken from that file's location")
         eq_dir_row.addWidget(eq_dir_label)
         eq_dir_row.addWidget(self.eq_dir_text, 1)
         eq_dir_row.addWidget(self.browse_eq_btn)
@@ -945,18 +963,35 @@ class ProxyUI(QMainWindow):
             ws_client.request_reconnect()
 
     def on_browse_eq_directory(self):
-        chosen = QFileDialog.getExistingDirectory(self, "Select EverQuest Directory", config.EQ_DIRECTORY or "")
-        if chosen:
-            if not eq_config.is_valid_eq_directory(chosen):
-                QMessageBox.warning(
-                    self,
-                    "Invalid Directory",
-                    f"eqgame.exe was not found in:\n{chosen}\n\nPlease select a directory containing eqgame.exe.",
-                )
-            else:
-                config.set_eq_directory(chosen)
-                eq_config.clear_cache()
-                self.update_eq_status()
+        start_dir = config.EQ_DIRECTORY or ""
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select eqgame.exe",
+            start_dir,
+            # Glob only (not full regex): [...] per character matches any listed casing of eqgame.exe.
+            "eqgame.exe ([Ee][Qq][Gg][Aa][Mm][Ee].[Ee][Xx][Ee])",
+            options=QFileDialog.Option.DontUseNativeDialog,
+        )
+        if not path:
+            return
+        if os.path.basename(path).lower() != "eqgame.exe":
+            QMessageBox.warning(
+                self,
+                "Invalid file",
+                "Please select eqgame.exe (the EverQuest client). Other executables are not accepted.",
+            )
+            return
+        chosen = os.path.normpath(os.path.dirname(os.path.abspath(path)))
+        if not eq_config.is_valid_eq_directory(chosen):
+            QMessageBox.warning(
+                self,
+                "Invalid installation",
+                f"Could not use the folder containing:\n{path}",
+            )
+            return
+        config.set_eq_directory(chosen)
+        eq_config.clear_cache()
+        self.update_eq_status()
 
     def on_save_eqhost(self):
         eq_dir = eq_config.find_eq_directory()
@@ -1101,8 +1136,8 @@ class ProxyUI(QMainWindow):
             account_name=account_name,
             password=account_data.get("password", ""),
             aliases=", ".join(account_data.get("aliases", [])),
+            lock_account_name=True,
         )
-        dialog.account_name.setEnabled(False)
 
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
@@ -1174,14 +1209,19 @@ class ProxyUI(QMainWindow):
         if real_accounts == 0:
             self.accounts_cached_text.setText("None")
             self.accounts_cached_text.setStyleSheet(f"color: {COLOR_MUTED.name()};")
+            self.sso_accounts_cached_text.setText("None")
+            self.sso_accounts_cached_text.setStyleSheet(f"color: {COLOR_MUTED.name()};")
         else:
             total_characters = sum(len(data.get("characters", {})) for data in config.ACCOUNTS_CACHED.values())
             total_aliases = sum(len(data.get("aliases", [])) for data in config.ACCOUNTS_CACHED.values())
             unique_tags = len({tag for data in config.ACCOUNTS_CACHED.values() for tag in data.get("tags", [])})
-            self.accounts_cached_text.setText(
+            summary = (
                 f"{real_accounts} accounts, {total_characters} characters, {total_aliases + unique_tags} aliases/tags"
             )
+            self.accounts_cached_text.setText(summary)
             self.accounts_cached_text.setStyleSheet(f"color: {COLOR_SUCCESS.name()};")
+            self.sso_accounts_cached_text.setText(summary)
+            self.sso_accounts_cached_text.setStyleSheet(f"color: {COLOR_SUCCESS.name()};")
 
         local_rows = []
         for account, data in sorted(config.LOCAL_ACCOUNTS.items()):

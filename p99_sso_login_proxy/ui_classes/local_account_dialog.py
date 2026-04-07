@@ -6,11 +6,23 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from p99_sso_login_proxy.theme import COLOR_ALT_ROW, COLOR_MUTED
+from p99_sso_login_proxy.ui_classes.password_visibility import add_password_visibility_toggle
+
 
 class LocalAccountDialog(QDialog):
     """Dialog for adding or editing local accounts"""
 
-    def __init__(self, parent=None, title="Local Account", account_name="", password="", aliases=""):
+    def __init__(
+        self,
+        parent=None,
+        title="Local Account",
+        account_name="",
+        password="",
+        aliases="",
+        *,
+        lock_account_name: bool = False,
+    ):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setModal(True)
@@ -23,10 +35,25 @@ class LocalAccountDialog(QDialog):
         self.account_name = QLineEdit(account_name)
         self.account_name.setPlaceholderText("myaccount1")
         self.account_name.setMinimumWidth(250)
+        if lock_account_name:
+            self.account_name.setReadOnly(True)
+            self.account_name.setToolTip("Account name cannot be changed when editing.")
+            name_font = self.account_name.font()
+            name_font.setItalic(True)
+            self.account_name.setFont(name_font)
+            self.account_name.setStyleSheet(
+                f"background-color: {COLOR_ALT_ROW.name()};"
+                f"color: {COLOR_MUTED.name()};"
+                "border: 1px solid #555;"
+                "border-radius: 3px;"
+                "padding: 2px 6px;"
+            )
 
         self.password = QLineEdit(password)
+        self.password.setEchoMode(QLineEdit.EchoMode.Password)
         self.password.setPlaceholderText("myPassword1")
         self.password.setMinimumWidth(250)
+        add_password_visibility_toggle(self.password)
 
         self.aliases = QLineEdit(aliases)
         self.aliases.setPlaceholderText("alias1, alias2")

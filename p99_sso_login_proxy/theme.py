@@ -21,8 +21,9 @@ COLOR_WARNING = QColor(255, 183, 77)
 COLOR_MUTED = QColor(158, 158, 158)
 COLOR_VALUE_TEXT = QColor(176, 190, 197)
 COLOR_ALT_ROW = QColor(48, 52, 58)
-COLOR_ACTIVE_AMBER = QColor(255, 183, 77)
-COLOR_ACTIVE_BLUE = QColor(100, 181, 246)
+# Character table + legend: muted tints for dark UI (still distinct from stripes / each other)
+COLOR_ACTIVE_AMBER = QColor(130, 88, 42)
+COLOR_ACTIVE_BLUE = QColor(52, 92, 132)
 
 # QTextBrowser changelog surface
 CHANGELOG_BG = "#252526"
