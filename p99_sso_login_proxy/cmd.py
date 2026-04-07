@@ -107,6 +107,7 @@ def _setup_win32_aumid():
     """Set the AUMID and register a Start Menu shortcut so toast
     notifications display our app name and icon."""
     import ctypes
+
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(_AUMID)
 
     try:
@@ -122,33 +123,30 @@ def _setup_win32_aumid():
             return
 
         data_dir = os.path.join(
-            os.environ.get("LOCALAPPDATA",
-                           os.path.expanduser("~")),
+            os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
             "P99LoginProxy",
         )
         os.makedirs(data_dir, exist_ok=True)
         ico_path = os.path.join(data_dir, "icon.ico")
 
         img = Image.open(png_path).convert("RGBA")
-        img.save(ico_path, format="ICO",
-                 sizes=[(s, s) for s in (16, 32, 48, 256)
-                        if s <= img.width])
+        img.save(ico_path, format="ICO", sizes=[(s, s) for s in (16, 32, 48, 256) if s <= img.width])
 
         start_menu = os.path.join(
             os.environ["APPDATA"],
-            "Microsoft", "Windows", "Start Menu",
+            "Microsoft",
+            "Windows",
+            "Start Menu",
             "Programs",
         )
-        lnk_name = (f"{config.APP_NAME}"
-                     f" v{config.APP_VERSION}.lnk")
+        lnk_name = f"{config.APP_NAME} v{config.APP_VERSION}.lnk"
         lnk_path = os.path.join(start_menu, lnk_name)
 
-        for old in glob.glob(
-                os.path.join(start_menu, "P99 Login Proxy*.lnk")):
+        for old in glob.glob(os.path.join(start_menu, "P99 Login Proxy*.lnk")):
             if old != lnk_path:
                 os.remove(old)
 
-        import pythoncom  # noqa: E402 (pywin32)
+        import pythoncom  # noqa: F401  # COM init for win32com (import side effect)
         from win32com.client import Dispatch
         from win32com.propsys import propsys, pscon
 
@@ -156,22 +154,16 @@ def _setup_win32_aumid():
         shortcut = shell.CreateShortCut(lnk_path)
         shortcut.TargetPath = sys.executable
         shortcut.IconLocation = ico_path
-        shortcut.Description = (
-            f"{config.APP_NAME} v{config.APP_VERSION}")
+        shortcut.Description = f"{config.APP_NAME} v{config.APP_VERSION}"
         shortcut.save()
 
-        store = propsys.SHGetPropertyStoreFromParsingName(
-            lnk_path, None, 0x2,
-            propsys.IID_IPropertyStore)
-        store.SetValue(
-            pscon.PKEY_AppUserModel_ID,
-            propsys.PROPVARIANTType(_AUMID))
+        store = propsys.SHGetPropertyStoreFromParsingName(lnk_path, None, 0x2, propsys.IID_IPropertyStore)
+        store.SetValue(pscon.PKEY_AppUserModel_ID, propsys.PROPVARIANTType(_AUMID))
         store.Commit()
 
         logger.info("Notification shortcut: %s", lnk_path)
     except Exception:
-        logger.debug("Could not create notification shortcut",
-                     exc_info=True)
+        logger.debug("Could not create notification shortcut", exc_info=True)
 
 
 def main():
@@ -207,7 +199,7 @@ def main():
     else:
         main_window.start_eq_func = start_eq_linux
 
-    # Check for updates on startup
+    # Check for updates on startup; daily at noon is handled by update_scheduler
     try:
         updater.check_update()
     except Exception:

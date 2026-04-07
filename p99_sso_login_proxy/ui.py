@@ -9,7 +9,7 @@ from heapq import merge as _heapmerge
 import wx
 import wx.html
 
-from p99_sso_login_proxy import config, eq_config, log_handler, utils, ws_client, zone_translate
+from p99_sso_login_proxy import config, eq_config, log_handler, update_scheduler, utils, ws_client, zone_translate
 from p99_sso_login_proxy.ui_classes import local_account_dialog, proxy_stats, taskbar_icon
 
 logger = logging.getLogger("ui")
@@ -39,6 +39,7 @@ def _characters_tab_key_cell(value: bool | None) -> str:
         return KEY_COLUMN_NO
     return ""
 
+
 # SSO sends full CharacterClass enum names; shorten a few for the Characters tab column width
 _CHARACTERS_TAB_CLASS_SHORT = {
     "Necromancer": "Necro",
@@ -50,6 +51,7 @@ def _characters_tab_class_display(klass: str | None) -> str:
     if not klass:
         return ""
     return _CHARACTERS_TAB_CLASS_SHORT.get(klass, klass)
+
 
 _LOG_LEVEL_COLORS = {
     logging.DEBUG: wx.Colour(128, 128, 128),
@@ -74,8 +76,7 @@ class WxLogHandler(logging.Handler):
     MAX_DISPLAY_CHARS = 500_000
     _LEVELS = (logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR, logging.CRITICAL)
 
-    def __init__(self, text_ctrl: wx.TextCtrl, auto_scroll_cb: wx.CheckBox,
-                 level_choice: wx.Choice):
+    def __init__(self, text_ctrl: wx.TextCtrl, auto_scroll_cb: wx.CheckBox, level_choice: wx.Choice):
         super().__init__(level=logging.DEBUG)
         self._text_ctrl = text_ctrl
         self._auto_scroll_cb = auto_scroll_cb
@@ -84,10 +85,12 @@ class WxLogHandler(logging.Handler):
             lvl: deque(maxlen=self.MAX_PER_LEVEL) for lvl in self._LEVELS
         }
         self._seq = 0
-        self.setFormatter(logging.Formatter(
-            "%(asctime)s [%(levelname)-8s] %(name)s: %(message)s",
-            datefmt="%H:%M:%S",
-        ))
+        self.setFormatter(
+            logging.Formatter(
+                "%(asctime)s [%(levelname)-8s] %(name)s: %(message)s",
+                datefmt="%H:%M:%S",
+            )
+        )
 
     @property
     def _display_level(self) -> int:
@@ -149,9 +152,7 @@ class WxLogHandler(logging.Handler):
             return
 
         display_level = self._display_level
-        merged = _heapmerge(*(
-            buf for lvl, buf in self._buffers.items() if lvl >= display_level
-        ))
+        merged = _heapmerge(*(buf for lvl, buf in self._buffers.items() if lvl >= display_level))
 
         # Avoid Freeze/Thaw here: wx.TE_RICH2 on Windows often leaves the viewport
         # blank until the next paint if frozen while repopulating a large buffer.
@@ -289,6 +290,8 @@ class ProxyUI(wx.Frame):
         self._char_fade_timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self._on_char_fade_tick, self._char_fade_timer)
         self._char_fade_timer.Start(10000)
+
+        update_scheduler.start()
 
         self.set_icon()
 
@@ -868,6 +871,8 @@ class ProxyUI(wx.Frame):
 
     def close_application(self):
         """Actually close the application"""
+        update_scheduler.shutdown()
+
         if hasattr(self, "_log_handler"):
             logging.getLogger().removeHandler(self._log_handler)
 
@@ -1287,22 +1292,11 @@ class ProxyUI(wx.Frame):
             self.accounts_cached_text.SetLabel("None")
             self.accounts_cached_text.SetForegroundColour(COLOR_MUTED)
         else:
-            total_characters = sum(
-                len(data.get("characters", {}))
-                for data in config.ACCOUNTS_CACHED.values()
-            )
-            total_aliases = sum(
-                len(data.get("aliases", []))
-                for data in config.ACCOUNTS_CACHED.values()
-            )
-            unique_tags = len({
-                tag
-                for data in config.ACCOUNTS_CACHED.values()
-                for tag in data.get("tags", [])
-            })
+            total_characters = sum(len(data.get("characters", {})) for data in config.ACCOUNTS_CACHED.values())
+            total_aliases = sum(len(data.get("aliases", [])) for data in config.ACCOUNTS_CACHED.values())
+            unique_tags = len({tag for data in config.ACCOUNTS_CACHED.values() for tag in data.get("tags", [])})
             self.accounts_cached_text.SetLabel(
-                f"{real_accounts} accounts, {total_characters} characters, "
-                f"{total_aliases + unique_tags} aliases/tags"
+                f"{real_accounts} accounts, {total_characters} characters, {total_aliases + unique_tags} aliases/tags"
             )
             self.accounts_cached_text.SetForegroundColour(COLOR_SUCCESS)
 
@@ -1400,8 +1394,7 @@ class ProxyUI(wx.Frame):
         self._populate_list(
             self.characters_list,
             char_rows,
-            row_color_fn=lambda row: _activity_colour(
-                row[10], COLOR_ACTIVE_BLUE if row[11] else COLOR_ACTIVE_AMBER),
+            row_color_fn=lambda row: _activity_colour(row[10], COLOR_ACTIVE_BLUE if row[11] else COLOR_ACTIVE_AMBER),
         )
 
     def update_eq_status(self):

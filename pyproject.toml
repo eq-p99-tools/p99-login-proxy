@@ -48,6 +48,7 @@ dependencies = [
     "watchdog>=6.0.0",
     "httpx>=0.28.1",
     "websockets>=13.0",
+    "apscheduler>=3.10.0,<4",
 ]
 
 [project.scripts]
