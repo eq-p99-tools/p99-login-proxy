@@ -31,6 +31,19 @@ COLOR_ACTIVE_BLUE = wx.Colour(130, 170, 255)
 KEY_COLUMN_YES = "\u2713"  # check mark
 KEY_COLUMN_NO = "\u2717"  # ballot X
 
+# Characters list: ST, VP, Sb columns (indices 3-5); sort by logical key state, not Unicode order.
+_KEY_COLUMNS = frozenset({3, 4, 5})
+_KEY_SORT_ORDER = {KEY_COLUMN_YES: 0, KEY_COLUMN_NO: 1, "": 2}
+# Search filter: stkey / vpkey / sebkey match only characters with that key (checkmark); no substring OR.
+_KEY_FILTER_TERMS = {"stkey": 3, "vpkey": 4, "sebkey": 5}
+# Substring filter skips these columns (Logged In By, Account Name).
+_CHARACTERS_FILTER_SKIP_COLS = frozenset({8, 9})
+
+
+def _characters_key_term_match(row: tuple, term: str) -> bool:
+    col = _KEY_FILTER_TERMS.get(term)
+    return col is not None and row[col] == KEY_COLUMN_YES
+
 
 def _characters_tab_key_cell(value: bool | None) -> str:
     if value is True:
@@ -350,20 +363,31 @@ class ProxyUI(wx.Frame):
         """Re-render a list applying the current search filter.
 
         Each whitespace-separated word acts as a stacking filter: a row must
-        match every word (in any column) to be included.
+        match every word (in any column) to be included. Optional
+        filter_skip_columns excludes column indices from substring matching.
         """
         data = self._list_filter_data[list_ctrl]
         num_cols = list_ctrl.GetColumnCount()
         row_color_fn = data.get("row_color_fn")
+        term_match_fn = data.get("term_match_fn")
+        skip_cols = data.get("filter_skip_columns") or frozenset()
         terms = data["search"].GetValue().lower().split()
         if not terms:
             self._render_list(list_ctrl, data["rows"], row_color_fn)
         else:
-            filtered = [
-                row
-                for row in data["rows"]
-                if all(any(term in cell.lower() for cell in row[:num_cols]) for term in terms)
-            ]
+
+            def matches(row, t):
+                if term_match_fn and t in _KEY_FILTER_TERMS:
+                    return term_match_fn(row, t)
+                if any(
+                    t in str(row[i]).lower()
+                    for i in range(num_cols)
+                    if i not in skip_cols and i < len(row)
+                ):
+                    return True
+                return term_match_fn(row, t) if term_match_fn else False
+
+            filtered = [row for row in data["rows"] if all(matches(row, t) for t in terms)]
             self._render_list(list_ctrl, filtered, row_color_fn)
 
     def _add_search_ctrl(self, parent, sizer, list_ctrl):
@@ -591,6 +615,8 @@ class ProxyUI(wx.Frame):
         self._characters_sort_col = 1
         self._characters_sort_asc = True
         search_ctrl = self._add_search_ctrl(characters_tab, characters_sizer, self.characters_list)
+        self._list_filter_data[self.characters_list]["term_match_fn"] = _characters_key_term_match
+        self._list_filter_data[self.characters_list]["filter_skip_columns"] = _CHARACTERS_FILTER_SKIP_COLS
         characters_sizer.Detach(search_ctrl)
 
         search_row = wx.BoxSizer(wx.HORIZONTAL)
@@ -1390,7 +1416,10 @@ class ProxyUI(wx.Frame):
 
         sort_col = self._characters_sort_col
         sort_asc = self._characters_sort_asc
-        char_rows.sort(key=lambda x: ((x[sort_col] or ""), x[0]), reverse=not sort_asc)
+        if sort_col in _KEY_COLUMNS:
+            char_rows.sort(key=lambda x: (_KEY_SORT_ORDER.get(x[sort_col], 2), x[0]), reverse=not sort_asc)
+        else:
+            char_rows.sort(key=lambda x: ((x[sort_col] or ""), x[0]), reverse=not sort_asc)
         self._populate_list(
             self.characters_list,
             char_rows,
