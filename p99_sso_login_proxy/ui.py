@@ -379,11 +379,7 @@ class ProxyUI(wx.Frame):
             def matches(row, t):
                 if term_match_fn and t in _KEY_FILTER_TERMS:
                     return term_match_fn(row, t)
-                if any(
-                    t in str(row[i]).lower()
-                    for i in range(num_cols)
-                    if i not in skip_cols and i < len(row)
-                ):
+                if any(t in str(row[i]).lower() for i in range(num_cols) if i not in skip_cols and i < len(row)):
                     return True
                 return term_match_fn(row, t) if term_match_fn else False
 
