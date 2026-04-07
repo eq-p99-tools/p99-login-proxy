@@ -61,6 +61,7 @@ packages = ["p99_sso_login_proxy"]
 [project.optional-dependencies]
 dev = [
     "pyinstaller>=6.13.0",
+    "Pillow>=10.0",
     "ruff",
     "tox",
 ]

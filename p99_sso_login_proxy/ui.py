@@ -8,7 +8,7 @@ from collections import deque
 from heapq import merge as _heapmerge
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QBrush, QCloseEvent, QColor, QFont, QTextCharFormat, QTextCursor
+from PySide6.QtGui import QBrush, QCloseEvent, QColor, QFont, QShowEvent, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -42,6 +42,21 @@ from p99_sso_login_proxy import (
     ws_client,
     zone_translate,
 )
+from p99_sso_login_proxy.theme import (
+    CHANGELOG_BG,
+    CHANGELOG_FG,
+    COLOR_ACTIVE_AMBER,
+    COLOR_ACTIVE_BLUE,
+    COLOR_ALT_ROW,
+    COLOR_DARK_RED,
+    COLOR_ERROR,
+    COLOR_MUTED,
+    COLOR_SUCCESS,
+    COLOR_VALUE_TEXT,
+    COLOR_WARNING,
+    LOG_LEVEL_COLORS,
+    apply_windows_window_frame,
+)
 from p99_sso_login_proxy.ui_classes import local_account_dialog, proxy_stats, taskbar_icon
 
 logger = logging.getLogger("ui")
@@ -49,18 +64,8 @@ logger = logging.getLogger("ui")
 # Set in start_ui() after QApplication exists (required for QObject-based ProxyStats).
 PROXY_STATS: proxy_stats.ProxyStats | None = None
 
-COLOR_SUCCESS = QColor(0, 128, 0)
-COLOR_ERROR = QColor(255, 0, 0)
-COLOR_DARK_RED = QColor(128, 0, 0)
-COLOR_WARNING = QColor(255, 130, 0)
-COLOR_MUTED = QColor(128, 128, 128)
-COLOR_VALUE_TEXT = QColor(44, 62, 80)
-COLOR_ALT_ROW = QColor(240, 245, 250)
-COLOR_ACTIVE_AMBER = QColor(255, 195, 120)
-COLOR_ACTIVE_BLUE = QColor(130, 170, 255)
-
-KEY_COLUMN_YES = "\u2713"
-KEY_COLUMN_NO = "\u2717"
+KEY_COLUMN_YES = "\u2705"  # ✅ green check (emoji)
+KEY_COLUMN_NO = "\u274c"  # ❌ red X (emoji)
 
 _KEY_COLUMNS = frozenset({3, 4, 5})
 _KEY_SORT_ORDER = {KEY_COLUMN_YES: 0, KEY_COLUMN_NO: 1, "": 2}
@@ -92,14 +97,6 @@ def _characters_tab_class_display(klass: str | None) -> str:
         return ""
     return _CHARACTERS_TAB_CLASS_SHORT.get(klass, klass)
 
-
-_LOG_LEVEL_COLORS = {
-    logging.DEBUG: QColor(128, 128, 128),
-    logging.INFO: QColor(0, 0, 0),
-    logging.WARNING: QColor(200, 120, 0),
-    logging.ERROR: QColor(220, 0, 0),
-    logging.CRITICAL: QColor(160, 0, 0),
-}
 
 _LOG_LEVEL_NAMES = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
@@ -175,7 +172,7 @@ class QtLogHandler(logging.Handler):
     def _write_line(self, msg: str, levelno: int):
         ctrl = self._text_edit
         auto = self._auto_scroll_cb.isChecked()
-        colour = _LOG_LEVEL_COLORS.get(levelno, QColor(0, 0, 0))
+        colour = LOG_LEVEL_COLORS.get(levelno, LOG_LEVEL_COLORS[logging.INFO])
 
         cursor = ctrl.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
@@ -197,7 +194,7 @@ class QtLogHandler(logging.Handler):
 
         ctrl.clear()
         for _seq, msg, levelno in merged:
-            colour = _LOG_LEVEL_COLORS.get(levelno, QColor(0, 0, 0))
+            colour = LOG_LEVEL_COLORS.get(levelno, LOG_LEVEL_COLORS[logging.INFO])
             cursor = ctrl.textCursor()
             cursor.movePosition(QTextCursor.MoveOperation.End)
             fmt = QTextCharFormat()
@@ -321,6 +318,12 @@ class ProxyUI(QMainWindow):
             ws_sig.cache_updated.connect(self._on_ws_status_tick)
             ws_sig.rustle_ui_warning.connect(self._on_rustle_ui_warning)
 
+    def showEvent(self, event: QShowEvent):
+        super().showEvent(event)
+        if platform.system() == "Windows" and not getattr(self, "_windows_frame_applied", False):
+            self._windows_frame_applied = True
+            apply_windows_window_frame(self)
+
     def nativeEvent(self, eventType, message):
         if platform.system() == "Windows" and eventType == b"windows_generic_MSG":
             try:
@@ -417,7 +420,10 @@ class ProxyUI(QMainWindow):
         for i, (name, width) in enumerate(columns):
             table.setHorizontalHeaderItem(i, QTableWidgetItem(name))
             table.setColumnWidth(i, width)
-        table.horizontalHeader().setStretchLastSection(True)
+        hh = table.horizontalHeader()
+        hh.setStretchLastSection(True)
+        hh.setFixedHeight(22)
+        table.verticalHeader().setVisible(False)
         table.setAlternatingRowColors(False)
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
@@ -750,10 +756,6 @@ class ProxyUI(QMainWindow):
         self.setCentralWidget(central)
         main_layout = QVBoxLayout(central)
 
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        main_layout.addWidget(line)
-
         notebook = QTabWidget()
         self._create_proxy_tab(notebook)
         self._create_sso_tab(notebook)
@@ -927,7 +929,7 @@ class ProxyUI(QMainWindow):
 
     def on_updated_changelog(self):
         self.changelog_html.setHtml(config.CHANGELOG)
-        self.changelog_html.setStyleSheet("background-color: #f9f9f9;")
+        self.changelog_html.setStyleSheet(f"background-color: {CHANGELOG_BG}; color: {CHANGELOG_FG};")
 
     def on_sso_api_changed(self, _index=None):
         idx = self.sso_api_choice.currentIndex()

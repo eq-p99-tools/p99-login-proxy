@@ -7,7 +7,7 @@ import threading
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
-from p99_sso_login_proxy import log_handler, server, ui, updater, ws_client
+from p99_sso_login_proxy import log_handler, server, theme, ui, updater, ws_client
 
 logger = logging.getLogger("cmd")
 
@@ -168,6 +168,7 @@ def _setup_win32_aumid():
 
 def main():
     qt_app = QtAsyncApp(sys.argv)
+    theme.apply_dark_theme(qt_app)
 
     if platform.system() == "Windows":
         _setup_win32_aumid()
