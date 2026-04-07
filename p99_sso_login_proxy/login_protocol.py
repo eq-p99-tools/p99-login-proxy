@@ -41,9 +41,7 @@ class AppOp(IntEnum):
     Poll = 0x0029
 
 
-APP_OPCODE_NAMES: dict[int, str] = {
-    op.value: op.name for op in AppOp
-}
+APP_OPCODE_NAMES: dict[int, str] = {op.value: op.name for op in AppOp}
 
 
 def get_app_opcode(app_payload: bytes) -> int:
@@ -96,8 +94,7 @@ LOGIN_BASE_SIZE = 10
 
 
 def parse_login_base(data: bytes) -> dict:
-    seq, compressed, enc_type, unk3 = struct.unpack(
-        "<iBbI", data[:LOGIN_BASE_SIZE])
+    seq, compressed, enc_type, unk3 = struct.unpack("<iBbI", data[:LOGIN_BASE_SIZE])
     return {
         "sequence": seq,
         "compressed": compressed,
@@ -119,9 +116,9 @@ def parse_login_base(data: bytes) -> dict:
 #   <LoginBaseMessage 10 bytes>
 #   <DES-encrypted credentials>
 # ---------------------------------------------------------------------------
-_ACK_END = 2 + 1 + 4           # Combined(2) + len(1) + ACK(4) = 7
-_LOGIN_SUB_HEADER = 4 + 2      # OP_Packet(2) + seq(2) + app_op(2) = 6
-_ENC_OFFSET = _LOGIN_SUB_HEADER + LOGIN_BASE_SIZE   # 16
+_ACK_END = 2 + 1 + 4  # Combined(2) + len(1) + ACK(4) = 7
+_LOGIN_SUB_HEADER = 4 + 2  # OP_Packet(2) + seq(2) + app_op(2) = 6
+_ENC_OFFSET = _LOGIN_SUB_HEADER + LOGIN_BASE_SIZE  # 16
 
 
 @dataclass
@@ -131,6 +128,7 @@ class LoginPacket:
     Use ``LoginPacket.parse(buf)`` to try parsing; returns ``None``
     if *buf* is not a Combined(ACK + Login).
     """
+
     buf: bytearray
     username: str
     password: str
@@ -159,14 +157,13 @@ class LoginPacket:
         sub2_len = buf[_ACK_END]
         sub2_start = _ACK_END + 1
 
-        if (sub2_start + sub2_len > len(buf)
-                or sub2_len < _LOGIN_SUB_HEADER):
+        if sub2_start + sub2_len > len(buf) or sub2_len < _LOGIN_SUB_HEADER:
             return None
 
-        sub2 = buf[sub2_start:sub2_start + sub2_len]
+        sub2 = buf[sub2_start : sub2_start + sub2_len]
 
         transport_op = struct.unpack(">H", sub2[:2])[0]
-        if transport_op != 0x0009:   # OP_Packet
+        if transport_op != 0x0009:  # OP_Packet
             return None
         app_op = struct.unpack("<H", sub2[4:6])[0]
         if app_op != AppOp.Login:
@@ -175,8 +172,7 @@ class LoginPacket:
         if len(sub2) <= _ENC_OFFSET:
             return None
         encrypted = sub2[_ENC_OFFSET:]
-        username, password = _decrypt_credentials(
-            encrypted, key, iv)
+        username, password = _decrypt_credentials(encrypted, key, iv)
 
         return cls(
             buf=buf,
@@ -194,8 +190,7 @@ class LoginPacket:
         iv: bytes = DES_IV,
     ) -> bytearray:
         """Return a new buffer with rewritten credentials."""
-        new_enc = encrypt_login_credentials(
-            new_user, new_pass, key, iv)
+        new_enc = encrypt_login_credentials(new_user, new_pass, key, iv)
         return self.splice_encrypted_credentials(new_enc)
 
     def splice_encrypted_credentials(
@@ -206,11 +201,7 @@ class LoginPacket:
         abs_start = self._sub2_offset + self._enc_offset
         abs_end = self._sub2_offset + self._sub2_len
 
-        out = bytearray(
-            self.buf[:abs_start]
-            + encrypted
-            + self.buf[abs_end:]
-        )
+        out = bytearray(self.buf[:abs_start] + encrypted + self.buf[abs_end:])
         # Update the sub-packet length byte
         new_sub_len = self._enc_offset + len(encrypted)
         out[self._sub2_offset - 1] = new_sub_len
@@ -228,10 +219,7 @@ def _decrypt_credentials(
     decrypted = des_decrypt(encrypted, key, iv)
     parts = decrypted.rstrip(b"\x00").split(b"\x00")
     username = parts[0].decode("ascii", errors="replace")
-    password = (
-        parts[1].decode("ascii", errors="replace")
-        if len(parts) > 1 else ""
-    )
+    password = parts[1].decode("ascii", errors="replace") if len(parts) > 1 else ""
     return username, password
 
 
@@ -242,10 +230,7 @@ def encrypt_login_credentials(
     iv: bytes = DES_IV,
 ) -> bytes:
     """Encrypt ``user\\0pass\\0`` for a Login packet payload."""
-    plaintext = (
-        username.encode() + b"\x00"
-        + password.encode() + b"\x00"
-    )
+    plaintext = username.encode() + b"\x00" + password.encode() + b"\x00"
     return des_encrypt(plaintext, key, iv)
 
 
@@ -255,6 +240,7 @@ def encrypt_login_credentials(
 @dataclass
 class ServerEntry:
     """A single server in the OP_ServerListResponse."""
+
     ip: str
     list_id: int
     runtime_id: int
@@ -263,7 +249,7 @@ class ServerEntry:
     region: str
     status: int
     player_count: int
-    raw: bytes          # original wire bytes for passthrough
+    raw: bytes  # original wire bytes for passthrough
 
 
 def parse_server_list(
@@ -287,8 +273,7 @@ def parse_server_list(
         try:
             ip = _read_cstr(data, pos)
             pos += len(ip) + 1
-            list_id, runtime_id = struct.unpack(
-                "<II", data[pos:pos + 8])
+            list_id, runtime_id = struct.unpack("<II", data[pos : pos + 8])
             pos += 8
             name = _read_cstr(data, pos)
             pos += len(name) + 1
@@ -296,25 +281,25 @@ def parse_server_list(
             pos += len(language) + 1
             region = _read_cstr(data, pos)
             pos += len(region) + 1
-            status, player_count = struct.unpack(
-                "<II", data[pos:pos + 8])
+            status, player_count = struct.unpack("<II", data[pos : pos + 8])
             pos += 8
         except (struct.error, IndexError, ValueError):
-            logger.debug(
-                "Truncated server entry at offset %d", start)
+            logger.debug("Truncated server entry at offset %d", start)
             break
 
-        servers.append(ServerEntry(
-            ip=ip,
-            list_id=list_id,
-            runtime_id=runtime_id,
-            name=name,
-            language=language,
-            region=region,
-            status=status,
-            player_count=player_count,
-            raw=bytes(data[start:pos]),
-        ))
+        servers.append(
+            ServerEntry(
+                ip=ip,
+                list_id=list_id,
+                runtime_id=runtime_id,
+                name=name,
+                language=language,
+                region=region,
+                status=status,
+                player_count=player_count,
+                raw=bytes(data[start:pos]),
+            )
+        )
 
     return servers, header_bytes
 
@@ -330,10 +315,7 @@ def build_server_list_response(
     """
     count = struct.pack("<I", len(servers))
     entries = b"".join(srv.raw for srv in servers)
-    return (
-        struct.pack("<H", AppOp.ServerListResponse)
-        + header_bytes + count + entries
-    )
+    return struct.pack("<H", AppOp.ServerListResponse) + header_bytes + count + entries
 
 
 def _read_cstr(data: bytes, offset: int) -> str:

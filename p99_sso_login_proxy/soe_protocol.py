@@ -114,7 +114,7 @@ def build_combined(sub_packets: list[bytes]) -> bytes:
     for sub in sub_packets:
         slen = len(sub)
         if slen >= 0xFF:
-            body += b"\xFF" + struct.pack(">H", slen) + sub
+            body += b"\xff" + struct.pack(">H", slen) + sub
         else:
             body += struct.pack("B", slen) + sub
     return struct.pack(">H", TransportOp.Combined) + body
@@ -165,11 +165,11 @@ def parse_combined(data: bytes) -> list[bytes]:
         sublen = data[pos]
         pos += 1
         if sublen == 0xFF and pos + 2 <= length:
-            sublen = struct.unpack(">H", data[pos:pos + 2])[0]
+            sublen = struct.unpack(">H", data[pos : pos + 2])[0]
             pos += 2
         if sublen == 0 or pos + sublen > length:
             break
-        subs.append(bytes(data[pos:pos + sublen]))
+        subs.append(bytes(data[pos : pos + sublen]))
         pos += sublen
     return subs
 
@@ -190,9 +190,10 @@ class CombinedPacket:
     @dataclass
     class SubPacket:
         """One sub-packet inside a Combined."""
-        offset: int         # absolute offset in the buffer
+
+        offset: int  # absolute offset in the buffer
         length: int
-        transport_op: int   # the 2-byte BE opcode of this sub
+        transport_op: int  # the 2-byte BE opcode of this sub
 
     buf: bytearray | bytes
     start: int = 0
@@ -216,19 +217,14 @@ class CombinedPacket:
             sublen = buf[pos]
             pos += 1
             if sublen == 0xFF and pos + 2 <= end:
-                sublen = int.from_bytes(
-                    buf[pos:pos + 2], "big")
+                sublen = int.from_bytes(buf[pos : pos + 2], "big")
                 pos += 2
             if sublen == 0 or pos + sublen > end:
                 break
-            op = struct.unpack(">H", buf[pos:pos + 2])[0]
-            subs.append(cls.SubPacket(
-                offset=pos, length=sublen,
-                transport_op=op))
+            op = struct.unpack(">H", buf[pos : pos + 2])[0]
+            subs.append(cls.SubPacket(offset=pos, length=sublen, transport_op=op))
             pos += sublen
-        return cls(
-            buf=buf, start=start_index,
-            end=end, subs=subs)
+        return cls(buf=buf, start=start_index, end=end, subs=subs)
 
     def __iter__(self):
         return iter(self.subs)
@@ -238,8 +234,7 @@ class CombinedPacket:
 
     def sub_bytes(self, sub: SubPacket) -> bytes:
         """Return the raw bytes of a sub-packet."""
-        return bytes(
-            self.buf[sub.offset:sub.offset + sub.length])
+        return bytes(self.buf[sub.offset : sub.offset + sub.length])
 
 
 def get_app_payload(packet: bytes) -> tuple[int, bytes]:
@@ -250,7 +245,7 @@ def get_app_payload(packet: bytes) -> tuple[int, bytes]:
 
 def get_sequence(data: bytes, offset: int = 0) -> int:
     """Read the 2-byte big-endian sequence from an OP_Packet or OP_Fragment."""
-    return struct.unpack(">H", data[offset + 2:offset + 4])[0]
+    return struct.unpack(">H", data[offset + 2 : offset + 4])[0]
 
 
 def set_sequence(data: bytearray, offset: int, seq: int) -> None:
@@ -261,9 +256,9 @@ def set_sequence(data: bytearray, offset: int, seq: int) -> None:
 # ---------------------------------------------------------------------------
 # Fragment constants
 # ---------------------------------------------------------------------------
-FIRST_FRAG_OVERHEAD = 8   # opcode(2) + seq(2) + total_len(4)
+FIRST_FRAG_OVERHEAD = 8  # opcode(2) + seq(2) + total_len(4)
 SUBSEQUENT_FRAG_OVERHEAD = 4  # opcode(2) + seq(2)
-FIRST_FRAG_HEADER = 10   # opcode(2) + seq(2) + total_len(4) + app_opcode(2)
+FIRST_FRAG_HEADER = 10  # opcode(2) + seq(2) + total_len(4) + app_opcode(2)
 
 
 def parse_first_fragment_header(data: bytes) -> dict:
@@ -305,7 +300,7 @@ def build_fragments(
     pos = first_capacity
     seq = start_seq + 1
     while pos < total_len:
-        chunk = app_payload[pos:pos + subsequent_capacity]
+        chunk = app_payload[pos : pos + subsequent_capacity]
         hdr = struct.pack(">HH", TransportOp.Fragment, seq)
         frags.append(hdr + chunk)
         pos += subsequent_capacity
@@ -354,14 +349,13 @@ class FragmentAssembler:
             self.fragments[seq] = frag_data
             self._accumulated += len(frag_data)
 
-        if (self.total_len is not None
-                and self._accumulated >= self.total_len):
+        if self.total_len is not None and self._accumulated >= self.total_len:
             return self._reassemble()
         return None
 
     def _reassemble(self) -> bytes:
         ordered = sorted(self.fragments.items())
-        return b"".join(d for _, d in ordered)[:self.total_len]
+        return b"".join(d for _, d in ordered)[: self.total_len]
 
     def reset(self):
         self.fragments.clear()

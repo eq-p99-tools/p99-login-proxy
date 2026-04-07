@@ -26,14 +26,8 @@ def debug_write_packet(buf: bytes, login_to_client):
             remaining -= 64
         else:
             print_chars = remaining
-        hex_part = " ".join(
-            f"{x:02x}".upper()
-            for x in buf[i:i + print_chars]
-        )
-        ascii_part = "".join(
-            chr(x) if 32 <= x < 127 else "."
-            for x in buf[i:i + print_chars]
-        )
+        hex_part = " ".join(f"{x:02x}".upper() for x in buf[i : i + print_chars])
+        ascii_part = "".join(chr(x) if 32 <= x < 127 else "." for x in buf[i : i + print_chars])
         lines.append(f"{hex_part}  {ascii_part}")
     logger.debug("\n".join(lines))
 
@@ -81,7 +75,9 @@ class LoginProxy(asyncio.DatagramProtocol):
         )
 
     def _try_sync_rewrite(
-        self, buf: bytearray, login: LoginPacket,
+        self,
+        buf: bytearray,
+        login: LoginPacket,
     ) -> tuple[bytearray, str | None]:
         """Handle non-SSO credential rewrites synchronously.
 
@@ -92,39 +88,23 @@ class LoginProxy(asyncio.DatagramProtocol):
         username = login.username.lower()
 
         if config.PROXY_ONLY:
-            ui.PROXY_STATS.user_login(
-                alias=username, account=username,
-                method="proxy_only")
+            ui.PROXY_STATS.user_login(alias=username, account=username, method="proxy_only")
             return buf, "proxy_only"
 
         if username in config.SKIP_SSO_ACCOUNTS:
-            ui.PROXY_STATS.user_login(
-                alias=username, account=username,
-                method="skip_sso")
+            ui.PROXY_STATS.user_login(alias=username, account=username, method="skip_sso")
             return buf, "skip_sso"
 
-        if (username not in config.ALL_CACHED_NAMES
-                and username not in config.LOCAL_ACCOUNT_NAME_MAP):
-            ui.PROXY_STATS.user_login(
-                alias=username, account=username,
-                method="passthrough")
+        if username not in config.ALL_CACHED_NAMES and username not in config.LOCAL_ACCOUNT_NAME_MAP:
+            ui.PROXY_STATS.user_login(alias=username, account=username, method="passthrough")
             return buf, "passthrough"
 
         if username in config.LOCAL_ACCOUNT_NAME_MAP:
             new_user = config.LOCAL_ACCOUNT_NAME_MAP[username]
-            new_pass = (
-                config.LOCAL_ACCOUNTS[new_user]["password"])
-            logger.info(
-                "Overwriting client supplied password"
-                " with local account for %s: %s",
-                username, new_user)
-            result_buf = login.rewrite_credentials(
-                new_user, new_pass,
-                config.ENCRYPTION_KEY, config.iv())
-            ui.PROXY_STATS.user_login(
-                alias=username,
-                account=new_user,
-                method="local")
+            new_pass = config.LOCAL_ACCOUNTS[new_user]["password"]
+            logger.info("Overwriting client supplied password with local account for %s: %s", username, new_user)
+            result_buf = login.rewrite_credentials(new_user, new_pass, config.ENCRYPTION_KEY, config.iv())
+            ui.PROXY_STATS.user_login(alias=username, account=new_user, method="local")
             return result_buf, "local"
 
         return buf, None
@@ -138,29 +118,18 @@ class LoginProxy(asyncio.DatagramProtocol):
         """Perform SSO auth over WebSocket and forward."""
         username = login.username.lower()
         try:
-            new_user, encrypted, error_detail = (
-                await ws_client.request_login_auth(username))
+            new_user, encrypted, error_detail = await ws_client.request_login_auth(username)
 
             if error_detail:
-                logger.warning(
-                    "SSO login rejected for %s: %s",
-                    username, error_detail)
-                ui.PROXY_STATS.auth_error(
-                    username, error_detail)
+                logger.warning("SSO login rejected for %s: %s", username, error_detail)
+                ui.PROXY_STATS.auth_error(username, error_detail)
 
             if new_user and encrypted:
-                logger.info(
-                    "Auth rewrite successful for %s -> %s",
-                    username, new_user)
-                data = login.splice_encrypted_credentials(
-                    encrypted)
-                ui.PROXY_STATS.user_login(
-                    alias=username,
-                    account=new_user,
-                    method="sso")
+                logger.info("Auth rewrite successful for %s -> %s", username, new_user)
+                data = login.splice_encrypted_credentials(encrypted)
+                ui.PROXY_STATS.user_login(alias=username, account=new_user, method="sso")
         except Exception:
-            logger.exception(
-                "Failed to check login for %s", username)
+            logger.exception("Failed to check login for %s", username)
         finally:
             self._auth_in_flight = False
             self.last_recv_time = recv_time
@@ -170,7 +139,9 @@ class LoginProxy(asyncio.DatagramProtocol):
     # Client -> Login Server
     # ------------------------------------------------------------------
     def handle_client_packet(
-        self, data: bytearray, addr: tuple[str, int],
+        self,
+        data: bytearray,
+        addr: tuple[str, int],
     ):
         """Called on a packet from the client"""
         recv_time = time.time()
@@ -181,56 +152,43 @@ class LoginProxy(asyncio.DatagramProtocol):
         # Store client address for responses
         self.client_addr = addr
 
-        if not self.in_session or (
-            recv_time - self.last_recv_time
-        ) > 60:
+        if not self.in_session or (recv_time - self.last_recv_time) > 60:
             logger.debug(
-                "Session reset needed:"
-                " in_session=%s, time_since_last=%.2fs",
+                "Session reset needed: in_session=%s, time_since_last=%.2fs",
                 self.in_session,
                 recv_time - self.last_recv_time,
             )
             self.session_free()
             if not self.in_session:
-                logger.debug(
-                    "New connection established, updating stats")
+                logger.debug("New connection established, updating stats")
                 ui.PROXY_STATS.connection_started()
 
         opcode = soe.get_transport_opcode(data)
-        logger.debug(
-            "Processing client packet with opcode: %s",
-            soe.transport_name(opcode))
+        logger.debug("Processing client packet with opcode: %s", soe.transport_name(opcode))
 
         if opcode == soe.TransportOp.Combined:
             logger.debug("Adjusting combined packet sequence")
             self.session.adjust_combined(data)
 
-            login = LoginPacket.parse(
-                data, config.ENCRYPTION_KEY, config.iv())
+            login = LoginPacket.parse(data, config.ENCRYPTION_KEY, config.iv())
             if login and self._needs_sso(login.username.lower()):
                 if self._auth_in_flight:
                     self.last_recv_time = recv_time
-                    logger.debug(
-                        "Dropping retry login packet"
-                        " (auth already in flight)")
+                    logger.debug("Dropping retry login packet (auth already in flight)")
                     return
                 self._auth_in_flight = True
-                self._auth_task = asyncio.ensure_future(
-                    self._async_auth_and_forward(
-                        data, login, recv_time))
+                self._auth_task = asyncio.ensure_future(self._async_auth_and_forward(data, login, recv_time))
                 return
 
             if login:
-                result_buf, _method = self._try_sync_rewrite(
-                    data, login)
+                result_buf, _method = self._try_sync_rewrite(data, login)
                 if result_buf is not data:
                     data = result_buf
                     logger.debug("Authentication data rewritten")
             # Non-login Combined packets fall through
 
         elif opcode == soe.TransportOp.SessionDisconnect:
-            logger.debug(
-                "Session disconnect received, cleaning up")
+            logger.debug("Session disconnect received, cleaning up")
             self.in_session = False
             self.session_free()
             ui.PROXY_STATS.connection_completed()
@@ -266,47 +224,38 @@ class LoginProxy(asyncio.DatagramProtocol):
         opcode = soe.get_transport_opcode(data[start_index:])
 
         if opcode != soe.TransportOp.Fragment:
-            logger.debug(
-                "Processing server packet with opcode: %s",
-                soe.transport_name(opcode))
+            logger.debug("Processing server packet with opcode: %s", soe.transport_name(opcode))
 
         if opcode == soe.TransportOp.SessionResponse:
             self.in_session = True
             self.session_free()
-            logger.debug(
-                "Session response received, session established")
+            logger.debug("Session response received, session established")
 
         elif opcode == soe.TransportOp.Combined:
-            logger.debug(
-                "Received combined packet,"
-                " splitting into individual packets")
+            logger.debug("Received combined packet, splitting into individual packets")
             self.session.recv_combined(
                 data,
                 functools.partial(self.handle_server_packet),
-                start_index, length,
+                start_index,
+                length,
             )
             # Pieces will be forwarded individually
             return
 
         elif opcode == soe.TransportOp.Packet:
             logger.debug("Processing standard packet")
-            maybe_server_list = self.session.recv_packet(
-                data, start_index, length)
+            maybe_server_list = self.session.recv_packet(data, start_index, length)
             if maybe_server_list is not None:
                 data = maybe_server_list
-                logger.debug(
-                    "Server list packet detected and processed")
+                logger.debug("Server list packet detected and processed")
 
         elif opcode == soe.TransportOp.Fragment:
             # logger.debug("Processing fragment packet")
-            maybe_server_list = self.session.recv_fragment(
-                data, start_index, length)
+            maybe_server_list = self.session.recv_fragment(data, start_index, length)
             if maybe_server_list is not None:
                 # We're finished with the server list, forward it
                 data = maybe_server_list
-                logger.debug(
-                    "Server list fragments complete,"
-                    " forwarding to client")
+                logger.debug("Server list fragments complete, forwarding to client")
             else:
                 # Don't forward, whole point is to filter this
                 # logger.debug(
@@ -324,7 +273,9 @@ class LoginProxy(asyncio.DatagramProtocol):
     # I/O
     # ------------------------------------------------------------------
     def datagram_received(
-        self, data: bytes, addr: tuple[str, int],
+        self,
+        data: bytes,
+        addr: tuple[str, int],
     ) -> None:
         """Called when a datagram is received"""
         if addr == config.EQEMU_ADDR:
@@ -336,9 +287,7 @@ class LoginProxy(asyncio.DatagramProtocol):
 
     def send_to_client(self, data: bytearray | bytes):
         if not data or not self.client_addr:
-            logger.debug(
-                "Empty data or no client address,"
-                " not sending to client")
+            logger.debug("Empty data or no client address, not sending to client")
             return
         # logger.debug(
         #     "Sending data to client %s: %s",
@@ -347,8 +296,7 @@ class LoginProxy(asyncio.DatagramProtocol):
 
     def send_to_loginserver(self, data: bytearray | bytes):
         if not data:
-            logger.debug(
-                "Empty data, not sending to loginserver")
+            logger.debug("Empty data, not sending to loginserver")
             return
         # logger.debug("Sending data to loginserver: %s", data)
         self.transport.sendto(data, config.EQEMU_ADDR)
@@ -364,9 +312,7 @@ async def main():
         LoginProxy,
         local_addr=(config.LISTEN_HOST, config.LISTEN_PORT),
     )
-    logger.info(
-        "Started UDP proxy, listening on %s:%s",
-        config.LISTEN_HOST, config.LISTEN_PORT)
+    logger.info("Started UDP proxy, listening on %s:%s", config.LISTEN_HOST, config.LISTEN_PORT)
     ui.PROXY_STATS.reset_uptime()
 
     return transport

@@ -1,4 +1,5 @@
 """Generate a PyInstaller VSVersionInfo file from config."""
+
 from p99_sso_login_proxy import config
 
 _M = config.APP_VERSION.major
@@ -49,7 +50,7 @@ VSVersionInfo(
 )
 """
 
-if __name__ == '__main__':
-    with open('version_info.txt', 'w', encoding='utf-8') as f:
+if __name__ == "__main__":
+    with open("version_info.txt", "w", encoding="utf-8") as f:
         f.write(VERSION_INFO_TEMPLATE)
     print(f"Wrote version_info.txt for v{_V}")

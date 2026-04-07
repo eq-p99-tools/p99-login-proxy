@@ -57,13 +57,17 @@ class ProxySessionState:
                 self._rewrite_ack(buf, sub.offset)
 
     def adjust_ack(
-        self, buf: bytearray, offset: int = 0,
+        self,
+        buf: bytearray,
+        offset: int = 0,
     ) -> None:
         """Rewrite a standalone client-to-server ACK packet."""
         self._rewrite_ack(buf, offset)
 
     def _rewrite_ack(
-        self, buf: bytearray, offset: int,
+        self,
+        buf: bytearray,
+        offset: int,
     ) -> None:
         """Translate client-side ACK sequence to the server's
         space."""
@@ -82,8 +86,7 @@ class ProxySessionState:
     ) -> None:
         """Split a server-to-client OP_Combined and dispatch each
         sub-packet."""
-        combined = soe.CombinedPacket.parse(
-            buf, start_index, length)
+        combined = soe.CombinedPacket.parse(buf, start_index, length)
         for sub in combined:
             recv_func(
                 buf,
@@ -113,7 +116,8 @@ class ProxySessionState:
         if server_seq != self.seq_from_server:
             logger.debug(
                 "Out-of-order OP_Packet seq=%d expected=%d",
-                server_seq, self.seq_from_server,
+                server_seq,
+                self.seq_from_server,
             )
             return None
         self.seq_from_server += 1
@@ -133,7 +137,7 @@ class ProxySessionState:
         """
         if length is None:
             length = len(buf) - start_index
-        raw = bytes(buf[start_index:start_index + length])
+        raw = bytes(buf[start_index : start_index + length])
 
         server_seq = soe.get_sequence(raw, 0)
         self.seq_from_server = server_seq + 1
@@ -142,8 +146,7 @@ class ProxySessionState:
             header = soe.parse_first_fragment_header(raw)
             self._pending_app_opcode = header["app_opcode"]
 
-        assembled = self._fragment_assembler.add(
-            server_seq, raw)
+        assembled = self._fragment_assembler.add(server_seq, raw)
         if assembled is None:
             return None
 
@@ -152,9 +155,7 @@ class ProxySessionState:
         self._pending_app_opcode = None
 
         if app_opcode != lp.AppOp.ServerListResponse:
-            logger.debug(
-                "Ignoring non-server-list fragment"
-                " (app_op=0x%04X)", app_opcode)
+            logger.debug("Ignoring non-server-list fragment (app_op=0x%04X)", app_opcode)
             return None
 
         return self._filter_and_build_server_list(assembled)
@@ -163,7 +164,8 @@ class ProxySessionState:
     # Server list filtering
     # ------------------------------------------------------------------
     def _filter_and_build_server_list(
-        self, app_payload: bytes,
+        self,
+        app_payload: bytes,
     ) -> bytearray:
         """Parse, filter to P99 servers, and rebuild as a single
         OP_Packet.
@@ -171,21 +173,14 @@ class ProxySessionState:
         *app_payload* already starts with the 2-byte LE app opcode
         (from the first fragment's data after total_len).
         """
-        servers, header_bytes = lp.parse_server_list(
-            app_payload)
+        servers, header_bytes = lp.parse_server_list(app_payload)
         logger.debug(
             "Unfiltered server list (%d): %s",
             len(servers),
             [s.name for s in servers],
         )
 
-        filtered = [
-            s for s in servers
-            if any(
-                s.name.lower().startswith(prefix)
-                for prefix in P99_SERVER_PREFIXES
-            )
-        ]
+        filtered = [s for s in servers if any(s.name.lower().startswith(prefix) for prefix in P99_SERVER_PREFIXES)]
         logger.info(
             "Server list: %d total, %d after filter: %s",
             len(servers),
@@ -193,8 +188,7 @@ class ProxySessionState:
             [s.name for s in filtered],
         )
 
-        rebuilt = lp.build_server_list_response(
-            filtered, header_bytes)
+        rebuilt = lp.build_server_list_response(filtered, header_bytes)
 
         out = bytearray()
         out += soe.TransportOp.Packet.to_bytes(2, "big")
