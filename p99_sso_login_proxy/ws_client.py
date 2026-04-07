@@ -9,8 +9,32 @@ import ssl
 import uuid
 
 import websockets
+from PySide6.QtCore import QObject, Signal
+from PySide6.QtWidgets import QApplication
 
 from p99_sso_login_proxy import __version__, config, eq_config, utils
+
+
+class WsClientSignals(QObject):
+    """Marshals WebSocket-driven UI refresh to the Qt main thread."""
+
+    cache_updated = Signal()
+    rustle_ui_warning = Signal(str)  # message body
+
+
+_ws_signals: WsClientSignals | None = None
+
+
+def get_ws_signals() -> WsClientSignals | None:
+    """Return the shared WsClientSignals object (after QApplication exists)."""
+    global _ws_signals
+    if _ws_signals is None:
+        app = QApplication.instance()
+        if app is None:
+            return None
+        _ws_signals = WsClientSignals(app)
+    return _ws_signals
+
 
 logger = logging.getLogger("ws_client")
 
@@ -302,26 +326,13 @@ def _rebuild_cache(account_tree: dict, dynamic_tag_zones=None, dynamic_tag_class
 
 
 def _notify_ui():
-    """Tell the wx UI to refresh its account displays (thread-safe)."""
+    """Tell the Qt UI to refresh its account displays (thread-safe)."""
     try:
-        import wx
-
-        app = wx.GetApp()
-        if app:
-            wx.CallAfter(_ui_refresh)
+        sig = get_ws_signals()
+        if sig:
+            sig.cache_updated.emit()
     except Exception:
         pass
-
-
-def _ui_refresh():
-    """Runs on the wx main thread."""
-    import wx
-
-    for w in wx.GetTopLevelWindows():
-        if hasattr(w, "update_account_cache_display"):
-            w.update_account_cache_display()
-            w._on_ws_status_tick()
-            break
 
 
 async def _run(reconnect_requested: asyncio.Event):
@@ -353,16 +364,14 @@ async def _run(reconnect_requested: asyncio.Event):
             ) as ws:
                 _ws = ws
                 if eq_config.detect_rustle_ui() and config.WARN_RUSTLE:
-                    import wx
-
-                    wx.CallAfter(
-                        wx.MessageBox,
+                    msg = (
                         "A modified UI skin with non-standard inventory slots was "
                         "detected in your EverQuest uifiles directory. This may "
-                        "cause issues or be blocked by some servers.",
-                        "Rustle UI Detected",
-                        wx.OK | wx.ICON_WARNING,
+                        "cause issues or be blocked by some servers."
                     )
+                    sig = get_ws_signals()
+                    if sig:
+                        sig.rustle_ui_warning.emit(msg)
                 await ws.send(
                     json.dumps(
                         {

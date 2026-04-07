@@ -4,21 +4,22 @@ import platform
 import sys
 import threading
 
-import wx
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QApplication
 
-from p99_sso_login_proxy import server, ui, updater, ws_client
+from p99_sso_login_proxy import log_handler, server, ui, updater, ws_client
 
 logger = logging.getLogger("cmd")
 
 logging.getLogger("websockets").setLevel(logging.INFO)
-# Watchdog's inotify backend logs every event at DEBUG; root is DEBUG in the UI.
 logging.getLogger("watchdog").setLevel(logging.INFO)
 
 
-# Class to integrate wxPython with asyncio
-class WxAsyncApp(wx.App):
-    def __init__(self):
-        super().__init__(False)
+class QtAsyncApp(QApplication):
+    """Integrate Qt GUI (main thread) with asyncio (daemon thread)."""
+
+    def __init__(self, argv):
+        super().__init__(argv)
         self.loop = asyncio.new_event_loop()
         self.running = False
         self.transport = None
@@ -26,15 +27,14 @@ class WxAsyncApp(wx.App):
         self.loop_thread: threading.Thread | None = None
 
     def start_event_loop(self):
-        """Start the event loop"""
+        """Start the asyncio loop in a background thread; block on Qt exec()."""
+        log_handler.set_asyncio_loop(self.loop)
         self.running = True
-        self.loop_thread = threading.Thread(target=self._run_loop)
-        self.loop_thread.daemon = True
+        self.loop_thread = threading.Thread(target=self._run_loop, daemon=True)
         self.loop_thread.start()
-        self.MainLoop()
+        self.exec()
 
     def _run_loop(self):
-        """Run the asyncio event loop in a separate thread"""
         asyncio.set_event_loop(self.loop)
         try:
             self.loop.run_until_complete(self._check_exit())
@@ -47,14 +47,9 @@ class WxAsyncApp(wx.App):
             self.loop.close()
 
     async def _check_exit(self):
-        """Check if the exit event has been set"""
-        # Start the proxy server
         self.proxy_task = asyncio.create_task(server.main())
-
-        # Start the WebSocket client for real-time account data
         self.ws_task = asyncio.create_task(ws_client.start())
 
-        # Wait for the exit event to be set
         while not self.exit_event.is_set():
             await asyncio.sleep(0.1)
             try:
@@ -62,19 +57,19 @@ class WxAsyncApp(wx.App):
                     self.transport = self.proxy_task.result()
             except Exception:
                 logger.exception("Failed to start UDP proxy")
-                wx.CallAfter(ui.error, "Failed to start UDP proxy, check if another instance is running, and restart.")
-                self.stop_event_loop()
 
-        # Cancel the proxy task and WS client
+                def _fail_udp():
+                    ui.error("Failed to start UDP proxy, check if another instance is running, and restart.")
+                    self.stop_event_loop()
+
+                QTimer.singleShot(0, _fail_udp)
+                return
+
         self.proxy_task.cancel()
         self.ws_task.cancel()
 
-    def on_power_resume(self, event):
-        """Handle power resume event"""
-        wx.CallAfter(self.restart_proxy_server)
-
     def restart_proxy_server(self):
-        """Restart the proxy server (called from wx thread via CallAfter)."""
+        """Restart the proxy server (main thread)."""
         logger.info("System resume event detected. Restarting proxy server...")
 
         if self.transport:
@@ -90,16 +85,18 @@ class WxAsyncApp(wx.App):
                 logger.info("New transport started.")
             except Exception:
                 logger.exception("Failed to restart proxy server")
-                wx.CallAfter(ui.error, "Failed to restart proxy server. Please restart the application.")
+                QTimer.singleShot(
+                    0,
+                    lambda: ui.error("Failed to restart proxy server. Please restart the application."),
+                )
 
         future.add_done_callback(_on_restart_done)
         logger.info("Restart scheduled on asyncio loop.")
 
     def stop_event_loop(self):
-        """Stop the event loop"""
-        logger.info("Stopping event loop in WxAsyncApp")
+        logger.info("Stopping event loop in QtAsyncApp")
         self.exit_event.set()
-        self.ExitMainLoop()
+        self.quit()
 
 
 _AUMID = "P99LoginProxy"
@@ -116,7 +113,7 @@ def _setup_win32_aumid():
         import glob
         import os
 
-        from PIL import Image
+        from PySide6.QtGui import QImage
 
         from p99_sso_login_proxy import config, utils
 
@@ -131,8 +128,9 @@ def _setup_win32_aumid():
         os.makedirs(data_dir, exist_ok=True)
         ico_path = os.path.join(data_dir, "icon.ico")
 
-        img = Image.open(png_path).convert("RGBA")
-        img.save(ico_path, format="ICO", sizes=[(s, s) for s in (16, 32, 48, 256) if s <= img.width])
+        img = QImage(png_path)
+        if not img.isNull():
+            img.save(ico_path, "ICO")
 
         start_menu = os.path.join(
             os.environ["APPDATA"],
@@ -148,7 +146,7 @@ def _setup_win32_aumid():
             if old != lnk_path:
                 os.remove(old)
 
-        import pythoncom  # noqa: F401  # COM init for win32com (import side effect)
+        import pythoncom  # noqa: F401
         from win32com.client import Dispatch
         from win32com.propsys import propsys, pscon
 
@@ -169,10 +167,10 @@ def _setup_win32_aumid():
 
 
 def main():
+    qt_app = QtAsyncApp(sys.argv)
+
     if platform.system() == "Windows":
         _setup_win32_aumid()
-
-    wx_app = WxAsyncApp()
 
     def start_eq_windows(eq_dir):
         logger.info("Starting EverQuest...")
@@ -188,51 +186,44 @@ def main():
 
     def start_eq_linux(eq_dir):
         logger.info("Starting EverQuest...")
-        # This is absolutely not accurate, need to get a real command from someone who knows...
-        # or make it configurable because it likely is different on different distros
         import subprocess
 
         subprocess.Popen(["wine", "eqgame.exe", "patchme"], cwd=eq_dir, start_new_session=True)
 
-    # Initialize the UI
     main_window = ui.start_ui()
     if platform.system() == "Windows":
         main_window.start_eq_func = start_eq_windows
     else:
         main_window.start_eq_func = start_eq_linux
 
-    # Check for updates on startup; daily at noon is handled by update_scheduler
+    main_window.power_resume_requested.connect(qt_app.restart_proxy_server)
+
     try:
         updater.check_update()
     except Exception:
         logger.exception("Failed to check for updates")
 
-    # Set up exit handler
     def handle_exit():
-        wx_app.stop_event_loop()
+        qt_app.stop_event_loop()
 
-    # Connect the exit event from the UI to our exit handler
-    # In wxPython we need to check for the exit event being set
-    def check_exit_event():
-        if main_window.exit_event.is_set():
-            handle_exit()
-        else:
-            wx.CallLater(100, check_exit_event)
-
-    # Start checking for exit event
-    check_exit_event()
-
-    # Bind the power resume event
-    main_window.Bind(wx.EVT_POWER_RESUME, wx_app.on_power_resume)
+    exit_timer = QTimer()
+    exit_timer.setInterval(100)
+    exit_timer.timeout.connect(lambda: _poll_exit(main_window, exit_timer, handle_exit))
+    exit_timer.start()
 
     try:
-        # Start the event loop
-        wx_app.start_event_loop()
+        qt_app.start_event_loop()
     except KeyboardInterrupt:
         handle_exit()
     finally:
         logger.info("Shutting down.")
         sys.exit(0)
+
+
+def _poll_exit(main_window, timer: QTimer, handle_exit):
+    if main_window.exit_event.is_set():
+        timer.stop()
+        handle_exit()
 
 
 if __name__ == "__main__":
