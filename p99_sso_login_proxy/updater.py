@@ -277,15 +277,15 @@ def _on_releases_fetched(releases, notify_no_update):
             dlg.Destroy()
         return
 
-    config.CHANGELOG = compile_changelog(releases)
+    prerelease_ok = config.APP_VERSION.prerelease or config.OPT_INTO_PRERELEASES
+    visible_releases = releases if prerelease_ok else [r for r in releases if not r["prerelease"]]
+
+    config.CHANGELOG = compile_changelog(visible_releases)
     top_window = wx.GetApp().GetTopWindow()
     if top_window:
         top_window.on_updated_changelog()
 
-    if config.APP_VERSION.prerelease or config.OPT_INTO_PRERELEASES:
-        update_candidates = releases
-    else:
-        update_candidates = [r for r in releases if not r["prerelease"]]
+    update_candidates = visible_releases
 
     if not update_candidates:
         LOG.info("No update candidates found.")
