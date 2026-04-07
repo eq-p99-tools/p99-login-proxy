@@ -11,6 +11,8 @@ from p99_sso_login_proxy import server, ui, updater, ws_client
 logger = logging.getLogger("cmd")
 
 logging.getLogger("websockets").setLevel(logging.INFO)
+# Watchdog's inotify backend logs every event at DEBUG; root is DEBUG in the UI.
+logging.getLogger("watchdog").setLevel(logging.INFO)
 
 
 # Class to integrate wxPython with asyncio

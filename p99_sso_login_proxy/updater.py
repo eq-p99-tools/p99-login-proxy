@@ -16,14 +16,24 @@ import wx
 
 from p99_sso_login_proxy import config
 
-# Set up logging
+# Set up logging: updater.log is only for the `updater` logger (not the root logger).
+_LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+_LOG_FORMATTER = logging.Formatter(_LOG_FORMAT)
+
 try:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        handlers=[logging.FileHandler("updater.log"), logging.StreamHandler()],
-    )
+    _root = logging.getLogger()
+    if not _root.handlers:
+        _stream = logging.StreamHandler()
+        _stream.setFormatter(_LOG_FORMATTER)
+        _root.setLevel(logging.INFO)
+        _root.addHandler(_stream)
+
     LOG = logging.getLogger("updater")
+    _updater_log_file = logging.FileHandler("updater.log")
+    _updater_log_file.setLevel(logging.INFO)
+    _updater_log_file.setFormatter(_LOG_FORMATTER)
+    LOG.addHandler(_updater_log_file)
+    LOG.setLevel(logging.DEBUG)
 except Exception as e:
 
     class PrintLogger:
