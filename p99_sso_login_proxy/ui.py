@@ -1085,7 +1085,7 @@ class ProxyUI(wx.Frame):
         path = utils.find_resource_path("tray_icon.png")
         if path:
             try:
-                icon = wx.Icon(path, wx.BITMAP_TYPE_ANY)
+                icon = utils.retry_file_io(lambda: wx.Icon(path, wx.BITMAP_TYPE_ANY))
                 self.SetIcon(icon)
             except Exception:
                 logger.warning("Failed to load icon from %s", path, exc_info=True)

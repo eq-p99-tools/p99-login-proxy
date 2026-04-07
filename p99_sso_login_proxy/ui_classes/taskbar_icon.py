@@ -21,33 +21,25 @@ def _linux_appindicator_hint():
     """Return distro-specific install instructions for AppIndicator."""
     try:
         osrel = platform.freedesktop_os_release()
-        ids = {osrel.get("ID", "")} | set(
-            osrel.get("ID_LIKE", "").split())
+        ids = {osrel.get("ID", "")} | set(osrel.get("ID_LIKE", "").split())
     except OSError:
         ids = set()
 
     # GIR typelib packages (always system-level, no pip equivalent)
     if ids & {"debian", "ubuntu"}:
-        sys_cmd = ("sudo apt install gir1.2-ayatanaappindicator3-0.1 "
-                   "python3-gi")
-        dev_cmd = ("sudo apt install libgirepository1.0-dev libcairo2-dev "
-                   "pkg-config python3-dev gcc")
+        sys_cmd = "sudo apt install gir1.2-ayatanaappindicator3-0.1 python3-gi"
+        dev_cmd = "sudo apt install libgirepository1.0-dev libcairo2-dev pkg-config python3-dev gcc"
     elif ids & {"arch", "manjaro"}:
         sys_cmd = "sudo pacman -S python-gobject libayatana-appindicator"
         dev_cmd = None  # Arch's python-gobject works in venvs via RPATH
     elif ids & {"fedora", "rhel", "centos"}:
-        sys_cmd = ("sudo dnf install python3-gobject "
-                   "libayatana-appindicator-gtk3")
-        dev_cmd = ("sudo dnf install gobject-introspection-devel "
-                   "cairo-gobject-devel pkg-config python3-devel gcc")
+        sys_cmd = "sudo dnf install python3-gobject libayatana-appindicator-gtk3"
+        dev_cmd = "sudo dnf install gobject-introspection-devel cairo-gobject-devel pkg-config python3-devel gcc"
     elif ids & {"opensuse", "suse"}:
-        sys_cmd = ("sudo zypper install python3-gobject "
-                   "typelib-1_0-AyatanaAppIndicator3-0_1")
-        dev_cmd = ("sudo zypper install gobject-introspection-devel "
-                   "cairo-devel pkg-config python3-devel gcc")
+        sys_cmd = "sudo zypper install python3-gobject typelib-1_0-AyatanaAppIndicator3-0_1"
+        dev_cmd = "sudo zypper install gobject-introspection-devel cairo-devel pkg-config python3-devel gcc"
     else:
-        sys_cmd = ("Install PyGObject and libayatana-appindicator3 "
-                   "using your distribution's package manager")
+        sys_cmd = "Install PyGObject and libayatana-appindicator3 using your distribution's package manager"
         dev_cmd = None
 
     if not _in_venv():
@@ -124,8 +116,7 @@ class TaskBarIcon:
         )
 
         if sys.platform == "win32":
-            thread = threading.Thread(target=self._run_threaded,
-                                      daemon=True)
+            thread = threading.Thread(target=self._run_threaded, daemon=True)
             thread.start()
         else:
             self._run_detached()
@@ -139,8 +130,7 @@ class TaskBarIcon:
         if self._started.is_set():
             logger.info("Tray icon started (pystray/%s)", backend)
         else:
-            logger.warning("Tray icon startup timed out (%s)",
-                           backend)
+            logger.warning("Tray icon startup timed out (%s)", backend)
 
         if backend.endswith("_xorg"):
             logger.warning(
@@ -184,10 +174,13 @@ class TaskBarIcon:
             logger.warning("Icon file not found: %s", filename)
             return None
         try:
-            img = Image.open(path)
-            img.load()
-            img = img.convert("RGBA")
-            return img
+
+            def _load():
+                img = Image.open(path)
+                img.load()
+                return img.convert("RGBA")
+
+            return utils.retry_file_io(_load)
         except Exception:
             logger.warning("Failed to load image %s", path, exc_info=True)
             return None
@@ -225,7 +218,8 @@ class TaskBarIcon:
         path = utils.find_resource_path(self._last_icon_filename)
         if path:
             with contextlib.suppress(Exception):
-                self.frame.SetIcon(wx.Icon(path))
+                icon = utils.retry_file_io(lambda: wx.Icon(path))
+                self.frame.SetIcon(icon)
 
     def ShowBalloon(self, title, text):
         if not self._icon:

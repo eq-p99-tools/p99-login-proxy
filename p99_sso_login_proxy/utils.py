@@ -3,21 +3,43 @@ import itertools
 import logging
 import os
 import sys
+import time
 
 logger = logging.getLogger("utils")
 
 
 def find_resource_path(filename):
     """Find a resource file by checking common locations (source dir, PyInstaller bundle, cwd)."""
-    candidates = [
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", filename),
-        os.path.join(os.path.dirname(sys.executable), filename),
-        filename,
-    ]
+    candidates = []
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(os.path.join(meipass, filename))
+    candidates.extend(
+        [
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", filename),
+            os.path.join(os.path.dirname(sys.executable), filename),
+            filename,
+        ]
+    )
     for path in candidates:
         if os.path.exists(path):
             return path
     return None
+
+
+def retry_file_io(func, *, attempts: int = 3, delay_s: float = 0.05):
+    """Run *func* and retry on failure (transient locks, slow AV scans). Re-raises the last error."""
+    last_exc: Exception | None = None
+    for i in range(attempts):
+        try:
+            return func()
+        except Exception as exc:
+            last_exc = exc
+            if i < attempts - 1:
+                time.sleep(delay_s)
+    if last_exc is None:
+        raise RuntimeError("retry_file_io: exhausted attempts with no exception")
+    raise last_exc
 
 
 def hex_to_bytes(hex_str):
