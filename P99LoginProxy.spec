@@ -19,7 +19,7 @@ a = Analysis(
         ('tray_icon_proxy_only.png', '.'),
         ('tray_icon_disabled.png', '.'),
     ],
-    hiddenimports=[],
+    hiddenimports=['PySide6.QtCore', 'PySide6.QtGui', 'PySide6.QtWidgets'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -30,7 +30,10 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data)
 
-CONSOLE_BUILD = bool(config.APP_VERSION.build)
+# Console + debug exe only when semver *build* metadata contains "console" (e.g. build="console" or "qt.console").
+# Plain build tags like "qt" stay GUI-only (no console window).
+_build_meta = getattr(config.APP_VERSION, "build", None)
+CONSOLE_BUILD = "console" in str(_build_meta or "").lower()
 
 exe = EXE(
     pyz,

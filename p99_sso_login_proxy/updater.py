@@ -12,9 +12,40 @@ import zipfile
 import markdown
 import requests
 import semver
-import wx
+from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtWidgets import QApplication, QMessageBox, QProgressDialog
 
 from p99_sso_login_proxy import config
+
+
+class UpdaterBridge(QObject):
+    """Marshals updater thread results to the Qt GUI thread."""
+
+    releases_ready = Signal(list, bool)
+    fetch_failed = Signal(str)
+
+
+_updater_bridge_instance: UpdaterBridge | None = None
+
+
+def _get_updater_bridge() -> UpdaterBridge | None:
+    global _updater_bridge_instance
+    if _updater_bridge_instance is None:
+        app = QApplication.instance()
+        if app is None:
+            return None
+        _updater_bridge_instance = UpdaterBridge(app)
+    return _updater_bridge_instance
+
+
+def connect_updater_signals():
+    """Connect updater bridge signals to main-thread handlers (call after QApplication exists)."""
+    b = _get_updater_bridge()
+    if b is None:
+        return
+    b.releases_ready.connect(on_releases_fetched_main_thread)
+    b.fetch_failed.connect(show_update_error_main_thread)
+
 
 # Set up logging: updater.log is only for the `updater` logger (not the root logger).
 _LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -155,23 +186,24 @@ def download_and_unpack(url: str):
         size = int(zip_data.headers.get("content-length", 0))
         chunk_size = max(size // 100, 8192)
         progress_max = max(size, 1)
-        pd = wx.GenericProgressDialog(
-            title="Downloading Update",
-            message="Downloading update, please wait...",
-            maximum=progress_max,
-            style=wx.PD_APP_MODAL | wx.PD_AUTO_HIDE | wx.PD_CAN_ABORT | wx.PD_ELAPSED_TIME | wx.PD_REMAINING_TIME,
-        )
+        parent = QApplication.activeWindow()
+        pd = QProgressDialog("Downloading update, please wait...", "Cancel", 0, progress_max, parent)
+        pd.setWindowTitle("Downloading Update")
+        pd.setWindowModality(Qt.WindowModality.ApplicationModal)
+        pd.setMinimumDuration(0)
+        pd.setValue(0)
         with io.BytesIO() as bio:
             downloaded = 0
             cancelled = False
             for data in zip_data.iter_content(chunk_size=chunk_size):
                 bio.write(data)
                 downloaded += len(data)
-                pd.Update(min(downloaded, progress_max))
-                if pd.WasCancelled():
+                pd.setValue(min(downloaded, progress_max))
+                QApplication.processEvents()
+                if pd.wasCanceled():
                     cancelled = True
                     break
-            pd.Destroy()
+            pd.close()
             if cancelled:
                 return None
             with zipfile.ZipFile(bio) as zip_file:
@@ -191,17 +223,17 @@ STABLE_EXE_NAME = "P99LoginProxy.exe"
 
 def _prompt_and_apply_update(releases, latest_version):
     """Show the update prompt and apply the update if accepted. Must run on the main (UI) thread."""
-    au_win = wx.MessageDialog(
-        None,
+    parent = QApplication.activeWindow()
+    result = QMessageBox.question(
+        parent,
+        "Update Available",
         "A new update is available. Would you like to update?\n\n"
         f"Your version: {config.APP_VERSION}\n"
         f"New version: {latest_version}",
-        "Update Available",
-        wx.YES | wx.NO | wx.ICON_QUESTION,
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        QMessageBox.StandardButton.Yes,
     )
-    result = au_win.ShowModal()
-    au_win.Destroy()
-    if result != wx.ID_YES:
+    if result != QMessageBox.StandardButton.Yes:
         return
 
     assets_url = next((r.get("assets_url") for r in releases if r["version"] == latest_version), None)
@@ -223,7 +255,7 @@ def _prompt_and_apply_update(releases, latest_version):
             backed_up = True
         except OSError as e:
             LOG.exception("Failed to backup current exe before update")
-            _show_update_error(f"Failed to prepare for update: {e}")
+            show_update_error_main_thread(f"Failed to prepare for update: {e}")
             return
 
     newest_exe = download_and_unpack(assets_url)
@@ -232,7 +264,7 @@ def _prompt_and_apply_update(releases, latest_version):
         if backed_up:
             with contextlib.suppress(OSError):
                 os.rename(backup_name, STABLE_EXE_NAME)
-        _show_update_error("Failed to download update. Continuing with existing version.")
+        show_update_error_main_thread("Failed to download update. Continuing with existing version.")
         return
 
     LOG.info("Downloaded new version: %s", newest_exe)
@@ -245,7 +277,7 @@ def _prompt_and_apply_update(releases, latest_version):
             os.rename(newest_exe, STABLE_EXE_NAME)
         except OSError as rename_err:
             LOG.error("Failed to rename new exe to stable name: %s", rename_err)
-            _show_update_error(
+            show_update_error_main_thread(
                 f"Failed to rename update files: {rename_err}\n\n"
                 f"The new version was downloaded as '{newest_exe}'. "
                 "You can rename it manually and restart."
@@ -254,35 +286,33 @@ def _prompt_and_apply_update(releases, latest_version):
 
     launch_exe = STABLE_EXE_NAME if is_packaged else newest_exe
 
-    app = wx.GetApp()
-    if hasattr(app, "transport") and app.transport:
+    app = QApplication.instance()
+    if app and hasattr(app, "transport") and app.transport:
         app.transport.close()
     logging.shutdown()
     with subprocess.Popen([launch_exe]):
         os._exit(0)  # os._exit to bypass atexit/finally handlers that could conflict with the new process
 
 
-def _on_releases_fetched(releases, notify_no_update):
+def on_releases_fetched_main_thread(releases, notify_no_update):
     """Handle fetched releases on the main (UI) thread."""
     if not releases:
         LOG.info("No releases found.")
         if notify_no_update:
-            dlg = wx.MessageDialog(
-                None,
-                f"Version: {config.APP_VERSION}\n\nCould not retrieve release information.",
+            parent = QApplication.activeWindow()
+            QMessageBox.information(
+                parent,
                 "Update Check",
-                wx.OK | wx.ICON_INFORMATION,
+                f"Version: {config.APP_VERSION}\n\nCould not retrieve release information.",
             )
-            dlg.ShowModal()
-            dlg.Destroy()
         return
 
     prerelease_ok = config.APP_VERSION.prerelease or config.OPT_INTO_PRERELEASES
     visible_releases = releases if prerelease_ok else [r for r in releases if not r["prerelease"]]
 
     config.CHANGELOG = compile_changelog(visible_releases)
-    top_window = wx.GetApp().GetTopWindow()
-    if top_window:
+    top_window = QApplication.activeWindow()
+    if top_window and hasattr(top_window, "on_updated_changelog"):
         top_window.on_updated_changelog()
 
     update_candidates = visible_releases
@@ -290,14 +320,12 @@ def _on_releases_fetched(releases, notify_no_update):
     if not update_candidates:
         LOG.info("No update candidates found.")
         if notify_no_update:
-            dlg = wx.MessageDialog(
-                None,
-                f"Version: {config.APP_VERSION}\n\nThere is no update available, you are running the latest version.",
+            parent = QApplication.activeWindow()
+            QMessageBox.information(
+                parent,
                 "No Update Available",
-                wx.OK | wx.ICON_INFORMATION,
+                f"Version: {config.APP_VERSION}\n\nThere is no update available, you are running the latest version.",
             )
-            dlg.ShowModal()
-            dlg.Destroy()
         return
 
     latest_version = update_candidates[0]["version"]
@@ -307,21 +335,19 @@ def _on_releases_fetched(releases, notify_no_update):
     else:
         LOG.info("No update available.")
         if notify_no_update:
-            dlg = wx.MessageDialog(
-                None,
-                f"Version: {config.APP_VERSION}\n\nThere is no update available, you are running the latest version.",
+            parent = QApplication.activeWindow()
+            QMessageBox.information(
+                parent,
                 "No Update Available",
-                wx.OK | wx.ICON_INFORMATION,
+                f"Version: {config.APP_VERSION}\n\nThere is no update available, you are running the latest version.",
             )
-            dlg.ShowModal()
-            dlg.Destroy()
 
 
 def check_update(notify_no_update=False):
     """Check for updates in a background thread.
 
     Network I/O runs off the main thread so the UI stays responsive.
-    All dialogs and UI updates are marshaled back via wx.CallAfter.
+    All dialogs and UI updates are marshaled back via Qt signals (main thread).
 
     Args:
         notify_no_update: If True, show a dialog when no update is found
@@ -332,18 +358,25 @@ def check_update(notify_no_update=False):
         try:
             LOG.info("Checking for update. Current version: %s", config.APP_VERSION)
             releases = get_recent_releases(10)
-            wx.CallAfter(_on_releases_fetched, releases, notify_no_update)
+            b = _get_updater_bridge()
+            if b:
+                b.releases_ready.emit(releases, notify_no_update)
+            else:
+                on_releases_fetched_main_thread(releases, notify_no_update)
         except Exception as e:
             LOG.exception("Failed to check for update")
             if notify_no_update:
-                wx.CallAfter(_show_update_error, str(e))
+                eb = _get_updater_bridge()
+                if eb:
+                    eb.fetch_failed.emit(str(e))
+                else:
+                    show_update_error_main_thread(str(e))
 
     thread = threading.Thread(target=_background, daemon=True)
     thread.start()
 
 
-def _show_update_error(message):
+def show_update_error_main_thread(message: str):
     """Show an update error dialog on the main thread."""
-    dlg = wx.MessageDialog(None, f"Failed to check for updates:\n\n{message}", "Update Error", wx.OK | wx.ICON_ERROR)
-    dlg.ShowModal()
-    dlg.Destroy()
+    parent = QApplication.activeWindow()
+    QMessageBox.critical(parent, "Update Error", f"Failed to check for updates:\n\n{message}")

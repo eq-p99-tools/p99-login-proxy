@@ -5,7 +5,7 @@ import os
 import threading
 import time
 
-import wx
+from PySide6.QtWidgets import QWidget
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
@@ -23,12 +23,21 @@ INVENTORY_OBSERVER_THREAD = None
 
 _current_zone: dict[str, str] = {}  # character_name.lower() -> zonekey
 
+# Set from cmd.QtAsyncApp to schedule coroutines from watchdog threads.
+ASYNCIO_LOOP = None
+
+
+def set_asyncio_loop(loop):
+    """Bind the daemon asyncio loop used by _run_async (call after QApplication exists)."""
+    global ASYNCIO_LOOP
+    ASYNCIO_LOOP = loop
+
 
 def _run_async(coro):
     """Schedule a coroutine on the app's asyncio event loop (thread-safe)."""
-    app = wx.GetApp()
-    if app and hasattr(app, "loop") and app.loop.is_running():
-        asyncio.run_coroutine_threadsafe(coro, app.loop)
+    loop = ASYNCIO_LOOP
+    if loop and loop.is_running():
+        asyncio.run_coroutine_threadsafe(coro, loop)
     else:
         coro.close()
         logger.warning("Async loop not available, coroutine was dropped")
@@ -45,9 +54,13 @@ def _character_from_log_path(path: str) -> str:
 
 
 class LogFileHandler(FileSystemEventHandler):
-    def __init__(self, get_latest_log_file, wx_app):
+    def __init__(self, get_latest_log_file, timer_parent: QWidget):
         super().__init__()
-        self._wx_app = wx_app
+        from PySide6.QtCore import QTimer
+
+        self._heartbeat_timer = QTimer(timer_parent)
+        self._heartbeat_timer.setInterval(20000)
+        self._heartbeat_timer.timeout.connect(self.send_heartbeat)
         self.get_latest_log_file = get_latest_log_file
         self._position = 0
         self._first_event_logged = False
@@ -65,9 +78,7 @@ class LogFileHandler(FileSystemEventHandler):
 
         self._idle_skip_count = 0
 
-        self.heartbeat_timer = wx.Timer(self._wx_app)
-        self._wx_app.Bind(wx.EVT_TIMER, self.send_heartbeat, self.heartbeat_timer)
-        self.heartbeat_timer.Start(20000)  # Heartbeat every 20 seconds
+        self._heartbeat_timer.start()
 
     def _seek_to_latest_position(self):
         """Seek to the end of the current log file, backing up to the last login marker."""
@@ -224,7 +235,7 @@ class InventoryFileHandler(FileSystemEventHandler):
         _run_async(ws_client.send_update_location(character_name, keys=keys))
 
 
-def set_log_watch_directory(eq_directory, wx_app):
+def set_log_watch_directory(eq_directory, timer_parent: QWidget):
     global LOG_WATCH_DIRECTORY, LOG_HANDLER, LOG_OBSERVER, LOG_OBSERVER_THREAD
     global INVENTORY_OBSERVER, INVENTORY_OBSERVER_THREAD
 
@@ -250,7 +261,7 @@ def set_log_watch_directory(eq_directory, wx_app):
         if not LOG_OBSERVER:
             log_files = glob.glob(os.path.join(LOG_WATCH_DIRECTORY, "eqlog_*.txt"))
             logger.info("Starting log watcher on: %s (%d log files found)", LOG_WATCH_DIRECTORY, len(log_files))
-            LOG_HANDLER = LogFileHandler(get_latest_log_file, wx_app)
+            LOG_HANDLER = LogFileHandler(get_latest_log_file, timer_parent)
             LOG_OBSERVER = Observer()
             LOG_OBSERVER.schedule(LOG_HANDLER, LOG_WATCH_DIRECTORY, recursive=False)
             LOG_OBSERVER_THREAD = threading.Thread(target=LOG_OBSERVER.start, daemon=True)

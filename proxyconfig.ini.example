@@ -23,6 +23,9 @@
 ; Keep the window on top of other windows
 ; always_on_top = False
 
+; Use the built-in dark Fusion theme (set False for light theme)
+; dark_mode = True
+
 ; Path to the EverQuest installation directory (auto-detected if empty)
 ; eq_directory =
 
