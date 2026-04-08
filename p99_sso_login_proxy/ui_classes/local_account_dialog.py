@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from p99_sso_login_proxy.theme import COLOR_ALT_ROW, COLOR_MUTED
+from p99_sso_login_proxy.theme import semantic
 from p99_sso_login_proxy.ui_classes.password_visibility import add_password_visibility_toggle
 
 
@@ -42,8 +42,8 @@ class LocalAccountDialog(QDialog):
             name_font.setItalic(True)
             self.account_name.setFont(name_font)
             self.account_name.setStyleSheet(
-                f"background-color: {COLOR_ALT_ROW.name()};"
-                f"color: {COLOR_MUTED.name()};"
+                f"background-color: {semantic.alt_row.name()};"
+                f"color: {semantic.muted.name()};"
                 "border: 1px solid #555;"
                 "border-radius: 3px;"
                 "padding: 2px 6px;"

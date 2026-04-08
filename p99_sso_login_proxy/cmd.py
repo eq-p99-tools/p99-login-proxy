@@ -1,13 +1,14 @@
 import asyncio
 import logging
 import platform
+import signal
 import sys
 import threading
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
-from p99_sso_login_proxy import log_handler, server, theme, ui, updater, ws_client
+from p99_sso_login_proxy import config, log_handler, server, theme, ui, updater, ws_client
 
 logger = logging.getLogger("cmd")
 
@@ -168,7 +169,7 @@ def _setup_win32_aumid():
 
 def main():
     qt_app = QtAsyncApp(sys.argv)
-    theme.apply_dark_theme(qt_app)
+    theme.apply_app_theme(qt_app, dark_mode=config.DARK_MODE)
 
     if platform.system() == "Windows":
         _setup_win32_aumid()
@@ -205,7 +206,25 @@ def main():
         logger.exception("Failed to check for updates")
 
     def handle_exit():
+        # Run full UI shutdown (tray, proxy, schedulers) before stopping loops; otherwise Qt quit()
+        # only triggers closeEvent and looks like "minimize to tray" (including toast).
+        main_window.close_application()
         qt_app.stop_event_loop()
+
+    def _request_shutdown_on_signal(*_args: object) -> None:
+        """Console Ctrl+C / SIGTERM: defer quit to the Qt thread (avoids KeyboardInterrupt in slots)."""
+        logger.info("Shutdown signal received; exiting...")
+        QTimer.singleShot(0, handle_exit)
+
+    try:
+        signal.signal(signal.SIGINT, _request_shutdown_on_signal)
+    except ValueError:
+        logger.debug("SIGINT handler not installed", exc_info=True)
+    if hasattr(signal, "SIGTERM"):
+        try:
+            signal.signal(signal.SIGTERM, _request_shutdown_on_signal)
+        except ValueError:
+            logger.debug("SIGTERM handler not installed", exc_info=True)
 
     exit_timer = QTimer()
     exit_timer.setInterval(100)

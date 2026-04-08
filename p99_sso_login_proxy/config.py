@@ -59,6 +59,9 @@ SSO_VERIFY_TLS = CONFIG.getboolean("DEFAULT", "sso_verify_tls", fallback=True)
 
 ALWAYS_ON_TOP = CONFIG.getboolean("DEFAULT", "always_on_top", fallback=False)
 
+# Fusion dark theme (False = light palette + QSS)
+DARK_MODE = CONFIG.getboolean("DEFAULT", "dark_mode", fallback=True)
+
 WARN_RUSTLE = CONFIG.getboolean("DEFAULT", "warn_rustle", fallback=False)
 
 OPT_INTO_PRERELEASES = CONFIG.getboolean("DEFAULT", "opt_into_prereleases", fallback=False)
@@ -115,6 +118,10 @@ def _set_config(global_name: str, config_key: str, value):
 
 def set_always_on_top(value: bool):
     _set_config("ALWAYS_ON_TOP", "always_on_top", value)
+
+
+def set_dark_mode(value: bool):
+    _set_config("DARK_MODE", "dark_mode", value)
 
 
 def set_proxy_only(value: bool):

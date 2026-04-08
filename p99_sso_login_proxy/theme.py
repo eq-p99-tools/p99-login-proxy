@@ -1,45 +1,47 @@
-"""Dark theme: Fusion style, palette, and semantic colors for status UI."""
+"""Fusion themes (dark / light) and semantic colors for the Qt UI."""
 
 import ctypes
 import logging
 import platform
 from ctypes import wintypes
+from types import SimpleNamespace
 
-from PySide6.QtGui import QColor, QPalette
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtGui import QColor, QPalette, QShowEvent
+from PySide6.QtWidgets import QApplication, QFileDialog, QWidget
 
 logger = logging.getLogger(__name__)
 
-# Native title bar / window chrome (must match QPalette.Window in apply_dark_theme)
-WINDOW_CHROME_RGB = (45, 45, 48)
+# Native title bar tint (must match QPalette.Window for each theme)
+WINDOW_CHROME_RGB_DARK = (45, 45, 48)
+WINDOW_CHROME_RGB_LIGHT = (243, 243, 243)
 
-# Semantic colors tuned for dark backgrounds (labels, table stripes, swatches).
-COLOR_SUCCESS = QColor(80, 200, 120)
-COLOR_ERROR = QColor(255, 82, 82)
-COLOR_DARK_RED = QColor(239, 83, 80)
-COLOR_WARNING = QColor(255, 183, 77)
-COLOR_MUTED = QColor(158, 158, 158)
-COLOR_VALUE_TEXT = QColor(176, 190, 197)
-COLOR_ALT_ROW = QColor(48, 52, 58)
-# Character table + legend: muted tints for dark UI (still distinct from stripes / each other)
-COLOR_ACTIVE_AMBER = QColor(130, 88, 42)
-COLOR_ACTIVE_BLUE = QColor(52, 92, 132)
+# Mutable semantic colors (filled by apply_app_theme). UI must read via `semantic`, not copies.
+semantic = SimpleNamespace()
 
-# QTextBrowser changelog surface
-CHANGELOG_BG = "#252526"
-CHANGELOG_FG = "#d4d4d4"
+# QComboBox is intentionally omitted: any stylesheet on QComboBox switches it to "styled" mode and
+# Fusion stops drawing the built-in dropdown indicator unless every subcontrol is replicated. Colors
+# come from QPalette (Base, Button, Text); the style paints the arrow like a normal Qt combo box.
+#
+# QScrollBar is omitted so Fusion draws default scroll bars from the palette (no custom narrow track).
+#
+# QPushButton is omitted so Fusion draws default buttons from QPalette.Button / ButtonText (hover,
+# pressed, focus ring).
+#
+# QHeaderView: flat QSS below (styled mode) so headers match table chrome instead of default Fusion 3D.
+#
+# QLineEdit / QText*: optional QSS below — toggled for A/B vs Fusion palette-only fields (comment out
+# the QLineEdit…QTextBrowser block to revert).
+#
+# QTabWidget + QGroupBox: explicit backgrounds — tab strip/page chrome and group “cards” layer with
+# palette-drawn text fields.
 
-LOG_LEVEL_COLORS = {
-    logging.DEBUG: QColor(120, 144, 156),
-    logging.INFO: QColor(236, 239, 241),
-    logging.WARNING: QColor(255, 183, 77),
-    logging.ERROR: QColor(239, 83, 80),
-    logging.CRITICAL: QColor(183, 28, 28),
+_EXTRA_QSS_DARK = """
+QTabWidget {
+    background-color: #26262c;
 }
-
-_EXTRA_QSS = """
 QGroupBox {
     font-weight: bold;
+    background-color: #2f2f36;
     border: 1px solid #555;
     border-radius: 6px;
     margin-top: 10px;
@@ -50,120 +52,252 @@ QGroupBox::title {
     left: 10px;
     padding: 0 6px;
 }
-QTabWidget::pane {
+QLineEdit, QPlainTextEdit, QTextEdit, QTextBrowser {
+    background-color: #2a2a2e;
+    color: #e6e6ea;
     border: 1px solid #555;
     border-radius: 4px;
-    top: -1px;
+    padding: 3px 6px;
+    selection-background-color: #0d47a1;
+    selection-color: #ffffff;
 }
-QHeaderView::section {
-    background-color: #404040;
-    color: #e0e0e0;
-    padding: 2px 6px;
-    border: 1px solid #555;
+QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QTextBrowser:focus {
+    border: 1px solid #4a9eff;
 }
-QTableView QTableCornerButton::section {
-    border: none;
-    background-color: #404040;
+QLineEdit:disabled, QPlainTextEdit:disabled, QTextEdit:disabled, QTextBrowser:disabled {
+    background-color: #323236;
+    color: #888;
+    border: 1px solid #444;
 }
 QTableWidget {
     gridline-color: #4a4a4a;
     background-color: #2a2a2e;
     alternate-background-color: #323236;
 }
+QHeaderView::section {
+    background-color: #34343c;
+    color: #d8d8dc;
+    padding: 4px 6px;
+    border: none;
+    border-right: 1px solid #4a4a4a;
+    border-bottom: 1px solid #4a4a4a;
+    font-weight: 600;
+}
+QHeaderView::section:horizontal:last {
+    border-right: none;
+}
+QTableCornerButton::section {
+    background-color: #34343c;
+    border-bottom: 1px solid #4a4a4a;
+}
 QTableWidget::item:selected {
     background-color: #0d47a1;
     color: #ffffff;
 }
-QLineEdit, QComboBox, QPlainTextEdit, QTextEdit, QTextBrowser {
-    background-color: #2a2a2e;
-    color: #e8e8e8;
-    border: 1px solid #555;
-    border-radius: 3px;
-    padding: 2px 6px;
+QCheckBox {
+    spacing: 8px;
 }
-QComboBox::drop-down {
-    border: none;
-    width: 20px;
+"""
+
+_EXTRA_QSS_LIGHT = """
+QTabWidget {
+    background-color: #f0f0f0;
 }
-QPushButton {
-    background-color: #3d3d42;
-    color: #ececec;
-    border: 1px solid #5a5a5a;
+QGroupBox {
+    font-weight: bold;
+    background-color: #fafafa;
+    border: 1px solid #c0c0c0;
+    border-radius: 6px;
+    margin-top: 10px;
+    padding-top: 8px;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 6px;
+}
+QLineEdit, QPlainTextEdit, QTextEdit, QTextBrowser {
+    background-color: #ffffff;
+    color: #202020;
+    border: 1px solid #c0c0c0;
     border-radius: 4px;
-    padding: 5px 14px;
+    padding: 3px 6px;
+    selection-background-color: #0078d7;
+    selection-color: #ffffff;
 }
-QPushButton:hover {
-    background-color: #4a4a52;
+QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QTextBrowser:focus {
+    border: 1px solid #0078d7;
 }
-QPushButton:pressed {
-    background-color: #353539;
+QLineEdit:disabled, QPlainTextEdit:disabled, QTextEdit:disabled, QTextBrowser:disabled {
+    background-color: #f5f5f5;
+    color: #a0a0a0;
+    border: 1px solid #d0d0d0;
+}
+QTableWidget {
+    gridline-color: #c8c8c8;
+    background-color: #ffffff;
+    alternate-background-color: #f0f0f0;
+}
+QHeaderView::section {
+    background-color: #e6e6e6;
+    color: #202020;
+    padding: 4px 6px;
+    border: none;
+    border-right: 1px solid #c8c8c8;
+    border-bottom: 1px solid #b8b8b8;
+    font-weight: 600;
+}
+QHeaderView::section:horizontal:last {
+    border-right: none;
+}
+QTableCornerButton::section {
+    background-color: #e6e6e6;
+    border-bottom: 1px solid #b8b8b8;
+}
+QTableWidget::item:selected {
+    background-color: #0078d7;
+    color: #ffffff;
 }
 QCheckBox {
     spacing: 8px;
 }
-QScrollBar:vertical {
-    width: 12px;
-    background: #2d2d30;
+"""
+
+# Easter-egg overlay (toggle via UI): loud primaries to show which QSS selector maps where.
+_REGION_DEBUG_QSS = """
+QMainWindow {
+    background-color: #ff0000;
 }
-QScrollBar::handle:vertical {
-    background: #5a5a5a;
-    min-height: 24px;
-    border-radius: 4px;
+QMainWindow > QWidget {
+    background-color: #00ff00;
 }
-QScrollBar::handle:vertical:hover {
-    background: #6e6e6e;
+QTabWidget {
+    background-color: #0000ff;
 }
-QScrollBar:horizontal {
-    height: 12px;
-    background: #2d2d30;
+QTabWidget::pane {
+    background-color: #ffff00;
 }
-QScrollBar::handle:horizontal {
-    background: #5a5a5a;
-    min-width: 24px;
-    border-radius: 4px;
+QGroupBox {
+    background-color: #ff00ff;
+}
+QLineEdit, QPlainTextEdit, QTextEdit, QTextBrowser {
+    background-color: #00ffff;
+}
+QTableWidget {
+    background-color: #ff8800;
+}
+QHeaderView::section {
+    background-color: #ffffff;
+    color: #000000;
 }
 """
 
+_region_debug_easter_active = False
 
-def apply_dark_theme(app: QApplication) -> None:
-    """Apply Fusion + dark palette and app-wide stylesheet."""
+
+def toggle_region_debug_easter_egg() -> bool:
+    """Toggle the region-color debug QSS overlay. Returns the new active state."""
+    global _region_debug_easter_active
+    _region_debug_easter_active = not _region_debug_easter_active
+    logger.debug("Region color debug easter egg: %s", _region_debug_easter_active)
+    return _region_debug_easter_active
+
+
+def _populate_semantic(*, dark: bool) -> None:
+    """Fill `semantic` for table tints, log colors, and changelog (mutable; UI reads live)."""
+    if dark:
+        semantic.success = QColor(80, 200, 120)
+        semantic.error = QColor(255, 82, 82)
+        semantic.dark_red = QColor(239, 83, 80)
+        semantic.warning = QColor(255, 183, 77)
+        semantic.muted = QColor(158, 158, 158)
+        semantic.value_text = QColor(176, 190, 197)
+        semantic.alt_row = QColor(48, 52, 58)
+        semantic.active_amber = QColor(130, 88, 42)
+        semantic.active_blue = QColor(52, 92, 132)
+        semantic.changelog_bg = "#252526"
+        semantic.changelog_fg = "#d4d4d4"
+        semantic.log_level_colors = {
+            logging.DEBUG: QColor(120, 144, 156),
+            logging.INFO: QColor(236, 239, 241),
+            logging.WARNING: QColor(255, 183, 77),
+            logging.ERROR: QColor(239, 83, 80),
+            logging.CRITICAL: QColor(183, 28, 28),
+        }
+    else:
+        semantic.success = QColor(46, 125, 50)
+        semantic.error = QColor(198, 40, 40)
+        semantic.dark_red = QColor(211, 47, 47)
+        semantic.warning = QColor(245, 124, 0)
+        semantic.muted = QColor(97, 97, 97)
+        semantic.value_text = QColor(66, 66, 66)
+        semantic.alt_row = QColor(240, 240, 240)
+        semantic.active_amber = QColor(255, 224, 178)
+        semantic.active_blue = QColor(187, 222, 251)
+        semantic.changelog_bg = "#ffffff"
+        semantic.changelog_fg = "#202020"
+        semantic.log_level_colors = {
+            logging.DEBUG: QColor(84, 110, 122),
+            logging.INFO: QColor(33, 33, 33),
+            logging.WARNING: QColor(245, 124, 0),
+            logging.ERROR: QColor(198, 40, 40),
+            logging.CRITICAL: QColor(183, 28, 28),
+        }
+
+
+def apply_app_theme(app: QApplication, *, dark_mode: bool) -> None:
+    """Apply Fusion + palette + QSS + semantic colors for dark or light mode."""
     app.setStyle("Fusion")
-
     pal = QPalette()
-    # Window chrome
-    pal.setColor(QPalette.ColorRole.Window, QColor(*WINDOW_CHROME_RGB))
-    pal.setColor(QPalette.ColorRole.WindowText, QColor(230, 230, 230))
-    # Inputs / views
-    pal.setColor(QPalette.ColorRole.Base, QColor(42, 42, 46))
-    pal.setColor(QPalette.ColorRole.AlternateBase, QColor(52, 52, 58))
-    pal.setColor(QPalette.ColorRole.Text, QColor(230, 230, 230))
-    pal.setColor(QPalette.ColorRole.PlaceholderText, QColor(140, 140, 140))
-    # Tooltips
-    pal.setColor(QPalette.ColorRole.ToolTipBase, QColor(60, 60, 65))
-    pal.setColor(QPalette.ColorRole.ToolTipText, QColor(240, 240, 240))
-    # Buttons
-    pal.setColor(QPalette.ColorRole.Button, QColor(58, 58, 62))
-    pal.setColor(QPalette.ColorRole.ButtonText, QColor(235, 235, 235))
-    pal.setColor(QPalette.ColorRole.BrightText, QColor(255, 80, 80))
-    # Links & selection
-    pal.setColor(QPalette.ColorRole.Link, QColor(100, 180, 255))
-    pal.setColor(QPalette.ColorRole.Highlight, QColor(0, 120, 215))
-    pal.setColor(QPalette.ColorRole.HighlightedText, QColor(255, 255, 255))
-    # Disabled
-    pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, QColor(127, 127, 127))
-    pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor(127, 127, 127))
-    pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor(127, 127, 127))
 
+    if dark_mode:
+        pal.setColor(QPalette.ColorRole.Window, QColor(*WINDOW_CHROME_RGB_DARK))
+        pal.setColor(QPalette.ColorRole.WindowText, QColor(230, 230, 230))
+        pal.setColor(QPalette.ColorRole.Base, QColor(42, 42, 46))
+        pal.setColor(QPalette.ColorRole.AlternateBase, QColor(52, 52, 58))
+        pal.setColor(QPalette.ColorRole.Text, QColor(230, 230, 230))
+        pal.setColor(QPalette.ColorRole.PlaceholderText, QColor(140, 140, 140))
+        pal.setColor(QPalette.ColorRole.ToolTipBase, QColor(60, 60, 65))
+        pal.setColor(QPalette.ColorRole.ToolTipText, QColor(240, 240, 240))
+        pal.setColor(QPalette.ColorRole.Button, QColor(58, 58, 62))
+        pal.setColor(QPalette.ColorRole.ButtonText, QColor(235, 235, 235))
+        pal.setColor(QPalette.ColorRole.BrightText, QColor(255, 80, 80))
+        pal.setColor(QPalette.ColorRole.Link, QColor(100, 180, 255))
+        pal.setColor(QPalette.ColorRole.Highlight, QColor(0, 120, 215))
+        pal.setColor(QPalette.ColorRole.HighlightedText, QColor(255, 255, 255))
+        pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, QColor(127, 127, 127))
+        pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor(127, 127, 127))
+        pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor(127, 127, 127))
+    else:
+        pal.setColor(QPalette.ColorRole.Window, QColor(*WINDOW_CHROME_RGB_LIGHT))
+        pal.setColor(QPalette.ColorRole.WindowText, QColor(30, 30, 30))
+        pal.setColor(QPalette.ColorRole.Base, QColor(255, 255, 255))
+        pal.setColor(QPalette.ColorRole.AlternateBase, QColor(245, 245, 245))
+        pal.setColor(QPalette.ColorRole.Text, QColor(30, 30, 30))
+        pal.setColor(QPalette.ColorRole.PlaceholderText, QColor(120, 120, 120))
+        pal.setColor(QPalette.ColorRole.ToolTipBase, QColor(255, 255, 220))
+        pal.setColor(QPalette.ColorRole.ToolTipText, QColor(30, 30, 30))
+        pal.setColor(QPalette.ColorRole.Button, QColor(225, 225, 225))
+        pal.setColor(QPalette.ColorRole.ButtonText, QColor(30, 30, 30))
+        pal.setColor(QPalette.ColorRole.BrightText, QColor(200, 0, 0))
+        pal.setColor(QPalette.ColorRole.Link, QColor(0, 102, 204))
+        pal.setColor(QPalette.ColorRole.Highlight, QColor(0, 120, 215))
+        pal.setColor(QPalette.ColorRole.HighlightedText, QColor(255, 255, 255))
+        pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, QColor(150, 150, 150))
+        pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor(150, 150, 150))
+        pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor(150, 150, 150))
+
+    # Palette first, then global QSS (order avoids half-styled widgets after toggling).
     app.setPalette(pal)
-    app.setStyleSheet(_EXTRA_QSS)
+    qss = _EXTRA_QSS_DARK if dark_mode else _EXTRA_QSS_LIGHT
+    if _region_debug_easter_active:
+        qss += _REGION_DEBUG_QSS
+    app.setStyleSheet(qss)
+    _populate_semantic(dark=dark_mode)
 
 
-def apply_windows_window_frame(widget: QWidget) -> None:
-    """Dark native title bar on Windows via DWM (Qt cannot style the OS caption).
-
-    Uses immersive dark mode (Win10 1809+) and optional caption/border tint (Win11)
-    to match WINDOW_CHROME_RGB. No-op on other platforms or if APIs are unavailable.
-    """
+def apply_windows_window_frame(widget: QWidget, *, dark_mode: bool) -> None:
+    """Tune native Windows title bar to match app (dark or light) via DWM."""
     if platform.system() != "Windows":
         return
     try:
@@ -188,12 +322,27 @@ def apply_windows_window_frame(widget: QWidget) -> None:
         if hr != 0:
             logger.debug("DwmSetWindowAttribute attr=%s hr=%#x", attr, hr & 0xFFFFFFFF)
 
-    # Light title bar -> dark (required on Win10/11 for non-UWP HWND)
-    dark = ctypes.c_int(1)
-    _set_attr(DWMWA_USE_IMMERSIVE_DARK_MODE, ctypes.byref(dark), ctypes.sizeof(dark))
+    use_dark = ctypes.c_int(1 if dark_mode else 0)
+    _set_attr(DWMWA_USE_IMMERSIVE_DARK_MODE, ctypes.byref(use_dark), ctypes.sizeof(use_dark))
 
-    # Win11+: tint caption and border to match app background (fails gracefully on older OS)
-    r, g, b = WINDOW_CHROME_RGB
+    rgb = WINDOW_CHROME_RGB_DARK if dark_mode else WINDOW_CHROME_RGB_LIGHT
+    r, g, b = rgb
     colorref = wintypes.DWORD(r | (g << 8) | (b << 16))
     _set_attr(DWMWA_CAPTION_COLOR, ctypes.byref(colorref), ctypes.sizeof(colorref))
     _set_attr(DWMWA_BORDER_COLOR, ctypes.byref(colorref), ctypes.sizeof(colorref))
+
+
+class ThemedQFileDialog(QFileDialog):
+    """Non-native QFileDialog: apply the same Windows caption/border DWM attributes as the main window."""
+
+    def __init__(self, parent: QWidget | None, *, dark_mode: bool):
+        super().__init__(parent)
+        self._dark_mode = dark_mode
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        apply_windows_window_frame(self, dark_mode=self._dark_mode)
+
+
+# Default semantic = dark (before main applies theme from config)
+_populate_semantic(dark=True)

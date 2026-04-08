@@ -4,6 +4,7 @@ import logging
 import os
 import platform
 import threading
+import time
 from collections import deque
 from heapq import merge as _heapmerge
 
@@ -43,19 +44,11 @@ from p99_sso_login_proxy import (
     zone_translate,
 )
 from p99_sso_login_proxy.theme import (
-    CHANGELOG_BG,
-    CHANGELOG_FG,
-    COLOR_ACTIVE_AMBER,
-    COLOR_ACTIVE_BLUE,
-    COLOR_ALT_ROW,
-    COLOR_DARK_RED,
-    COLOR_ERROR,
-    COLOR_MUTED,
-    COLOR_SUCCESS,
-    COLOR_VALUE_TEXT,
-    COLOR_WARNING,
-    LOG_LEVEL_COLORS,
+    ThemedQFileDialog,
+    apply_app_theme,
     apply_windows_window_frame,
+    semantic,
+    toggle_region_debug_easter_egg,
 )
 from p99_sso_login_proxy.ui_classes import local_account_dialog, proxy_stats, taskbar_icon
 from p99_sso_login_proxy.ui_classes.password_visibility import add_password_visibility_toggle
@@ -72,6 +65,7 @@ _KEY_COLUMNS = frozenset({3, 4, 5})
 _KEY_SORT_ORDER = {KEY_COLUMN_YES: 0, KEY_COLUMN_NO: 1, "": 2}
 _KEY_FILTER_TERMS = {"stkey": 3, "vpkey": 4, "sebkey": 5}
 _CHARACTERS_FILTER_SKIP_COLS = frozenset({8, 9})
+_CHARACTERS_CENTER_COLUMNS = frozenset({2, 3, 4, 5})  # Lvl, ST, VP, Sb
 
 
 def _characters_key_term_match(row: tuple, term: str) -> bool:
@@ -173,7 +167,7 @@ class QtLogHandler(logging.Handler):
     def _write_line(self, msg: str, levelno: int):
         ctrl = self._text_edit
         auto = self._auto_scroll_cb.isChecked()
-        colour = LOG_LEVEL_COLORS.get(levelno, LOG_LEVEL_COLORS[logging.INFO])
+        colour = semantic.log_level_colors.get(levelno, semantic.log_level_colors[logging.INFO])
 
         cursor = ctrl.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
@@ -195,7 +189,7 @@ class QtLogHandler(logging.Handler):
 
         ctrl.clear()
         for _seq, msg, levelno in merged:
-            colour = LOG_LEVEL_COLORS.get(levelno, LOG_LEVEL_COLORS[logging.INFO])
+            colour = semantic.log_level_colors.get(levelno, semantic.log_level_colors[logging.INFO])
             cursor = ctrl.textCursor()
             cursor.movePosition(QTextCursor.MoveOperation.End)
             fmt = QTextCharFormat()
@@ -217,7 +211,9 @@ class QtLogHandler(logging.Handler):
         self._text_edit.clear()
 
 
-def _activity_colour(last_login_iso: str | None, base_color: QColor = COLOR_ACTIVE_AMBER) -> QColor | None:
+def _activity_colour(last_login_iso: str | None, base_color: QColor | None = None) -> QColor | None:
+    if base_color is None:
+        base_color = semantic.active_amber
     if not last_login_iso:
         return None
     try:
@@ -262,9 +258,11 @@ class ProxyUI(QMainWindow):
         self.setMinimumSize(708, 550)
 
         self.exit_event = threading.Event()
+        self._application_exiting = False
         self._list_filter_data: dict = {}
         self._ws_error_shown = False
         self.start_eq_func = None
+        self._adv_tab_click_times: list[float] = []
 
         assert PROXY_STATS is not None
         PROXY_STATS.stats_updated.connect(self.on_stats_updated)
@@ -323,7 +321,8 @@ class ProxyUI(QMainWindow):
         super().showEvent(event)
         if platform.system() == "Windows" and not getattr(self, "_windows_frame_applied", False):
             self._windows_frame_applied = True
-            apply_windows_window_frame(self)
+            use_dark = self.dark_mode_cb.isChecked()
+            apply_windows_window_frame(self, dark_mode=use_dark)
 
     def nativeEvent(self, eventType, message):
         if platform.system() == "Windows" and eventType == b"windows_generic_MSG":
@@ -346,7 +345,7 @@ class ProxyUI(QMainWindow):
         f.setBold(True)
         label.setFont(f)
         value = QLabel(initial_value)
-        value.setStyleSheet(f"color: {COLOR_VALUE_TEXT.name()};")
+        value.setStyleSheet(f"color: {semantic.value_text.name()};")
         row.addWidget(label)
         row.addWidget(value, 1)
         layout.addLayout(row)
@@ -369,6 +368,9 @@ class ProxyUI(QMainWindow):
             for col in range(min(num_cols, len(row))):
                 text = "" if row[col] is None else str(row[col])
                 item = QTableWidgetItem(text)
+                list_data = self._list_filter_data.get(table)
+                if list_data and col in list_data.get("center_columns", ()):
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 table.setItem(i, col, item)
             colour = row_color_fn(row) if row_color_fn else None
             if colour:
@@ -380,7 +382,7 @@ class ProxyUI(QMainWindow):
                 for col in range(num_cols):
                     it = table.item(i, col)
                     if it:
-                        it.setBackground(QBrush(COLOR_ALT_ROW))
+                        it.setBackground(QBrush(semantic.alt_row))
         if rows and first_visible >= 0:
             target = min(first_visible, len(rows) - 1)
             table.scrollToItem(table.item(target, 0))
@@ -424,7 +426,9 @@ class ProxyUI(QMainWindow):
         hh = table.horizontalHeader()
         hh.setStretchLastSection(True)
         hh.setFixedHeight(22)
-        table.verticalHeader().setVisible(False)
+        vh = table.verticalHeader()
+        vh.setDefaultSectionSize(22)
+        vh.setVisible(False)
         table.setAlternatingRowColors(False)
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
@@ -489,6 +493,14 @@ class ProxyUI(QMainWindow):
         mode_row.addWidget(self.proxy_mode_choice)
         mode_row.addStretch()
         controls_row.addLayout(mode_row)
+
+        self.dark_mode_cb = QCheckBox("Dark Mode")
+        self.dark_mode_cb.blockSignals(True)
+        self.dark_mode_cb.setChecked(config.DARK_MODE)
+        self.dark_mode_cb.blockSignals(False)
+        self.dark_mode_cb.toggled.connect(self.on_dark_mode_changed)
+        self.dark_mode_cb.setToolTip("Dark or light Fusion theme (saved in proxyconfig.ini)")
+        controls_row.addWidget(self.dark_mode_cb)
 
         self.always_on_top_cb = QCheckBox("Always On Top")
         self.always_on_top_cb.setChecked(config.ALWAYS_ON_TOP)
@@ -619,7 +631,7 @@ class ProxyUI(QMainWindow):
         search_ctrl.textChanged.connect(lambda _t: self._apply_filter(self.characters_list))
         search_row.addWidget(search_ctrl, 1)
 
-        for colour, label in ((COLOR_ACTIVE_AMBER, "Logged In"), (COLOR_ACTIVE_BLUE, "Blocked")):
+        for colour, label in ((semantic.active_amber, "Logged In"), (semantic.active_blue, "Blocked")):
             sw = QFrame()
             sw.setFixedSize(12, 12)
             sw.setStyleSheet(f"background-color: {colour.name()};")
@@ -629,6 +641,7 @@ class ProxyUI(QMainWindow):
         characters_layout.addLayout(search_row)
         self._list_filter_data[self.characters_list]["term_match_fn"] = _characters_key_term_match
         self._list_filter_data[self.characters_list]["filter_skip_columns"] = _CHARACTERS_FILTER_SKIP_COLS
+        self._list_filter_data[self.characters_list]["center_columns"] = _CHARACTERS_CENTER_COLUMNS
 
         characters_layout.addWidget(self.characters_list, 1)
 
@@ -666,7 +679,7 @@ class ProxyUI(QMainWindow):
         sso_accounts_label = QLabel("Accounts:")
         sso_accounts_label.setFont(QFont(sso_accounts_label.font().family(), weight=QFont.Weight.Bold))
         self.sso_accounts_cached_text = QLabel("0")
-        self.sso_accounts_cached_text.setStyleSheet(f"color: {COLOR_VALUE_TEXT.name()};")
+        self.sso_accounts_cached_text.setStyleSheet(f"color: {semantic.value_text.name()};")
         self.sso_accounts_cached_text.setToolTip("Number of accounts, characters, and aliases/tags")
         sso_bottom.setContentsMargins(12, 6, 12, 0)
         sso_bottom.addWidget(sso_accounts_label)
@@ -687,7 +700,7 @@ class ProxyUI(QMainWindow):
         eq_dir_label = QLabel("EverQuest Path:")
         eq_dir_label.setFont(QFont(eq_dir_label.font().family(), weight=QFont.Weight.Bold))
         self.eq_dir_text = QLabel("Checking...")
-        self.eq_dir_text.setStyleSheet(f"color: {COLOR_VALUE_TEXT.name()};")
+        self.eq_dir_text.setStyleSheet(f"color: {semantic.value_text.name()};")
         self.browse_eq_btn = QPushButton("Browse\u2026")
         self.browse_eq_btn.setMinimumWidth(100)
         self.browse_eq_btn.clicked.connect(self.on_browse_eq_directory)
@@ -775,11 +788,14 @@ class ProxyUI(QMainWindow):
         main_layout = QVBoxLayout(central)
 
         notebook = QTabWidget()
+        self._main_tabwidget = notebook
         self._create_proxy_tab(notebook)
         self._create_sso_tab(notebook)
         self._create_eq_tab(notebook)
         self._create_log_tab(notebook)
         self._create_changelog_tab(notebook)
+
+        notebook.tabBarClicked.connect(self._on_main_tab_bar_clicked)
 
         main_layout.addWidget(notebook, 1)
 
@@ -794,6 +810,28 @@ class ProxyUI(QMainWindow):
         main_layout.addLayout(btn_row)
 
         self._center_window()
+
+    @Slot(int)
+    def _on_main_tab_bar_clicked(self, index: int) -> None:
+        """Easter egg: 7 clicks on the Advanced tab within 3s toggles region-color debug QSS."""
+        if self._main_tabwidget.tabText(index) != "Advanced":
+            self._adv_tab_click_times.clear()
+            return
+        now = time.monotonic()
+        self._adv_tab_click_times = [t for t in self._adv_tab_click_times if now - t <= 3.0]
+        self._adv_tab_click_times.append(now)
+        if len(self._adv_tab_click_times) < 7:
+            return
+        self._adv_tab_click_times.clear()
+        toggle_region_debug_easter_egg()
+        app = QApplication.instance()
+        assert app is not None
+        use_dark = self.dark_mode_cb.isChecked()
+        apply_app_theme(app, dark_mode=use_dark)
+        if platform.system() == "Windows":
+            apply_windows_window_frame(self, dark_mode=use_dark)
+        self._repolish_widget_tree()
+        QApplication.processEvents()
 
     def _center_window(self):
         screen = QApplication.primaryScreen()
@@ -857,6 +895,10 @@ class ProxyUI(QMainWindow):
         self.tray_icon.ShowBalloon("Login Proxied", body)
 
     def closeEvent(self, event: QCloseEvent):
+        # Real exit (Exit / Ctrl+C / app quit): do not treat as "minimize to tray".
+        if self._application_exiting:
+            event.accept()
+            return
         if self.tray_icon:
             event.ignore()
             self.hide()
@@ -865,6 +907,9 @@ class ProxyUI(QMainWindow):
             self.close_application()
 
     def close_application(self):
+        if self._application_exiting:
+            return
+        self._application_exiting = True
         update_scheduler.shutdown()
         if hasattr(self, "_log_handler"):
             logging.getLogger().removeHandler(self._log_handler)
@@ -947,7 +992,7 @@ class ProxyUI(QMainWindow):
 
     def on_updated_changelog(self):
         self.changelog_html.setHtml(config.CHANGELOG)
-        self.changelog_html.setStyleSheet(f"background-color: {CHANGELOG_BG}; color: {CHANGELOG_FG};")
+        self.changelog_html.setStyleSheet(f"background-color: {semantic.changelog_bg}; color: {semantic.changelog_fg};")
 
     def on_sso_api_changed(self, _index=None):
         idx = self.sso_api_choice.currentIndex()
@@ -959,19 +1004,26 @@ class ProxyUI(QMainWindow):
             self.api_token_field.setText(new_token)
             if hasattr(self, "ws_status_text"):
                 self.ws_status_text.setText("Connecting...")
-                self.ws_status_text.setStyleSheet(f"color: {COLOR_WARNING.name()};")
+                self.ws_status_text.setStyleSheet(f"color: {semantic.warning.name()};")
             ws_client.request_reconnect()
 
     def on_browse_eq_directory(self):
         start_dir = config.EQ_DIRECTORY or ""
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select eqgame.exe",
-            start_dir,
+        use_dark = self.dark_mode_cb.isChecked()
+        dlg = ThemedQFileDialog(self, dark_mode=use_dark)
+        dlg.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+        dlg.setWindowTitle("Select eqgame.exe")
+        if start_dir:
+            dlg.setDirectory(start_dir)
+        dlg.setNameFilter(
             # Glob only (not full regex): [...] per character matches any listed casing of eqgame.exe.
             "eqgame.exe ([Ee][Qq][Gg][Aa][Mm][Ee].[Ee][Xx][Ee])",
-            options=QFileDialog.Option.DontUseNativeDialog,
         )
+        dlg.setFileMode(QFileDialog.FileMode.ExistingFile)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        files = dlg.selectedFiles()
+        path = files[0] if files else ""
         if not path:
             return
         if os.path.basename(path).lower() != "eqgame.exe":
@@ -1011,6 +1063,45 @@ class ProxyUI(QMainWindow):
     def on_reset_eqhost(self):
         self.update_eq_status()
 
+    def _repolish_widget_tree(self) -> None:
+        """Re-apply style after global palette/QSS change (avoids mixed light/dark chrome)."""
+        for w in self.findChildren(QWidget):
+            st = w.style()
+            if st is not None:
+                st.unpolish(w)
+                st.polish(w)
+
+    @Slot(bool)
+    def on_dark_mode_changed(self, checked: bool):
+        # Use checkbox state (not only the signal arg) so we always match the UI control.
+        use_dark = self.dark_mode_cb.isChecked()
+        if use_dark != checked:
+            logger.warning("Dark mode toggled signal mismatch: isChecked=%s signal=%s", use_dark, checked)
+        config.set_dark_mode(use_dark)
+        app = QApplication.instance()
+        assert app is not None
+        apply_app_theme(app, dark_mode=use_dark)
+        if platform.system() == "Windows":
+            apply_windows_window_frame(self, dark_mode=use_dark)
+        self._repolish_widget_tree()
+        QApplication.processEvents()
+        self.update_stats()
+        for w in (
+            self.address_value,
+            self.last_username_label,
+            self.uptime_value,
+            self.total_value,
+            self.active_value,
+            self.completed_value,
+        ):
+            w.setStyleSheet(f"color: {semantic.value_text.name()};")
+        self.update_eq_status()
+        self._on_ws_status_tick()
+        if hasattr(self, "changelog_html"):
+            self.on_updated_changelog()
+        if hasattr(self, "_log_handler"):
+            self._log_handler.refilter()
+
     def on_always_on_top(self, checked: bool):
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, checked)
         self.show()
@@ -1027,7 +1118,7 @@ class ProxyUI(QMainWindow):
         ws_client.request_reconnect()
         if hasattr(self, "ws_status_text"):
             self.ws_status_text.setText("Connecting...")
-            self.ws_status_text.setStyleSheet(f"color: {COLOR_WARNING.name()};")
+            self.ws_status_text.setStyleSheet(f"color: {semantic.warning.name()};")
         self.update_account_cache_display()
 
     def on_exit_button(self):
@@ -1057,22 +1148,22 @@ class ProxyUI(QMainWindow):
         if ws_client.is_connected():
             self._ws_error_shown = False
             self.ws_status_text.setText("Connected (Live)")
-            self.ws_status_text.setStyleSheet(f"color: {COLOR_SUCCESS.name()};")
+            self.ws_status_text.setStyleSheet(f"color: {semantic.success.name()};")
         elif ws_client.is_auth_failed():
             detail = ws_client.get_auth_failed_detail() or "Auth Failed"
             label = detail if len(detail) <= 60 else detail[:57] + "..."
             self.ws_status_text.setText(label)
             self.ws_status_text.setToolTip(detail)
-            self.ws_status_text.setStyleSheet(f"color: {COLOR_ERROR.name()};")
+            self.ws_status_text.setStyleSheet(f"color: {semantic.error.name()};")
             if not self._ws_error_shown:
                 self._ws_error_shown = True
                 QMessageBox.critical(self, "SSO Connection Error", detail)
         elif config.USER_API_TOKEN:
             self.ws_status_text.setText("Connecting...")
-            self.ws_status_text.setStyleSheet(f"color: {COLOR_WARNING.name()};")
+            self.ws_status_text.setStyleSheet(f"color: {semantic.warning.name()};")
         else:
             self.ws_status_text.setText("No API Token")
-            self.ws_status_text.setStyleSheet(f"color: {COLOR_MUTED.name()};")
+            self.ws_status_text.setStyleSheet(f"color: {semantic.muted.name()};")
 
     def _on_log_level_changed(self, _i=None):
         self._log_handler.refilter()
@@ -1208,9 +1299,9 @@ class ProxyUI(QMainWindow):
 
         if real_accounts == 0:
             self.accounts_cached_text.setText("None")
-            self.accounts_cached_text.setStyleSheet(f"color: {COLOR_MUTED.name()};")
+            self.accounts_cached_text.setStyleSheet(f"color: {semantic.muted.name()};")
             self.sso_accounts_cached_text.setText("None")
-            self.sso_accounts_cached_text.setStyleSheet(f"color: {COLOR_MUTED.name()};")
+            self.sso_accounts_cached_text.setStyleSheet(f"color: {semantic.muted.name()};")
         else:
             total_characters = sum(len(data.get("characters", {})) for data in config.ACCOUNTS_CACHED.values())
             total_aliases = sum(len(data.get("aliases", [])) for data in config.ACCOUNTS_CACHED.values())
@@ -1219,9 +1310,9 @@ class ProxyUI(QMainWindow):
                 f"{real_accounts} accounts, {total_characters} characters, {total_aliases + unique_tags} aliases/tags"
             )
             self.accounts_cached_text.setText(summary)
-            self.accounts_cached_text.setStyleSheet(f"color: {COLOR_SUCCESS.name()};")
+            self.accounts_cached_text.setStyleSheet(f"color: {semantic.success.name()};")
             self.sso_accounts_cached_text.setText(summary)
-            self.sso_accounts_cached_text.setStyleSheet(f"color: {COLOR_SUCCESS.name()};")
+            self.sso_accounts_cached_text.setStyleSheet(f"color: {semantic.success.name()};")
 
         local_rows = []
         for account, data in sorted(config.LOCAL_ACCOUNTS.items()):
@@ -1316,7 +1407,10 @@ class ProxyUI(QMainWindow):
         self._populate_list(
             self.characters_list,
             char_rows,
-            row_color_fn=lambda row: _activity_colour(row[10], COLOR_ACTIVE_BLUE if row[11] else COLOR_ACTIVE_AMBER),
+            row_color_fn=lambda row: _activity_colour(
+                row[10],
+                semantic.active_blue if row[11] else semantic.active_amber,
+            ),
         )
 
     def update_eq_status(self):
@@ -1326,25 +1420,25 @@ class ProxyUI(QMainWindow):
 
         if status["eq_directory_found"]:
             self.eq_dir_text.setText(f"{status['eq_directory']}")
-            self.eq_dir_text.setStyleSheet(f"color: {COLOR_SUCCESS.name()};")
+            self.eq_dir_text.setStyleSheet(f"color: {semantic.success.name()};")
             log_handler.set_log_watch_directory(status["eq_directory"], self)
         else:
             self.eq_dir_text.setText("Not Found")
-            self.eq_dir_text.setStyleSheet(f"color: {COLOR_ERROR.name()};")
+            self.eq_dir_text.setStyleSheet(f"color: {semantic.error.name()};")
 
         if status["eqhost_found"]:
             self.eqhost_text.setText(f"{status['eqhost_path']}")
-            self.eqhost_text.setStyleSheet(f"color: {COLOR_SUCCESS.name()};")
+            self.eqhost_text.setStyleSheet(f"color: {semantic.success.name()};")
         else:
             self.eqhost_text.setText("Not Found")
-            self.eqhost_text.setStyleSheet(f"color: {COLOR_ERROR.name()};")
+            self.eqhost_text.setStyleSheet(f"color: {semantic.error.name()};")
 
         if status["using_proxy"]:
             self.proxy_status_text.setText("Enabled")
-            self.proxy_status_text.setStyleSheet(f"color: {COLOR_SUCCESS.name()};")
+            self.proxy_status_text.setStyleSheet(f"color: {semantic.success.name()};")
         else:
             self.proxy_status_text.setText("Disabled")
-            self.proxy_status_text.setStyleSheet(f"color: {COLOR_DARK_RED.name()};")
+            self.proxy_status_text.setStyleSheet(f"color: {semantic.dark_red.name()};")
 
         self.eqhost_contents.clear()
         if status["eqhost_contents"]:
