@@ -68,6 +68,9 @@ OPT_INTO_PRERELEASES = CONFIG.getboolean("DEFAULT", "opt_into_prereleases", fall
 
 EQ_DIRECTORY = CONFIG.get("DEFAULT", "eq_directory", fallback="")
 
+# Optional second EverQuest install root: same role as eq_directory for Logs/, *-Inventory.txt, Rustle scan
+EQ_SECONDARY_DIRECTORY = CONFIG.get("DEFAULT", "eq_secondary_directory", fallback="").strip()
+
 # Whether to run in proxy-only mode (no SSO authentication)
 PROXY_ONLY = CONFIG.getboolean("DEFAULT", "proxy_only", fallback=False)
 
@@ -185,6 +188,7 @@ MATCH_LEVEL_UP = re.compile(rf"{TIMESTAMP}You have gained a level! Welcome to le
 MATCH_FTE = re.compile(rf"{TIMESTAMP}(?P<mob>.+?) engages (?P<player>\w+)!")
 MATCH_YOU_SLAIN = re.compile(rf"{TIMESTAMP}You have slain (?P<mob>.+?)!")
 MATCH_MOB_SLAIN = re.compile(rf"{TIMESTAMP}(?P<mob>.+?) has been slain by (?P<slayer>.+?)!")
+MATCH_VELIUM_VAPORS_GLOW = re.compile(rf"{TIMESTAMP}Your Vial of Velium Vapors begins to glow\.")
 
 # Static lowercased names for raid targets whose death lines are relayed to Discord (see log_handler).
 RAID_TARGETS = frozenset(

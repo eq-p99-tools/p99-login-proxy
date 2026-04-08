@@ -50,6 +50,7 @@ from PySide6.QtWidgets import (
 
 from p99_sso_login_proxy import (
     config,
+    count_display,
     eq_config,
     log_handler,
     update_scheduler,
@@ -73,58 +74,82 @@ logger = logging.getLogger("ui")
 # Set in start_ui() after QApplication exists (required for QObject-based ProxyStats).
 PROXY_STATS: proxy_stats.ProxyStats | None = None
 
-KEY_COLUMN_YES = "\u2705"  # ✅ green check (emoji)
-KEY_COLUMN_NO = "\u274c"  # ❌ red X (emoji)
+KEY_COLUMN_YES = count_display.TIER_EMOJI_LOTS  # 🟢 has key
+KEY_COLUMN_UNKNOWN = count_display.READINESS_UNKNOWN_MARK  # ? = unknown from server
 
-_KEY_COLUMNS = frozenset(range(3, 9))  # ST through CH (no Void column in UI)
-_KEY_GROUP_HEADER_START_COL = 3  # ST
+_KEY_COLUMNS = frozenset(range(4, 10))  # ST through CH (no Void column in UI)
+_KEY_GROUP_HEADER_START_COL = 4  # ST
 _KEY_GROUP_HEADER_COL_COUNT = 3  # ST, VP, Sb
-_POTS_GROUP_HEADER_START_COL = 6  # CT (Lizard Blood pot)
+_POTS_GROUP_HEADER_START_COL = 7  # CT (Lizard Blood pot)
 _POTS_GROUP_HEADER_COL_COUNT = 2  # CT, TP (Thurg pot)
-_KEY_SORT_ORDER = {KEY_COLUMN_YES: 0, KEY_COLUMN_NO: 1, "": 2}
+_KEY_SORT_ORDER = {KEY_COLUMN_YES: 0, KEY_COLUMN_UNKNOWN: 1, "": 2}
 _KEY_FILTER_TERMS = {
-    "stkey": 3,
-    "vpkey": 4,
-    "sebkey": 5,
-    "lizpot": 6,
-    "ctpot": 6,  # alias for lizpot (CT column)
-    "thurgpot": 7,
-    "dainpot": 7,  # alias for thurgpot (TP / Dain ring)
-    "chneck": 8,
+    "stkey": 4,
+    "vpkey": 5,
+    "sebkey": 6,
+    "lizpot": 7,
+    "ctpot": 7,  # alias for lizpot (CT column)
+    "thurgpot": 8,
+    "dainpot": 8,  # alias for thurgpot (TP / Dain ring)
+    "chneck": 9,
 }
 # Full names + filter keywords (where applicable); index matches characters_list columns left-to-right.
 _CHARACTERS_COLUMN_HEADER_TOOLTIPS = (
+    "Readiness (class-specific). Empty if no rule set for this class.",
     "Character name",
     "Class",
     "Level",
-    "Sleeper's Key (ST). Search filters: stkey",
-    "Key of Veeshan (VP). Search filters: vpkey",
-    "Trakanon Idol (Seb key). Search filters: sebkey",
-    "Lizard Blood Potion (CT). Search filters: lizpot, ctpot",
-    "Vial of Velium Vapors (Thurg pot, TP). Search filters: thurgpot, dainpot",
-    "Necklace of Resolution (CH). Search filters: chneck",
+    "Sleeper's Key (ST). Green = has key, ? = unknown, blank = no key. Search: stkey",
+    "Key of Veeshan (VP). Green = has key, ? = unknown, blank = no key. Search: vpkey",
+    "Trakanon Idol (Seb key). Green = has key, ? = unknown, blank = no key. Search: sebkey",
+    "Lizard Blood Potion (CT). 🟢 Lots / 🟡 Some / 🔴 Few / ? — unknown count. "
+    "Hover for count when known. Search: lizpot, ctpot = rows with a known count.",
+    "Vial of Velium Vapors (Thurg pot, TP). Green = has vial, ? = unknown, blank = no vial. Search: thurgpot, dainpot",
+    "CH bundle: 🟢 Necklace + Void + MB4>0 · 🟡 Necklace but not all green conditions · 🔴 No necklace. "
+    "Hover for Necklace/Void/MB4. Search chneck = rows with necklace (🟢 or 🟡).",
     "Park location (current zone)",
     "Bind location",
     "Logged in by (last SSO user on this character)",
     "Account name (SSO)",
 )
-_CHARACTERS_KEYS_SUPERHEADER_TOOLTIP = "\n".join(_CHARACTERS_COLUMN_HEADER_TOOLTIPS[3:6])
-_CHARACTERS_POTS_SUPERHEADER_TOOLTIP = "\n".join(_CHARACTERS_COLUMN_HEADER_TOOLTIPS[6:8])
-_CHARACTERS_FILTER_SKIP_COLS = frozenset({11, 12})
-_CHARACTERS_CENTER_COLUMNS = frozenset({2, 3, 4, 5, 6, 7, 8})  # Lvl + item columns
+_CHARACTERS_KEYS_SUPERHEADER_TOOLTIP = "ST / VP / Seb: green = has key, ? = unknown, blank = no key.\n\n" + "\n".join(
+    _CHARACTERS_COLUMN_HEADER_TOOLTIPS[4:7]
+)
+_CHARACTERS_POTS_SUPERHEADER_TOOLTIP = "\n".join(
+    (
+        "CT — Lizard Blood Potion",
+        "Tier emojis: 🟢 Lots, 🟡 Some, 🔴 Few — ? if count unknown (thresholds in count_display).",
+        "Hover a cell for the exact stack count.",
+        "Search: lizpot, ctpot (rows with a known count).",
+        "",
+        "TP — Vial of Velium Vapors (Thurg)",
+        "Green = has vial, ? = unknown, blank = no vial.",
+        "Search: thurgpot, dainpot",
+    )
+)
+_CHARACTERS_FILTER_SKIP_COLS = frozenset({12, 13})
+# Columns where sort puts non-empty cells first; blanks stay at the bottom (asc and desc).
+_CHARACTERS_SORT_BLANKS_LAST_COLS = frozenset({12})  # "Logged In By"
+_CHARACTERS_CENTER_COLUMNS = frozenset({0, 3, 4, 5, 6, 7, 8, 9})  # R + Lvl + item columns
 
 
 def _characters_key_term_match(row: tuple, term: str) -> bool:
     col = _KEY_FILTER_TERMS.get(term)
-    return col is not None and row[col] == KEY_COLUMN_YES
+    if col is None:
+        return False
+    if col == 7 and term in ("lizpot", "ctpot"):
+        return bool(row[col] and str(row[col]).strip())
+    if col == 9 and term == "chneck":
+        return row[8] in (count_display.TIER_EMOJI_LOTS, count_display.TIER_EMOJI_SOME)
+    return row[col] == KEY_COLUMN_YES
 
 
 def _characters_tab_key_cell(value: bool | None) -> str:
     if value is True:
         return KEY_COLUMN_YES
     if value is False:
-        return KEY_COLUMN_NO
-    return ""
+        return ""
+    return KEY_COLUMN_UNKNOWN
 
 
 _CHARACTERS_TAB_CLASS_SHORT = {
@@ -437,6 +462,13 @@ class ProxyUI(QMainWindow):
                 list_data = self._list_filter_data.get(table)
                 if list_data and col in list_data.get("center_columns", ()):
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                if table is getattr(self, "characters_list", None):
+                    if col == 0 and len(row) > 18 and row[18]:
+                        item.setToolTip(row[18])
+                    if col == 7 and len(row) > 16 and row[16]:
+                        item.setToolTip(row[16])
+                    if col == 9 and len(row) > 17 and row[17]:
+                        item.setToolTip(row[17])
                 table.setItem(i, col, item)
             colour = row_color_fn(row) if row_color_fn else None
             if colour:
@@ -760,6 +792,7 @@ class ProxyUI(QMainWindow):
         self.characters_list = self._create_table(
             characters_tab,
             [
+                ("\u2713", 26),  # readiness column — plain CHECK MARK (not emoji)
                 ("Character", 90),
                 ("Class", 68),
                 ("Lvl", 30),
@@ -777,7 +810,7 @@ class ProxyUI(QMainWindow):
         )
         for col, tip in enumerate(_CHARACTERS_COLUMN_HEADER_TOOLTIPS):
             self.characters_list.horizontalHeaderItem(col).setToolTip(tip)
-        self._characters_sort_col = 1
+        self._characters_sort_col = 2  # Class (column 0 is R)
         self._characters_sort_asc = True
         self.characters_list.horizontalHeader().sectionClicked.connect(self.on_characters_list_col_click)
         self._create_characters_group_header_row(characters_tab)
@@ -1478,6 +1511,7 @@ class ProxyUI(QMainWindow):
             self._characters_sort_col = logical_index
             self._characters_sort_asc = True
         self.update_account_cache_display()
+        self.characters_list.scrollToTop()
 
     def update_account_cache_display(self):
         local_n = len(config.LOCAL_ACCOUNTS)
@@ -1548,39 +1582,54 @@ class ProxyUI(QMainWindow):
             for character in sorted(characters):
                 bind_text = zone_translate.zonekey_to_zone(characters[character]["bind"])
                 park_text = zone_translate.zonekey_to_zone(characters[character]["park"])
-                class_text = _characters_tab_class_display(characters[character]["class"])
+                klass_raw = characters[character].get("class")
+                class_text = _characters_tab_class_display(klass_raw)
                 level = characters[character].get("level")
                 level_text = str(level) if level is not None else ""
                 items_raw = characters[character].get("items") or {}
+                r_emoji, r_tip = count_display.readiness_cell_parts(klass_raw, items_raw)
                 st_mark = _characters_tab_key_cell(items_raw.get("st"))
                 vp_mark = _characters_tab_key_cell(items_raw.get("vp"))
                 seb_mark = _characters_tab_key_cell(items_raw.get("seb"))
-                neck_mark = _characters_tab_key_cell(items_raw.get("neck"))
-                liz_mark = _characters_tab_key_cell(items_raw.get("lizard"))
+                ch_emoji, ch_tip = count_display.ch_bundle_cell_parts(
+                    items_raw.get("neck"),
+                    items_raw.get("void"),
+                    items_raw.get("mb4"),
+                )
+                liz_emoji, liz_tip = count_display.stack_count_cell_parts("lizard", items_raw.get("lizard"))
+                if not liz_emoji:
+                    liz_emoji = KEY_COLUMN_UNKNOWN
+                    if not liz_tip:
+                        liz_tip = "Lizard Blood Potion: count unknown"
                 thurg_mark = _characters_tab_key_cell(items_raw.get("thurg"))
                 is_blocked = bool(active_character) and character != active_character
                 all_characters.append(
                     (
+                        r_emoji,
                         character,
                         class_text,
                         level_text,
                         st_mark,
                         vp_mark,
                         seb_mark,
-                        liz_mark,
+                        liz_emoji,
                         thurg_mark,
-                        neck_mark,
+                        ch_emoji,
                         park_text,
                         bind_text,
                         last_login_by,
                         account,
                         last_login,
                         is_blocked,
+                        liz_tip,
+                        ch_tip,
+                        r_tip,
                     )
                 )
 
         char_rows = [
             (
+                r,
                 char,
                 klass,
                 lvl,
@@ -1596,23 +1645,73 @@ class ProxyUI(QMainWindow):
                 acct,
                 ll,
                 is_li,
+                liz_tip,
+                ch_tip,
+                r_tip,
             )
-            for char, klass, lvl, st, vp, sb, lz, th, ch, park, bind, login_by, acct, ll, is_li in all_characters
+            for (
+                r,
+                char,
+                klass,
+                lvl,
+                st,
+                vp,
+                sb,
+                lz,
+                th,
+                ch,
+                park,
+                bind,
+                login_by,
+                acct,
+                ll,
+                is_li,
+                liz_tip,
+                ch_tip,
+                r_tip,
+            ) in all_characters
         ]
 
         sort_col = self._characters_sort_col
         sort_asc = self._characters_sort_asc
-        if sort_col in _KEY_COLUMNS:
-            char_rows.sort(key=lambda x: (_KEY_SORT_ORDER.get(x[sort_col], 2), x[0]), reverse=not sort_asc)
+        if sort_col == 0:
+            char_rows.sort(
+                key=lambda x: (count_display.readiness_column_sort_key(x[0]), x[1]),
+                reverse=not sort_asc,
+            )
+        elif sort_col == 7:
+            char_rows.sort(
+                key=lambda x: (count_display.count_column_sort_key(x[7]), x[1]),
+                reverse=not sort_asc,
+            )
+        elif sort_col == 9:
+            char_rows.sort(
+                key=lambda x: (count_display.count_column_sort_key(x[9]), x[1]),
+                reverse=not sort_asc,
+            )
+        elif sort_col in _KEY_COLUMNS:
+            char_rows.sort(key=lambda x: (_KEY_SORT_ORDER.get(x[sort_col], 2), x[1]), reverse=not sort_asc)
+        elif sort_col in _CHARACTERS_SORT_BLANKS_LAST_COLS:
+
+            def _sort_cell_text(row: tuple) -> str:
+                return row[sort_col] or ""
+
+            def _row_is_blank(row: tuple) -> bool:
+                return not str(_sort_cell_text(row)).strip()
+
+            non_blank = [r for r in char_rows if not _row_is_blank(r)]
+            blank = [r for r in char_rows if _row_is_blank(r)]
+            non_blank.sort(key=lambda x: (_sort_cell_text(x), x[1]), reverse=not sort_asc)
+            char_rows = non_blank + blank
         else:
-            char_rows.sort(key=lambda x: ((x[sort_col] or ""), x[0]), reverse=not sort_asc)
+            char_rows.sort(key=lambda x: ((x[sort_col] or ""), x[1]), reverse=not sort_asc)
 
         self._populate_list(
             self.characters_list,
             char_rows,
             row_color_fn=lambda row: _activity_colour(
-                row[13],
-                semantic.active_blue if row[14] else semantic.active_amber,
+                row[14],
+                semantic.active_blue if row[15] else semantic.active_amber,
             ),
         )
 

@@ -29,6 +29,10 @@
 ; Path to the EverQuest installation directory (auto-detected if empty)
 ; eq_directory =
 
+; Optional second install root (same as eq_directory, not the Logs path). Watches Logs/,
+; *-Inventory.txt, and uifiles/ for Rustle when set. Empty = disabled.
+; eq_secondary_directory =
+
 ; Proxy mode: when True, packets are forwarded without SSO rewriting
 ; proxy_only = False
 

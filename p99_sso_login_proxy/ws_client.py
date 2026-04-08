@@ -78,6 +78,17 @@ async def send_heartbeat(character_name: str):
             logger.debug("Failed to send heartbeat", exc_info=True)
 
 
+def _merge_last_location_state(prev: dict, data_fields: dict) -> dict:
+    """Merge outgoing update_location fields into the previous per-character snapshot (items dict merges shallowly)."""
+    out = {**prev}
+    for key, val in data_fields.items():
+        if key == "items" and isinstance(val, dict):
+            out["items"] = {**(out.get("items") or {}), **val}
+        else:
+            out[key] = val
+    return out
+
+
 async def send_update_location(
     character_name: str,
     park_location: str | None = None,
@@ -99,14 +110,15 @@ async def send_update_location(
         data_fields = {k: v for k, v in msg.items() if k not in ("type", "character_name")}
         char_key = character_name.lower()
         prev = _last_sent_location.get(char_key, {})
-        if data_fields and all(prev.get(k) == v for k, v in data_fields.items()):
+        tentative = _merge_last_location_state(prev, data_fields)
+        if data_fields and tentative == prev:
             return
         try:
             await _ws.send(json.dumps(msg))
         except Exception:
             logger.debug("Failed to send update_location", exc_info=True)
         else:
-            _last_sent_location[char_key] = {**prev, **data_fields}
+            _last_sent_location[char_key] = tentative
 
 
 async def send_fte(mob: str, player: str, character_name: str, eq_log_time: str):

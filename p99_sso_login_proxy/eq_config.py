@@ -544,33 +544,56 @@ def _check_dir_for_rustle(dir_path: str) -> bool:
     return False
 
 
+def _deduped_eq_install_roots() -> list[str]:
+    """Primary EQ dir plus optional ``eq_secondary_directory``, deduped by real path."""
+    roots: list[str] = []
+    seen: set[str] = set()
+
+    def add(path: str | None) -> None:
+        if not path or not os.path.isdir(path):
+            return
+        root_key = os.path.normcase(os.path.realpath(path))
+        if root_key in seen:
+            return
+        seen.add(root_key)
+        roots.append(path)
+
+    add(find_eq_directory())
+    if config.EQ_SECONDARY_DIRECTORY:
+        add(config.EQ_SECONDARY_DIRECTORY)
+    return roots
+
+
 def detect_rustle_ui() -> bool:
-    """Scan every subdirectory under ``<eq_dir>/uifiles/`` for Rustle UI
-    fingerprints.  The result is cached in ``_cache["rustle_present"]`` so
-    subsequent calls (and ``get_client_settings()``) are free.
+    """Scan every subdirectory under ``<eq_root>/uifiles/`` for Rustle UI fingerprints.
 
-    Returns True if Rustle markers are found in *any* subdirectory.
+    Checks the resolved primary EverQuest directory and, if set, ``eq_secondary_directory``
+    in ``proxyconfig.ini`` (deduped). Works even when only the secondary path is valid.
+
+    The result is cached in ``_cache["rustle_present"]`` so subsequent calls (and
+    ``get_client_settings()``) are free.
+
+    Returns True if Rustle markers are found in *any* subdirectory under any root.
     """
-    eq_dir = find_eq_directory()
-    if not eq_dir:
+    roots = _deduped_eq_install_roots()
+    if not roots:
         _cache["rustle_present"] = False
         return False
 
-    uifiles_dir = os.path.join(eq_dir, "uifiles")
-    if not os.path.isdir(uifiles_dir):
-        _cache["rustle_present"] = False
-        return False
-
-    try:
-        for entry in os.scandir(uifiles_dir):
-            if not entry.is_dir():
-                continue
-            if _check_dir_for_rustle(entry.path):
-                logger.warning("Rustle UI detected in %s", entry.path)
-                _cache["rustle_present"] = True
-                return True
-    except OSError:
-        logger.exception("Error scanning uifiles directory")
+    for eq_root in roots:
+        uifiles_dir = os.path.join(eq_root, "uifiles")
+        if not os.path.isdir(uifiles_dir):
+            continue
+        try:
+            for entry in os.scandir(uifiles_dir):
+                if not entry.is_dir():
+                    continue
+                if _check_dir_for_rustle(entry.path):
+                    logger.warning("Rustle UI detected in %s", entry.path)
+                    _cache["rustle_present"] = True
+                    return True
+        except OSError:
+            logger.exception("Error scanning uifiles directory under %s", eq_root)
 
     _cache["rustle_present"] = False
     return False

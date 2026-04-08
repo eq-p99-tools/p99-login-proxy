@@ -172,6 +172,9 @@ class LogFileHandler(FileSystemEventHandler):
             level = int(m.group("level"))
             logger.info("`%s` leveled up to %d", character_name, level)
             _run_async(ws_client.send_update_location(character_name, level=level))
+        elif config.MATCH_VELIUM_VAPORS_GLOW.match(line):
+            logger.info("`%s` Vial of Velium Vapors used (log line)", character_name)
+            _run_async(ws_client.send_update_location(character_name, items={"thurg": False}))
         elif m := config.MATCH_FTE.match(line):
             mob = m.group("mob")
             player = m.group("player")
@@ -220,13 +223,41 @@ class InventoryFileHandler(FileSystemEventHandler):
         except Exception:
             logger.exception("Failed to parse inventory file: %s", event.src_path)
             return
-        items = {k: flags[k] for k in ("seb", "vp", "st", "void", "neck", "lizard", "thurg")}
+        items = {k: flags[k] for k in inventory_parser.ALL_INVENTORY_WIRE_KEYS}
         logger.info(
             "Inventory update for `%s`: %s",
             character_name,
-            " ".join(f"{k}={items[k]}" for k in items),
+            " ".join(f"{k}={items[k]}" for k in inventory_parser.ALL_INVENTORY_WIRE_KEYS),
         )
         _run_async(ws_client.send_update_location(character_name, items=items))
+
+
+def _deduped_eq_roots(primary: str) -> list[tuple[str, str]]:
+    """Return ``(path, label)`` for primary and optional secondary EQ install roots (``label`` is primary/secondary)."""
+    roots: list[tuple[str, str]] = []
+    seen: set[str] = set()
+
+    def add(path: str, label: str) -> None:
+        if not path or not os.path.isdir(path):
+            return
+        root_key = os.path.normcase(os.path.realpath(path))
+        if root_key in seen:
+            return
+        seen.add(root_key)
+        roots.append((path, label))
+
+    add(primary, "primary")
+    if config.EQ_SECONDARY_DIRECTORY:
+        add(config.EQ_SECONDARY_DIRECTORY, "secondary")
+    return roots
+
+
+def _make_get_latest_log_file(log_dir: str):
+    def get_latest_log_file():
+        files = glob.glob(os.path.join(log_dir, "eqlog_*.txt"))
+        return max(files, key=os.path.getmtime) if files else None
+
+    return get_latest_log_file
 
 
 def set_log_watch_directory(eq_directory, timer_parent: QWidget):
@@ -244,30 +275,47 @@ def set_log_watch_directory(eq_directory, timer_parent: QWidget):
                 return os.path.join(directory, entry)
         return None
 
-    log_directory = find_logs_subdir(eq_directory)
-    if log_directory:
-        LOG_WATCH_DIRECTORY = log_directory
+    eq_roots = _deduped_eq_roots(eq_directory)
 
-        def get_latest_log_file():
-            files = glob.glob(os.path.join(LOG_WATCH_DIRECTORY, "eqlog_*.txt"))
-            return max(files, key=os.path.getmtime) if files else None
+    log_dirs: list[tuple[str, str]] = []
+    seen_log_realpaths: set[str] = set()
+    for root_path, root_label in eq_roots:
+        log_directory = find_logs_subdir(root_path)
+        if not log_directory:
+            logger.warning("No Logs subdirectory found in: %s (%s)", root_path, root_label)
+            continue
+        log_key = os.path.normcase(os.path.realpath(log_directory))
+        if log_key in seen_log_realpaths:
+            continue
+        seen_log_realpaths.add(log_key)
+        log_dirs.append((log_directory, root_label))
 
-        if not LOG_OBSERVER:
-            log_files = glob.glob(os.path.join(LOG_WATCH_DIRECTORY, "eqlog_*.txt"))
-            logger.info("Starting log watcher on: %s (%d log files found)", LOG_WATCH_DIRECTORY, len(log_files))
-            LOG_HANDLER = LogFileHandler(get_latest_log_file, timer_parent)
-            LOG_OBSERVER = Observer()
-            LOG_OBSERVER.schedule(LOG_HANDLER, LOG_WATCH_DIRECTORY, recursive=False)
-            LOG_OBSERVER_THREAD = threading.Thread(target=LOG_OBSERVER.start, daemon=True)
-            LOG_OBSERVER_THREAD.start()
-            logger.info("Watchdog observer started (backend: %s)", type(LOG_OBSERVER).__name__)
-    else:
-        logger.warning("No Logs subdirectory found in: %s", eq_directory)
+    if not LOG_OBSERVER and log_dirs:
+        LOG_OBSERVER = Observer()
+        for i, (log_directory, root_label) in enumerate(log_dirs):
+            get_latest_log_file = _make_get_latest_log_file(log_directory)
+            log_files = glob.glob(os.path.join(log_directory, "eqlog_*.txt"))
+            logger.info(
+                "Starting log watcher on: %s (%s EQ root, %d log files found)",
+                log_directory,
+                root_label,
+                len(log_files),
+            )
+            handler = LogFileHandler(get_latest_log_file, timer_parent)
+            if i == 0:
+                LOG_WATCH_DIRECTORY = log_directory
+                LOG_HANDLER = handler
+            LOG_OBSERVER.schedule(handler, log_directory, recursive=False)
+        LOG_OBSERVER_THREAD = threading.Thread(target=LOG_OBSERVER.start, daemon=True)
+        LOG_OBSERVER_THREAD.start()
+        logger.info("Watchdog observer started (backend: %s)", type(LOG_OBSERVER).__name__)
 
     if not INVENTORY_OBSERVER:
         inv_handler = InventoryFileHandler()
         INVENTORY_OBSERVER = Observer()
-        INVENTORY_OBSERVER.schedule(inv_handler, eq_directory, recursive=False)
+        for root_path, root_label in eq_roots:
+            INVENTORY_OBSERVER.schedule(inv_handler, root_path, recursive=False)
+            logger.info("Inventory file watcher scheduled on: %s (%s EQ root)", root_path, root_label)
         INVENTORY_OBSERVER_THREAD = threading.Thread(target=INVENTORY_OBSERVER.start, daemon=True)
         INVENTORY_OBSERVER_THREAD.start()
-        logger.info("Inventory file watcher started on: %s", eq_directory)
+        logger.info("Inventory file watcher started (backend: %s)", type(INVENTORY_OBSERVER).__name__)
