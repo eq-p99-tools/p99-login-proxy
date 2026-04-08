@@ -9,7 +9,7 @@ from collections import deque
 from heapq import merge as _heapmerge
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QBrush, QCloseEvent, QColor, QFont, QShowEvent, QTextCharFormat, QTextCursor
+from PySide6.QtGui import QBrush, QCloseEvent, QColor, QFont, QShowEvent, QTextCharFormat, QTextCursor, QTextOption
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -489,6 +489,7 @@ class ProxyUI(QMainWindow):
             "Enabled (Proxy Only): Proxy active but no SSO interaction ('middlemand' mode)\n"
             "Disabled: Proxy inactive, direct connection to server"
         )
+        self.proxy_mode_choice.setMinimumWidth(self.proxy_mode_choice.sizeHint().width() + 20)
         mode_row.addWidget(mode_label)
         mode_row.addWidget(self.proxy_mode_choice)
         mode_row.addStretch()
@@ -562,11 +563,17 @@ class ProxyUI(QMainWindow):
         account_cache_layout = QVBoxLayout(account_cache_box)
         cache_controls = QHBoxLayout()
         cache_info = QVBoxLayout()
+        cache_info.setSpacing(12)
         self.ws_status_text = self._add_label_value_row(tab, cache_info, "SSO Service:", "Connecting...")
         self.ws_status_text.setToolTip("WebSocket connection status for real-time account updates")
 
-        self.accounts_cached_text = self._add_label_value_row(tab, cache_info, "Accounts:", "0")
-        self.accounts_cached_text.setToolTip("Number of accounts, characters, and aliases/tags")
+        self.accounts_cached_text = self._add_label_value_row(tab, cache_info, "SSO Accounts:", "0")
+        self.accounts_cached_text.setToolTip("Number of accounts, characters, and aliases/tags from the SSO server")
+
+        self.local_accounts_summary_text = self._add_label_value_row(tab, cache_info, "Local Accounts:", "0")
+        self.local_accounts_summary_text.setToolTip(
+            "Accounts and aliases from local_accounts.csv (SSO tab → Local Accounts)"
+        )
 
         cache_controls.addLayout(cache_info, 1)
         self.refresh_cache_btn = QPushButton("Force Reconnect")
@@ -676,11 +683,11 @@ class ProxyUI(QMainWindow):
         self.refresh_accounts_btn.setToolTip("Disconnect and reconnect to the SSO server for fresh data")
 
         sso_bottom = QHBoxLayout()
-        sso_accounts_label = QLabel("Accounts:")
+        sso_accounts_label = QLabel("SSO Accounts:")
         sso_accounts_label.setFont(QFont(sso_accounts_label.font().family(), weight=QFont.Weight.Bold))
         self.sso_accounts_cached_text = QLabel("0")
         self.sso_accounts_cached_text.setStyleSheet(f"color: {semantic.value_text.name()};")
-        self.sso_accounts_cached_text.setToolTip("Number of accounts, characters, and aliases/tags")
+        self.sso_accounts_cached_text.setToolTip("Number of accounts, characters, and aliases/tags from the SSO server")
         sso_bottom.setContentsMargins(12, 6, 12, 0)
         sso_bottom.addWidget(sso_accounts_label)
         sso_bottom.addWidget(self.sso_accounts_cached_text, 1)
@@ -712,8 +719,18 @@ class ProxyUI(QMainWindow):
 
         self.eqhost_text = self._add_label_value_row(tab, eq_layout, "eqhost.txt Path:", "Checking...")
 
-        eq_layout.addWidget(QLabel("eqhost.txt Content:"))
+        eqhost_content_label = QLabel("eqhost.txt Content:")
+        eqhost_content_label.setFont(QFont(eqhost_content_label.font().family(), weight=QFont.Weight.Bold))
+        eq_layout.addWidget(eqhost_content_label)
         self.eqhost_contents = QTextEdit()
+        doc_font = QFont(self.eqhost_contents.font())
+        base_pt = doc_font.pointSizeF()
+        if base_pt <= 0:
+            base_pt = QApplication.font().pointSizeF()
+        if base_pt <= 0:
+            base_pt = 10.0
+        doc_font.setPointSizeF(base_pt + 2.0)
+        self.eqhost_contents.setFont(doc_font)
         self.eqhost_contents.setMinimumHeight(120)
         eq_layout.addWidget(self.eqhost_contents, 1)
 
@@ -736,6 +753,17 @@ class ProxyUI(QMainWindow):
         box = QGroupBox("Version History")
         box_layout = QVBoxLayout(box)
         self.changelog_html = QTextBrowser()
+        self.changelog_html.setReadOnly(True)
+        self.changelog_html.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        self.changelog_html.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        ch_font = QFont(self.changelog_html.font())
+        base_pt = ch_font.pointSizeF()
+        if base_pt <= 0:
+            base_pt = QApplication.font().pointSizeF()
+        if base_pt <= 0:
+            base_pt = 10.0
+        ch_font.setPointSizeF(base_pt + 2.0)
+        self.changelog_html.setFont(ch_font)
         box_layout.addWidget(self.changelog_html, 1)
         layout.addWidget(box, 1)
         notebook.addTab(tab, "Changelog")
@@ -992,6 +1020,7 @@ class ProxyUI(QMainWindow):
 
     def on_updated_changelog(self):
         self.changelog_html.setHtml(config.CHANGELOG)
+        self.changelog_html.document().setDefaultFont(self.changelog_html.font())
         self.changelog_html.setStyleSheet(f"background-color: {semantic.changelog_bg}; color: {semantic.changelog_fg};")
 
     def on_sso_api_changed(self, _index=None):
@@ -1006,6 +1035,7 @@ class ProxyUI(QMainWindow):
                 self.ws_status_text.setText("Connecting...")
                 self.ws_status_text.setStyleSheet(f"color: {semantic.warning.name()};")
             ws_client.request_reconnect()
+        self.update_account_cache_display()
 
     def on_browse_eq_directory(self):
         start_dir = config.EQ_DIRECTORY or ""
@@ -1295,6 +1325,15 @@ class ProxyUI(QMainWindow):
         self.update_account_cache_display()
 
     def update_account_cache_display(self):
+        local_n = len(config.LOCAL_ACCOUNTS)
+        local_alias_n = sum(len(data.get("aliases", [])) for data in config.LOCAL_ACCOUNTS.values())
+        if local_n == 0:
+            self.local_accounts_summary_text.setText("None")
+            self.local_accounts_summary_text.setStyleSheet(f"color: {semantic.muted.name()};")
+        else:
+            self.local_accounts_summary_text.setText(f"{local_n} accounts, {local_alias_n} aliases")
+            self.local_accounts_summary_text.setStyleSheet(f"color: {semantic.success.name()};")
+
         real_accounts = config.ACCOUNTS_CACHE_REAL_COUNT
 
         if real_accounts == 0:
