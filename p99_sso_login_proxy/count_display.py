@@ -69,6 +69,10 @@ def stack_count_cell_parts(wire: str, value: object) -> tuple[str, str]:
     if not (0 < some_min < lots_min):
         return "", ""
 
+    # Lizard Blood: 0 pots is empty cell, not the red "few" tier.
+    if wire == "lizard" and n == 0:
+        return "", ""
+
     if n >= lots_min:
         emoji = TIER_EMOJI_LOTS
     elif n >= some_min:
@@ -120,19 +124,17 @@ def _ch_tooltip(neck: object, void: object, mb4: object) -> str:
     lines.append("Green tier needs: necklace yes, void yes, MB4 count > 0.")
     if neck is None:
         lines.append("Cell is blank when necklace status is unknown.")
-    elif neck is False:
-        lines.append("Red: no necklace of resolution.")
     else:
         lines.append(f"Green bundle met: {'yes' if green_ok else 'no'} (yellow if necklace yes but not all green).")
     return "\n".join(lines)
 
 
 def ch_bundle_cell_parts(neck: object, void: object, mb4: object) -> tuple[str, str]:
-    """CH bundle column: green / yellow / red from neck, void, mb4; blank if neck unknown."""
+    """CH bundle column: green / yellow from neck, void, mb4; blank if neck unknown or no necklace."""
     if neck is None:
         return "", ""
     if neck is False:
-        return TIER_EMOJI_FEW, _ch_tooltip(neck, void, mb4)
+        return "", ""
     if neck is not True:
         return "", ""
 
@@ -178,12 +180,16 @@ def _readiness_rank_thurg(thurg: object) -> int:
 
 
 def _readiness_roll_up(ranks: list[int]) -> str:
-    if any(r == _READINESS_RED for r in ranks):
-        return TIER_EMOJI_FEW
+    """Worst-of rollup: unknown first; all green → green; any green + any non-green → yellow (mixed)."""
     if any(r == _READINESS_MISSING for r in ranks):
         return READINESS_UNKNOWN_MARK
     if all(r == _READINESS_GREEN for r in ranks):
         return TIER_EMOJI_LOTS
+    has_green = any(r == _READINESS_GREEN for r in ranks)
+    if has_green:
+        return TIER_EMOJI_SOME
+    if any(r == _READINESS_RED for r in ranks):
+        return TIER_EMOJI_FEW
     return TIER_EMOJI_SOME
 
 
@@ -193,6 +199,25 @@ def _thurg_label(thurg: object) -> str:
     if thurg is False:
         return "no vial"
     return "unknown"
+
+
+def _thurg_readiness_tooltip_lines(thurg: object) -> list[str]:
+    """Thurgpot line for Cleric readiness: tier emoji + explicit color matches R-column rollup."""
+    header = "Th — Thurgpot (Vial of Velium Vapors):"
+    if thurg is True:
+        return [
+            header,
+            f"  {TIER_EMOJI_LOTS} green — {_thurg_label(thurg)}",
+        ]
+    if thurg is False:
+        return [
+            header,
+            f"  {TIER_EMOJI_FEW} red — {_thurg_label(thurg)}",
+        ]
+    return [
+        header,
+        f"  {READINESS_UNKNOWN_MARK} unknown — vial status {_thurg_label(thurg)}",
+    ]
 
 
 def _readiness_stack_detail_lines(title: str, wire: str, value: object) -> list[str]:
@@ -238,16 +263,18 @@ def readiness_cell_parts(class_name: str | None, items: dict[str, object]) -> tu
         return "", ""
 
     if class_name == "Cleric":
+        neck_v = items.get("neck")
         ch_emoji, _ = ch_bundle_cell_parts(
-            items.get("neck"),
+            neck_v,
             items.get("void"),
             items.get("mb4"),
         )
         mb3_emoji = stack_count_tier_emoji("mb3", items.get("mb3"))
-        r_ch = _readiness_rank_from_tier_emoji(ch_emoji)
         r_mb3 = _readiness_rank_from_tier_emoji(mb3_emoji)
         r_tp = _readiness_rank_thurg(items.get("thurg"))
-        ranks = [r_ch, r_mb3, r_tp]
+        ranks = [r_mb3, r_tp]
+        if ch_emoji:
+            ranks.insert(0, _readiness_rank_from_tier_emoji(ch_emoji))
         out = _readiness_roll_up(ranks)
         lines = [
             f"Cleric — overall {out}",
@@ -256,8 +283,7 @@ def readiness_cell_parts(class_name: str | None, items: dict[str, object]) -> tu
             "",
             *_readiness_stack_detail_lines("MB3 (Class Three battery)", "mb3", items.get("mb3")),
             "",
-            "TP — Vial of Velium Vapors:",
-            f"  {_thurg_label(items.get('thurg'))}",
+            *_thurg_readiness_tooltip_lines(items.get("thurg")),
         ]
         return out, "\n".join(lines)
 

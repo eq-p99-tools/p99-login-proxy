@@ -81,7 +81,7 @@ _KEY_COLUMNS = frozenset(range(4, 10))  # ST through CH (no Void column in UI)
 _KEY_GROUP_HEADER_START_COL = 4  # ST
 _KEY_GROUP_HEADER_COL_COUNT = 3  # ST, VP, Sb
 _POTS_GROUP_HEADER_START_COL = 7  # CT (Lizard Blood pot)
-_POTS_GROUP_HEADER_COL_COUNT = 2  # CT, TP (Thurg pot)
+_POTS_GROUP_HEADER_COL_COUNT = 2  # CT, Th (Thurg pot)
 _KEY_SORT_ORDER = {KEY_COLUMN_YES: 0, KEY_COLUMN_UNKNOWN: 1, "": 2}
 _KEY_FILTER_TERMS = {
     "stkey": 4,
@@ -90,7 +90,7 @@ _KEY_FILTER_TERMS = {
     "lizpot": 7,
     "ctpot": 7,  # alias for lizpot (CT column)
     "thurgpot": 8,
-    "dainpot": 8,  # alias for thurgpot (TP / Dain ring)
+    "dainpot": 8,  # alias for thurgpot (Th / Dain ring)
     "chneck": 9,
 }
 # Full names + filter keywords (where applicable); index matches characters_list columns left-to-right.
@@ -104,8 +104,8 @@ _CHARACTERS_COLUMN_HEADER_TOOLTIPS = (
     "Trakanon Idol (Seb key). Green = has key, ? = unknown, blank = no key. Search: sebkey",
     "Lizard Blood Potion (CT). 🟢 Lots / 🟡 Some / 🔴 Few / ? — unknown count. "
     "Hover for count when known. Search: lizpot, ctpot = rows with a known count.",
-    "Vial of Velium Vapors (Thurg pot, TP). Green = has vial, ? = unknown, blank = no vial. Search: thurgpot, dainpot",
-    "CH bundle: 🟢 Necklace + Void + MB4>0 · 🟡 Necklace but not all green conditions · 🔴 No necklace. "
+    "Vial of Velium Vapors (Thurg pot, Th). Green = has vial, ? = unknown, blank = no vial. Search: thurgpot, dainpot",
+    "CH bundle: 🟢 full bundle · 🟡 partial · blank if no necklace or unknown. "
     "Hover for Necklace/Void/MB4. Search chneck = rows with necklace (🟢 or 🟡).",
     "Park location (current zone)",
     "Bind location",
@@ -122,7 +122,7 @@ _CHARACTERS_POTS_SUPERHEADER_TOOLTIP = "\n".join(
         "Hover a cell for the exact stack count.",
         "Search: lizpot, ctpot (rows with a known count).",
         "",
-        "TP — Vial of Velium Vapors (Thurg)",
+        "Th — Vial of Velium Vapors (Thurg)",
         "Green = has vial, ? = unknown, blank = no vial.",
         "Search: thurgpot, dainpot",
     )
@@ -800,7 +800,7 @@ class ProxyUI(QMainWindow):
                 ("VP", 26),
                 ("Sb", 26),
                 ("CT", 26),
-                ("TP", 26),
+                ("Th", 26),
                 ("CH", 26),
                 ("Park Location", 124),
                 ("Bind Location", 124),
@@ -1596,8 +1596,9 @@ class ProxyUI(QMainWindow):
                     items_raw.get("void"),
                     items_raw.get("mb4"),
                 )
-                liz_emoji, liz_tip = count_display.stack_count_cell_parts("lizard", items_raw.get("lizard"))
-                if not liz_emoji:
+                liz_raw = items_raw.get("lizard")
+                liz_emoji, liz_tip = count_display.stack_count_cell_parts("lizard", liz_raw)
+                if not liz_emoji and liz_raw is None:
                     liz_emoji = KEY_COLUMN_UNKNOWN
                     if not liz_tip:
                         liz_tip = "Lizard Blood Potion: count unknown"

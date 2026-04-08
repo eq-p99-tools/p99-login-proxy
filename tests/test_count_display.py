@@ -13,8 +13,9 @@ def test_stack_count_unknown_empty():
 def test_stack_count_lizard_tiers():
     # lizard thresholds from COUNT_TIER_THRESHOLDS (some_min, lots_min)
     sm, lm = count_display.COUNT_TIER_THRESHOLDS["lizard"]
-    assert count_display.stack_count_cell_parts("lizard", 0)[0] == count_display.TIER_EMOJI_FEW
-    assert count_display.stack_count_cell_parts("lizard", sm - 1)[0] == count_display.TIER_EMOJI_FEW
+    assert count_display.stack_count_cell_parts("lizard", 0)[0] == ""
+    if sm > 1:
+        assert count_display.stack_count_cell_parts("lizard", sm - 1)[0] == count_display.TIER_EMOJI_FEW
     assert count_display.stack_count_cell_parts("lizard", sm)[0] == count_display.TIER_EMOJI_SOME
     assert count_display.stack_count_cell_parts("lizard", lm - 1)[0] == count_display.TIER_EMOJI_SOME
     assert count_display.stack_count_cell_parts("lizard", lm)[0] == count_display.TIER_EMOJI_LOTS
@@ -48,8 +49,8 @@ def test_ch_bundle_yellow_when_neck_but_not_full_green():
     assert count_display.ch_bundle_cell_parts(True, None, 99)[0] == count_display.TIER_EMOJI_SOME
 
 
-def test_ch_bundle_red_no_neck():
-    assert count_display.ch_bundle_cell_parts(False, True, 5)[0] == count_display.TIER_EMOJI_FEW
+def test_ch_bundle_no_neck_blank():
+    assert count_display.ch_bundle_cell_parts(False, True, 5)[0] == ""
 
 
 def test_readiness_unknown_class_empty():
@@ -71,7 +72,8 @@ def test_readiness_cleric_all_green():
     assert "CH bundle" in tip
 
 
-def test_readiness_cleric_tp_red():
+def test_readiness_cleric_tp_red_mixed_yellow():
+    """TP red while CH + MB3 are green → mixed readiness shows yellow, not red."""
     lm = count_display.COUNT_TIER_THRESHOLDS["mb3"][1]
     items = {
         "neck": True,
@@ -81,7 +83,21 @@ def test_readiness_cleric_tp_red():
         "thurg": False,
     }
     e, _ = count_display.readiness_cell_parts("Cleric", items)
-    assert e == count_display.TIER_EMOJI_FEW
+    assert e == count_display.TIER_EMOJI_SOME
+
+
+def test_readiness_cleric_blank_ch_not_required():
+    """No necklace CH column is blank; readiness ignores CH and only MB3 + TP."""
+    lm = count_display.COUNT_TIER_THRESHOLDS["mb3"][1]
+    items = {
+        "neck": False,
+        "void": True,
+        "mb4": 1,
+        "mb3": lm,
+        "thurg": True,
+    }
+    e, _ = count_display.readiness_cell_parts("Cleric", items)
+    assert e == count_display.TIER_EMOJI_LOTS
 
 
 def test_readiness_magician_pearl_lots():
