@@ -9,8 +9,21 @@ from collections import deque
 from heapq import merge as _heapmerge
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QBrush, QCloseEvent, QColor, QFont, QShowEvent, QTextCharFormat, QTextCursor, QTextOption
+from PySide6.QtGui import (
+    QBrush,
+    QCloseEvent,
+    QColor,
+    QFont,
+    QPainter,
+    QPalette,
+    QPen,
+    QShowEvent,
+    QTextCharFormat,
+    QTextCursor,
+    QTextOption,
+)
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QCheckBox,
     QComboBox,
@@ -24,6 +37,8 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
+    QStyledItemDelegate,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -61,11 +76,42 @@ PROXY_STATS: proxy_stats.ProxyStats | None = None
 KEY_COLUMN_YES = "\u2705"  # ✅ green check (emoji)
 KEY_COLUMN_NO = "\u274c"  # ❌ red X (emoji)
 
-_KEY_COLUMNS = frozenset({3, 4, 5})
+_KEY_COLUMNS = frozenset(range(3, 9))  # ST through CH (no Void column in UI)
+_KEY_GROUP_HEADER_START_COL = 3  # ST
+_KEY_GROUP_HEADER_COL_COUNT = 3  # ST, VP, Sb
+_POTS_GROUP_HEADER_START_COL = 6  # CT (Lizard Blood pot)
+_POTS_GROUP_HEADER_COL_COUNT = 2  # CT, TP (Thurg pot)
 _KEY_SORT_ORDER = {KEY_COLUMN_YES: 0, KEY_COLUMN_NO: 1, "": 2}
-_KEY_FILTER_TERMS = {"stkey": 3, "vpkey": 4, "sebkey": 5}
-_CHARACTERS_FILTER_SKIP_COLS = frozenset({8, 9})
-_CHARACTERS_CENTER_COLUMNS = frozenset({2, 3, 4, 5})  # Lvl, ST, VP, Sb
+_KEY_FILTER_TERMS = {
+    "stkey": 3,
+    "vpkey": 4,
+    "sebkey": 5,
+    "lizpot": 6,
+    "ctpot": 6,  # alias for lizpot (CT column)
+    "thurgpot": 7,
+    "dainpot": 7,  # alias for thurgpot (TP / Dain ring)
+    "chneck": 8,
+}
+# Full names + filter keywords (where applicable); index matches characters_list columns left-to-right.
+_CHARACTERS_COLUMN_HEADER_TOOLTIPS = (
+    "Character name",
+    "Class",
+    "Level",
+    "Sleeper's Key (ST). Search filters: stkey",
+    "Key of Veeshan (VP). Search filters: vpkey",
+    "Trakanon Idol (Seb key). Search filters: sebkey",
+    "Lizard Blood Potion (CT). Search filters: lizpot, ctpot",
+    "Vial of Velium Vapors (Thurg pot, TP). Search filters: thurgpot, dainpot",
+    "Necklace of Resolution (CH). Search filters: chneck",
+    "Park location (current zone)",
+    "Bind location",
+    "Logged in by (last SSO user on this character)",
+    "Account name (SSO)",
+)
+_CHARACTERS_KEYS_SUPERHEADER_TOOLTIP = "\n".join(_CHARACTERS_COLUMN_HEADER_TOOLTIPS[3:6])
+_CHARACTERS_POTS_SUPERHEADER_TOOLTIP = "\n".join(_CHARACTERS_COLUMN_HEADER_TOOLTIPS[6:8])
+_CHARACTERS_FILTER_SKIP_COLS = frozenset({11, 12})
+_CHARACTERS_CENTER_COLUMNS = frozenset({2, 3, 4, 5, 6, 7, 8})  # Lvl + item columns
 
 
 def _characters_key_term_match(row: tuple, term: str) -> bool:
@@ -91,6 +137,26 @@ def _characters_tab_class_display(klass: str | None) -> str:
     if not klass:
         return ""
     return _CHARACTERS_TAB_CLASS_SHORT.get(klass, klass)
+
+
+class _CharactersGroupHeaderRegionDelegate(QStyledItemDelegate):
+    """Draws a frame around merged Keys / Pots super-header cells so regions are visually distinct."""
+
+    _ANCHOR_COLS = frozenset({_KEY_GROUP_HEADER_START_COL, _POTS_GROUP_HEADER_START_COL})
+
+    def paint(self, painter: QPainter, option, index):
+        super().paint(painter, option, index)
+        if index.row() != 0 or index.column() not in self._ANCHOR_COLS:
+            return
+        pal = option.palette
+        line = pal.color(QPalette.ColorGroup.Active, QPalette.ColorRole.Dark)
+        pen = QPen(line)
+        pen.setWidth(1)
+        pen.setCosmetic(True)
+        painter.save()
+        painter.setPen(pen)
+        painter.drawRect(option.rect.adjusted(0, 0, -1, -1))
+        painter.restore()
 
 
 _LOG_LEVEL_NAMES = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -434,6 +500,86 @@ class ProxyUI(QMainWindow):
         table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         return table
 
+    def _apply_characters_group_header_appearance(self) -> None:
+        if not hasattr(self, "_characters_group_header"):
+            return
+        mini = self._characters_group_header
+        main_h = self.characters_list.horizontalHeader()
+        pal = main_h.palette()
+        bg = pal.color(QPalette.ColorGroup.Active, QPalette.ColorRole.Button)
+        fg = pal.color(QPalette.ColorGroup.Active, QPalette.ColorRole.ButtonText)
+        bg_brush = QBrush(bg)
+        fg_brush = QBrush(fg)
+        font = main_h.font()
+        for c in range(mini.columnCount()):
+            it = mini.item(0, c)
+            if it is None:
+                continue
+            it.setBackground(bg_brush)
+            it.setForeground(fg_brush)
+            it.setFont(font)
+
+    def _sync_characters_group_header_widths(self, *_args: object) -> None:
+        if not hasattr(self, "_characters_group_header"):
+            return
+        main = self.characters_list
+        mini = self._characters_group_header
+        for i in range(main.columnCount()):
+            mini.setColumnWidth(i, main.columnWidth(i))
+
+    def _create_characters_group_header_row(self, parent: QWidget) -> QTableWidget:
+        mini = QTableWidget(parent)
+        main = self.characters_list
+        ncols = main.columnCount()
+        mini.setColumnCount(ncols)
+        mini.setRowCount(1)
+        mini.horizontalHeader().setVisible(False)
+        vh = mini.verticalHeader()
+        vh.setVisible(False)
+        vh.setDefaultSectionSize(22)
+        mini.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        mini.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        mini.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        mini.setShowGrid(False)
+        mini.setFrameShape(QFrame.Shape.NoFrame)
+        mini.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        mini.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        mini.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        mini.setFixedHeight(22)
+        enabled_only = Qt.ItemFlag.ItemIsEnabled
+
+        def _in_keys_span(col: int) -> bool:
+            return _KEY_GROUP_HEADER_START_COL <= col < _KEY_GROUP_HEADER_START_COL + _KEY_GROUP_HEADER_COL_COUNT
+
+        def _in_pots_span(col: int) -> bool:
+            return _POTS_GROUP_HEADER_START_COL <= col < _POTS_GROUP_HEADER_START_COL + _POTS_GROUP_HEADER_COL_COUNT
+
+        for c in range(ncols):
+            if _in_keys_span(c) or _in_pots_span(c):
+                continue
+            cell = QTableWidgetItem("")
+            cell.setFlags(enabled_only)
+            mini.setItem(0, c, cell)
+        keys_item = QTableWidgetItem("Keys")
+        keys_item.setFlags(enabled_only)
+        keys_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        keys_item.setToolTip(_CHARACTERS_KEYS_SUPERHEADER_TOOLTIP)
+        mini.setItem(0, _KEY_GROUP_HEADER_START_COL, keys_item)
+        mini.setSpan(0, _KEY_GROUP_HEADER_START_COL, 1, _KEY_GROUP_HEADER_COL_COUNT)
+        pots_item = QTableWidgetItem("Pots")
+        pots_item.setFlags(enabled_only)
+        pots_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        pots_item.setToolTip(_CHARACTERS_POTS_SUPERHEADER_TOOLTIP)
+        mini.setItem(0, _POTS_GROUP_HEADER_START_COL, pots_item)
+        mini.setSpan(0, _POTS_GROUP_HEADER_START_COL, 1, _POTS_GROUP_HEADER_COL_COUNT)
+        mini.setItemDelegateForRow(0, _CharactersGroupHeaderRegionDelegate(mini))
+        self._apply_characters_group_header_appearance()
+        main.horizontalHeader().sectionResized.connect(self._sync_characters_group_header_widths)
+        main.horizontalHeader().geometriesChanged.connect(self._sync_characters_group_header_widths)
+        QTimer.singleShot(0, self._sync_characters_group_header_widths)
+        self._characters_group_header = mini
+        return mini
+
     def _create_proxy_tab(self, notebook: QTabWidget):
         tab = QWidget()
         layout = QVBoxLayout(tab)
@@ -620,15 +766,21 @@ class ProxyUI(QMainWindow):
                 ("ST", 26),
                 ("VP", 26),
                 ("Sb", 26),
+                ("CT", 26),
+                ("TP", 26),
+                ("CH", 26),
                 ("Park Location", 124),
                 ("Bind Location", 124),
                 ("Logged In By", 98),
                 ("Account Name", 100),
             ],
         )
+        for col, tip in enumerate(_CHARACTERS_COLUMN_HEADER_TOOLTIPS):
+            self.characters_list.horizontalHeaderItem(col).setToolTip(tip)
         self._characters_sort_col = 1
         self._characters_sort_asc = True
         self.characters_list.horizontalHeader().sectionClicked.connect(self.on_characters_list_col_click)
+        self._create_characters_group_header_row(characters_tab)
 
         search_row = QHBoxLayout()
         search_ctrl = QLineEdit(characters_tab)
@@ -650,6 +802,7 @@ class ProxyUI(QMainWindow):
         self._list_filter_data[self.characters_list]["filter_skip_columns"] = _CHARACTERS_FILTER_SKIP_COLS
         self._list_filter_data[self.characters_list]["center_columns"] = _CHARACTERS_CENTER_COLUMNS
 
+        characters_layout.addWidget(self._characters_group_header)
         characters_layout.addWidget(self.characters_list, 1)
 
         local_tab = QWidget()
@@ -1115,6 +1268,8 @@ class ProxyUI(QMainWindow):
             apply_windows_window_frame(self, dark_mode=use_dark)
         self._repolish_widget_tree()
         QApplication.processEvents()
+        if hasattr(self, "_characters_group_header"):
+            self._apply_characters_group_header_appearance()
         self.update_stats()
         for w in (
             self.address_value,
@@ -1396,10 +1551,13 @@ class ProxyUI(QMainWindow):
                 class_text = _characters_tab_class_display(characters[character]["class"])
                 level = characters[character].get("level")
                 level_text = str(level) if level is not None else ""
-                keys_raw = characters[character].get("keys") or {}
-                st_mark = _characters_tab_key_cell(keys_raw.get("st"))
-                vp_mark = _characters_tab_key_cell(keys_raw.get("vp"))
-                seb_mark = _characters_tab_key_cell(keys_raw.get("seb"))
+                items_raw = characters[character].get("items") or {}
+                st_mark = _characters_tab_key_cell(items_raw.get("st"))
+                vp_mark = _characters_tab_key_cell(items_raw.get("vp"))
+                seb_mark = _characters_tab_key_cell(items_raw.get("seb"))
+                neck_mark = _characters_tab_key_cell(items_raw.get("neck"))
+                liz_mark = _characters_tab_key_cell(items_raw.get("lizard"))
+                thurg_mark = _characters_tab_key_cell(items_raw.get("thurg"))
                 is_blocked = bool(active_character) and character != active_character
                 all_characters.append(
                     (
@@ -1409,6 +1567,9 @@ class ProxyUI(QMainWindow):
                         st_mark,
                         vp_mark,
                         seb_mark,
+                        liz_mark,
+                        thurg_mark,
+                        neck_mark,
                         park_text,
                         bind_text,
                         last_login_by,
@@ -1426,6 +1587,9 @@ class ProxyUI(QMainWindow):
                 st,
                 vp,
                 sb,
+                lz,
+                th,
+                ch,
                 park or "Unknown",
                 bind or "Unknown",
                 login_by if _activity_colour(ll) is not None else "",
@@ -1433,7 +1597,7 @@ class ProxyUI(QMainWindow):
                 ll,
                 is_li,
             )
-            for char, klass, lvl, st, vp, sb, park, bind, login_by, acct, ll, is_li in all_characters
+            for char, klass, lvl, st, vp, sb, lz, th, ch, park, bind, login_by, acct, ll, is_li in all_characters
         ]
 
         sort_col = self._characters_sort_col
@@ -1447,8 +1611,8 @@ class ProxyUI(QMainWindow):
             self.characters_list,
             char_rows,
             row_color_fn=lambda row: _activity_colour(
-                row[10],
-                semantic.active_blue if row[11] else semantic.active_amber,
+                row[13],
+                semantic.active_blue if row[14] else semantic.active_amber,
             ),
         )
 

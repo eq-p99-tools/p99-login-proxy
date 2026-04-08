@@ -199,7 +199,7 @@ def _is_inventory_file_path(path: str) -> bool:
 
 
 class InventoryFileHandler(FileSystemEventHandler):
-    """Watch EQ root for ``*-Inventory.txt`` writes and report zone keys to the SSO API."""
+    """Watch EQ root for ``*-Inventory.txt`` writes and report ``items`` flags to the SSO API."""
 
     def on_created(self, event):
         self._handle_event(event)
@@ -220,19 +220,13 @@ class InventoryFileHandler(FileSystemEventHandler):
         except Exception:
             logger.exception("Failed to parse inventory file: %s", event.src_path)
             return
-        keys = {
-            "seb": flags["key_seb"],
-            "vp": flags["key_vp"],
-            "st": flags["key_st"],
-        }
+        items = {k: flags[k] for k in ("seb", "vp", "st", "void", "neck", "lizard", "thurg")}
         logger.info(
-            "Inventory update for `%s`: seb=%s vp=%s st=%s",
+            "Inventory update for `%s`: %s",
             character_name,
-            keys["seb"],
-            keys["vp"],
-            keys["st"],
+            " ".join(f"{k}={items[k]}" for k in items),
         )
-        _run_async(ws_client.send_update_location(character_name, keys=keys))
+        _run_async(ws_client.send_update_location(character_name, items=items))
 
 
 def set_log_watch_directory(eq_directory, timer_parent: QWidget):

@@ -1,4 +1,4 @@
-"""Parse EQ ``*-Inventory.txt`` tab dumps for zone key items."""
+"""Parse EQ ``*-Inventory.txt`` tab dumps for zone keys and tracked inventory items."""
 
 from __future__ import annotations
 
@@ -10,12 +10,19 @@ import re
 
 logger = logging.getLogger(__name__)
 
-# Item display names in the Name column -> SSOAccountCharacter key columns
-INVENTORY_KEY_ITEMS = {
-    "Trakanon Idol": "key_seb",
-    "Key of Veeshan": "key_vp",
-    "Sleeper's Key": "key_st",
+# EQ item Name column -> WebSocket ``items`` wire key (matches server WIRE_KEY_TO_ATTR)
+INVENTORY_TRACKED_ITEMS = {
+    "Trakanon Idol": "seb",
+    "Key of Veeshan": "vp",
+    "Sleeper's Key": "st",
+    "Box of the Void": "void",
+    "Necklace of Resolution": "neck",
+    "Lizard Blood Potion": "lizard",
+    "Vial of Velium Vapors": "thurg",
 }
+
+# Default parse result: all wires False until a matching Name is seen.
+_DEFAULT_ITEM_FLAGS = {w: False for w in INVENTORY_TRACKED_ITEMS.values()}
 
 
 def character_name_from_inventory_path(path: str) -> str:
@@ -32,11 +39,8 @@ def find_inventory_files(eq_dir: str) -> list[str]:
 
 
 def parse_inventory_file(path: str) -> dict[str, bool]:
-    """Read a tab-delimited inventory dump; return whether each zone key item is present.
-
-    Keys are ``key_seb``, ``key_vp``, ``key_st`` (``True`` if the item appears in any row).
-    """
-    result = {"key_seb": False, "key_vp": False, "key_st": False}
+    """Read a tab-delimited inventory dump; return wire flags (``True`` if the item appears in any row)."""
+    result = dict(_DEFAULT_ITEM_FLAGS)
     try:
         with open(path, newline="", encoding="utf-8", errors="replace") as f:
             reader = csv.reader(f, delimiter="\t")
@@ -52,9 +56,9 @@ def parse_inventory_file(path: str) -> dict[str, bool]:
                 if len(row) <= name_idx:
                     continue
                 cell = row[name_idx].strip()
-                col = INVENTORY_KEY_ITEMS.get(cell)
-                if col:
-                    result[col] = True
+                wire = INVENTORY_TRACKED_ITEMS.get(cell)
+                if wire:
+                    result[wire] = True
     except OSError:
         logger.exception("Failed to read inventory file: %s", path)
     return result

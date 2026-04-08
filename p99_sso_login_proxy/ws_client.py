@@ -83,7 +83,7 @@ async def send_update_location(
     park_location: str | None = None,
     bind_location: str | None = None,
     level: int | None = None,
-    keys: dict | None = None,
+    items: dict | None = None,
 ):
     """Send an update_location message over the WebSocket."""
     if _ws and _connected:
@@ -94,8 +94,8 @@ async def send_update_location(
             msg["bind_location"] = bind_location
         if level is not None:
             msg["level"] = level
-        if keys:
-            msg["keys"] = keys
+        if items:
+            msg["items"] = items
         data_fields = {k: v for k, v in msg.items() if k not in ("type", "character_name")}
         char_key = character_name.lower()
         prev = _last_sent_location.get(char_key, {})
