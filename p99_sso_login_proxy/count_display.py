@@ -258,53 +258,10 @@ def _readiness_ch_bundle_lines(items: dict[str, object], ch_emoji: str) -> list[
 
 
 def readiness_cell_parts(class_name: str | None, items: dict[str, object]) -> tuple[str, str]:
-    """Overall class readiness (R column). Empty when no profile exists for this class."""
-    if not class_name:
-        return "", ""
+    """Overall class readiness (R column). Empty when no profile exists for this class.
 
-    if class_name == "Cleric":
-        neck_v = items.get("neck")
-        ch_emoji, _ = ch_bundle_cell_parts(
-            neck_v,
-            items.get("void"),
-            items.get("mb4"),
-        )
-        mb3_emoji = stack_count_tier_emoji("mb3", items.get("mb3"))
-        r_mb3 = _readiness_rank_from_tier_emoji(mb3_emoji)
-        r_tp = _readiness_rank_thurg(items.get("thurg"))
-        ranks = [r_mb3, r_tp]
-        if ch_emoji:
-            ranks.insert(0, _readiness_rank_from_tier_emoji(ch_emoji))
-        out = _readiness_roll_up(ranks)
-        lines = [
-            f"Cleric — overall {out}",
-            "",
-            *_readiness_ch_bundle_lines(items, ch_emoji),
-            "",
-            *_readiness_stack_detail_lines("MB3 (Class Three battery)", "mb3", items.get("mb3")),
-            "",
-            *_thurg_readiness_tooltip_lines(items.get("thurg")),
-        ]
-        return out, "\n".join(lines)
+    Per-class implementations live in ``readiness_by_class``; import is lazy to avoid cycles.
+    """
+    from p99_sso_login_proxy.readiness_by_class import dispatch_readiness
 
-    if class_name == "Magician":
-        pearl_val = items.get("pearl")
-        # Unknown count is not "Some tier" — avoid yellow (that implies a known partial stack).
-        if pearl_val is None:
-            lines = [
-                "Magician — no status until pearl count is known",
-                "",
-                *_readiness_stack_detail_lines("Pearl", "pearl", pearl_val),
-            ]
-            return READINESS_UNKNOWN_MARK, "\n".join(lines)
-        pearl_emoji = stack_count_tier_emoji("pearl", pearl_val)
-        r_pearl = _readiness_rank_from_tier_emoji(pearl_emoji)
-        out = _readiness_roll_up([r_pearl])
-        lines = [
-            f"Magician — overall {out}",
-            "",
-            *_readiness_stack_detail_lines("Pearl", "pearl", pearl_val),
-        ]
-        return out, "\n".join(lines)
-
-    return "", ""
+    return dispatch_readiness(class_name, items)
