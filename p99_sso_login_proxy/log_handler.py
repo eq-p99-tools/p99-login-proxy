@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QWidget
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from p99_sso_login_proxy import config, inventory_parser, ws_client, zone_translate
+from p99_sso_login_proxy import config, inventory_parser, local_characters, ws_client, zone_translate
 
 logger = logging.getLogger("log_handler")
 
@@ -53,6 +53,19 @@ def _character_from_log_path(path: str) -> str:
     return os.path.basename(path).split("_")[1]
 
 
+def _any_character_tracked() -> bool:
+    """Are log/inventory watchers useful at all (SSO token OR any local character)?"""
+    return bool(config.USER_API_TOKEN) or bool(config.LOCAL_CHARACTER_NAMES)
+
+
+def _classify_character(character_name: str) -> tuple[bool, bool]:
+    """Return ``(is_sso_tracked, is_local_tracked)`` for the given log filename character."""
+    key = character_name.lower()
+    in_sso = bool(config.USER_API_TOKEN) and key in config.CHARACTERS_CACHED
+    in_local = key in config.LOCAL_CHARACTER_NAMES
+    return in_sso, in_local
+
+
 class LogFileHandler(FileSystemEventHandler):
     def __init__(self, get_latest_log_file, timer_parent: QWidget):
         super().__init__()
@@ -65,14 +78,16 @@ class LogFileHandler(FileSystemEventHandler):
         self._position = 0
         self._first_event_logged = False
         self.latest_log_file = self.get_latest_log_file()
-        if self.latest_log_file and config.USER_API_TOKEN:
+        if self.latest_log_file and _any_character_tracked():
             logger.info(
                 "Tracking log file: %s (character: %s)",
                 self.latest_log_file,
                 _character_from_log_path(self.latest_log_file),
             )
             self._seek_to_latest_position()
-            self.send_heartbeat()  # Send an initial heartbeat if we've got a logfile
+            # send_heartbeat is a no-op without a USER_API_TOKEN, so calling it
+            # unconditionally is safe even when only local characters are tracked.
+            self.send_heartbeat()
         elif not self.latest_log_file:
             logger.warning("No eqlog_*.txt files found in watch directory")
 
@@ -114,7 +129,7 @@ class LogFileHandler(FileSystemEventHandler):
             _run_async(ws_client.send_heartbeat(character_name))
 
     def on_modified(self, event):
-        if not config.USER_API_TOKEN:
+        if not _any_character_tracked():
             return
         if not self._first_event_logged:
             self._first_event_logged = True
@@ -136,56 +151,83 @@ class LogFileHandler(FileSystemEventHandler):
 
     def handle_log_line(self, line):
         character_name = _character_from_log_path(self.latest_log_file)
-        if character_name.lower() not in config.CHARACTERS_CACHED:
+        in_sso, in_local = _classify_character(character_name)
+        if not (in_sso or in_local):
             return
+
+        def _broadcast_location(
+            park_location: str | None = None,
+            bind_location: str | None = None,
+            level: int | None = None,
+            items: dict | None = None,
+        ) -> None:
+            if in_sso:
+                _run_async(
+                    ws_client.send_update_location(
+                        character_name,
+                        park_location=park_location,
+                        bind_location=bind_location,
+                        level=level,
+                        items=items,
+                    )
+                )
+            if in_local:
+                local_characters.apply_update(
+                    character_name,
+                    park=park_location,
+                    bind=bind_location,
+                    level=level,
+                    items=items,
+                )
+
         if m := config.MATCH_ENTERED_ZONE.match(line):
             zone = m.group("zone")
             zonekey = zone_translate.zone_to_zonekey(zone)
             _current_zone[character_name.lower()] = zonekey
             logger.info("`%s` entered zone: %s (%s)", character_name, zone, zonekey)
-            _run_async(ws_client.send_update_location(character_name, park_location=zonekey))
+            _broadcast_location(park_location=zonekey)
         elif config.MATCH_BIND_CONFIRM.match(line):
             zonekey = _current_zone.get(character_name.lower())
             if zonekey:
                 logger.info("`%s` bound in zone: %s", character_name, zonekey)
-                _run_async(ws_client.send_update_location(character_name, bind_location=zonekey))
+                _broadcast_location(bind_location=zonekey)
             else:
                 logger.warning("`%s` bind detected but current zone is unknown", character_name)
         elif m := config.MATCH_CHARINFO.match(line):
             zone = m.group("zone")
             zonekey = zone_translate.zone_to_zonekey(zone)
             logger.info("`%s` is bound in zone: %s (%s)", character_name, zone, zonekey)
-            _run_async(ws_client.send_update_location(character_name, bind_location=zonekey))
+            _broadcast_location(bind_location=zonekey)
         elif m := config.MATCH_WHO_ZONE.match(line):
             zone = m.group("zone")
             if zone != "EverQuest":
                 zonekey = zone_translate.zone_to_zonekey(zone)
                 _current_zone[character_name.lower()] = zonekey
                 logger.info("`%s` zone from /who: %s (%s)", character_name, zone, zonekey)
-                _run_async(ws_client.send_update_location(character_name, park_location=zonekey))
+                _broadcast_location(park_location=zonekey)
         elif m := config.MATCH_WHO_SELF.match(line):
             if m.group("name").lower() == character_name.lower():
                 level = int(m.group("level"))
                 logger.info("`%s` detected level %d from /who", character_name, level)
-                _run_async(ws_client.send_update_location(character_name, level=level))
+                _broadcast_location(level=level)
         elif m := config.MATCH_LEVEL_UP.match(line):
             level = int(m.group("level"))
             logger.info("`%s` leveled up to %d", character_name, level)
-            _run_async(ws_client.send_update_location(character_name, level=level))
+            _broadcast_location(level=level)
         elif config.MATCH_VELIUM_VAPORS_GLOW.match(line):
             logger.info("`%s` Vial of Velium Vapors used (log line)", character_name)
-            _run_async(ws_client.send_update_location(character_name, items={"thurg": False}))
-        elif m := config.MATCH_FTE.match(line):
+            _broadcast_location(items={"thurg": False})
+        elif in_sso and (m := config.MATCH_FTE.match(line)):
             mob = m.group("mob")
             player = m.group("player")
             logger.info("FTE detected: `%s` engages `%s` (seen by `%s`)", mob, player, character_name)
             _run_async(ws_client.send_fte(mob, player, character_name, m.group("time")))
-        elif m := config.MATCH_YOU_SLAIN.match(line):
+        elif in_sso and (m := config.MATCH_YOU_SLAIN.match(line)):
             mob = m.group("mob")
             if mob.lower() in config.RAID_TARGETS:
                 logger.info("Raid target slain: `%s` (by `%s`)", mob, character_name)
                 _run_async(ws_client.send_mob_death(mob, m.group("time"), character_name))
-        elif m := config.MATCH_MOB_SLAIN.match(line):
+        elif in_sso and (m := config.MATCH_MOB_SLAIN.match(line)):
             mob = m.group("mob")
             if mob.lower() in config.RAID_TARGETS:
                 logger.info(
@@ -213,10 +255,13 @@ class InventoryFileHandler(FileSystemEventHandler):
     def _handle_event(self, event):
         if event.is_directory or not _is_inventory_file_path(event.src_path):
             return
-        if not config.USER_API_TOKEN:
+        if not _any_character_tracked():
             return
         character_name = inventory_parser.character_name_from_inventory_path(event.src_path)
-        if not character_name or character_name.lower() not in config.CHARACTERS_CACHED:
+        if not character_name:
+            return
+        in_sso, in_local = _classify_character(character_name)
+        if not (in_sso or in_local):
             return
         try:
             flags = inventory_parser.parse_inventory_file(event.src_path)
@@ -229,7 +274,10 @@ class InventoryFileHandler(FileSystemEventHandler):
             character_name,
             " ".join(f"{k}={items[k]}" for k in inventory_parser.ALL_INVENTORY_WIRE_KEYS),
         )
-        _run_async(ws_client.send_update_location(character_name, items=items))
+        if in_sso:
+            _run_async(ws_client.send_update_location(character_name, items=items))
+        if in_local:
+            local_characters.apply_update(character_name, items=items)
 
 
 def _deduped_eq_roots(primary: str) -> list[tuple[str, str]]:

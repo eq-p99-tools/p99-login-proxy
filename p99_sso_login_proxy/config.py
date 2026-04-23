@@ -102,6 +102,10 @@ ACTIVITY_FADE_SECONDS = 90
 LOCAL_ACCOUNTS_FILE = CONFIG.get("DEFAULT", "local_accounts_file", fallback="local_accounts.csv")
 LOCAL_ACCOUNTS, LOCAL_ACCOUNT_NAME_MAP = utils.load_local_accounts(LOCAL_ACCOUNTS_FILE)
 
+LOCAL_CHARACTERS_FILE = CONFIG.get("DEFAULT", "local_characters_file", fallback="local_characters.csv")
+LOCAL_CHARACTERS: dict[str, dict] = utils.load_local_characters(LOCAL_CHARACTERS_FILE)
+LOCAL_CHARACTER_NAMES: set[str] = set(LOCAL_CHARACTERS.keys())
+
 # Allow the user to provide a list of accounts to never SSO check
 SKIP_SSO_ACCOUNTS = CONFIG.get("DEFAULT", "skip_sso_accounts", fallback="")
 SKIP_SSO_ACCOUNTS = [account.strip().lower() for account in SKIP_SSO_ACCOUNTS.split(",")]

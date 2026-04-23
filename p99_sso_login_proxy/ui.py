@@ -52,6 +52,7 @@ from p99_sso_login_proxy import (
     config,
     count_display,
     eq_config,
+    local_characters,
     log_handler,
     update_scheduler,
     updater,
@@ -66,7 +67,12 @@ from p99_sso_login_proxy.theme import (
     semantic,
     toggle_region_debug_easter_egg,
 )
-from p99_sso_login_proxy.ui_classes import local_account_dialog, proxy_stats, taskbar_icon
+from p99_sso_login_proxy.ui_classes import (
+    local_account_dialog,
+    local_character_dialog,
+    proxy_stats,
+    taskbar_icon,
+)
 from p99_sso_login_proxy.ui_classes.password_visibility import add_password_visibility_toggle
 
 logger = logging.getLogger("ui")
@@ -131,6 +137,14 @@ _CHARACTERS_FILTER_SKIP_COLS = frozenset({12, 13})
 # Columns where sort puts non-empty cells first; blanks stay at the bottom (asc and desc).
 _CHARACTERS_SORT_BLANKS_LAST_COLS = frozenset({12})  # "Logged In By"
 _CHARACTERS_CENTER_COLUMNS = frozenset({0, 3, 4, 5, 6, 7, 8, 9})  # R + Lvl + item columns
+
+# Local characters sub-tab mirrors the SSO columns but drops "Logged In By" (col 12).
+_LOCAL_CHARACTERS_COLUMN_HEADER_TOOLTIPS = (
+    *_CHARACTERS_COLUMN_HEADER_TOOLTIPS[:12],
+    "Account name (local — free-form; may or may not match a row in local_accounts.csv)",
+)
+_LOCAL_CHARACTERS_FILTER_SKIP_COLS = frozenset({12})
+_LOCAL_CHARACTERS_CENTER_COLUMNS = _CHARACTERS_CENTER_COLUMNS
 
 
 def _characters_key_term_match(row: tuple, term: str) -> bool:
@@ -339,6 +353,7 @@ class ProxyUI(QMainWindow):
     """Main UI window for the proxy application."""
 
     power_resume_requested = Signal()
+    local_characters_updated = Signal()
 
     def __init__(self, parent=None, title: str | None = None):
         title = title or f"{config.APP_NAME} v{config.APP_VERSION}"
@@ -454,21 +469,19 @@ class ProxyUI(QMainWindow):
         first_visible = table.rowAt(0)
         table.setRowCount(0)
         num_cols = table.columnCount()
+        list_data = self._list_filter_data.get(table)
+        center_cols = (list_data or {}).get("center_columns", ()) if list_data else ()
+        cell_tooltips = (list_data or {}).get("cell_tooltips", {}) if list_data else {}
         for i, row in enumerate(rows):
             table.insertRow(i)
             for col in range(min(num_cols, len(row))):
                 text = "" if row[col] is None else str(row[col])
                 item = QTableWidgetItem(text)
-                list_data = self._list_filter_data.get(table)
-                if list_data and col in list_data.get("center_columns", ()):
+                if col in center_cols:
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                if table is getattr(self, "characters_list", None):
-                    if col == 0 and len(row) > 18 and row[18]:
-                        item.setToolTip(row[18])
-                    if col == 7 and len(row) > 16 and row[16]:
-                        item.setToolTip(row[16])
-                    if col == 9 and len(row) > 17 and row[17]:
-                        item.setToolTip(row[17])
+                tip_idx = cell_tooltips.get(col)
+                if tip_idx is not None and len(row) > tip_idx and row[tip_idx]:
+                    item.setToolTip(str(row[tip_idx]))
                 table.setItem(i, col, item)
             colour = row_color_fn(row) if row_color_fn else None
             if colour:
@@ -533,35 +546,29 @@ class ProxyUI(QMainWindow):
         return table
 
     def _apply_characters_group_header_appearance(self) -> None:
-        if not hasattr(self, "_characters_group_header"):
-            return
-        mini = self._characters_group_header
-        main_h = self.characters_list.horizontalHeader()
-        pal = main_h.palette()
-        bg = pal.color(QPalette.ColorGroup.Active, QPalette.ColorRole.Button)
-        fg = pal.color(QPalette.ColorGroup.Active, QPalette.ColorRole.ButtonText)
-        bg_brush = QBrush(bg)
-        fg_brush = QBrush(fg)
-        font = main_h.font()
-        for c in range(mini.columnCount()):
-            it = mini.item(0, c)
-            if it is None:
-                continue
-            it.setBackground(bg_brush)
-            it.setForeground(fg_brush)
-            it.setFont(font)
+        for main, mini in getattr(self, "_characters_group_header_pairs", []):
+            main_h = main.horizontalHeader()
+            pal = main_h.palette()
+            bg = pal.color(QPalette.ColorGroup.Active, QPalette.ColorRole.Button)
+            fg = pal.color(QPalette.ColorGroup.Active, QPalette.ColorRole.ButtonText)
+            bg_brush = QBrush(bg)
+            fg_brush = QBrush(fg)
+            font = main_h.font()
+            for c in range(mini.columnCount()):
+                it = mini.item(0, c)
+                if it is None:
+                    continue
+                it.setBackground(bg_brush)
+                it.setForeground(fg_brush)
+                it.setFont(font)
 
     def _sync_characters_group_header_widths(self, *_args: object) -> None:
-        if not hasattr(self, "_characters_group_header"):
-            return
-        main = self.characters_list
-        mini = self._characters_group_header
-        for i in range(main.columnCount()):
-            mini.setColumnWidth(i, main.columnWidth(i))
+        for main, mini in getattr(self, "_characters_group_header_pairs", []):
+            for i in range(main.columnCount()):
+                mini.setColumnWidth(i, main.columnWidth(i))
 
-    def _create_characters_group_header_row(self, parent: QWidget) -> QTableWidget:
+    def _create_characters_group_header_row(self, parent: QWidget, main: QTableWidget) -> QTableWidget:
         mini = QTableWidget(parent)
-        main = self.characters_list
         ncols = main.columnCount()
         mini.setColumnCount(ncols)
         mini.setRowCount(1)
@@ -605,11 +612,13 @@ class ProxyUI(QMainWindow):
         mini.setItem(0, _POTS_GROUP_HEADER_START_COL, pots_item)
         mini.setSpan(0, _POTS_GROUP_HEADER_START_COL, 1, _POTS_GROUP_HEADER_COL_COUNT)
         mini.setItemDelegateForRow(0, _CharactersGroupHeaderRegionDelegate(mini))
+        if not hasattr(self, "_characters_group_header_pairs"):
+            self._characters_group_header_pairs = []
+        self._characters_group_header_pairs.append((main, mini))
         self._apply_characters_group_header_appearance()
         main.horizontalHeader().sectionResized.connect(self._sync_characters_group_header_widths)
         main.horizontalHeader().geometriesChanged.connect(self._sync_characters_group_header_widths)
         QTimer.singleShot(0, self._sync_characters_group_header_widths)
-        self._characters_group_header = mini
         return mini
 
     def _create_proxy_tab(self, notebook: QTabWidget):
@@ -813,7 +822,7 @@ class ProxyUI(QMainWindow):
         self._characters_sort_col = 2  # Class (column 0 is R)
         self._characters_sort_asc = True
         self.characters_list.horizontalHeader().sectionClicked.connect(self.on_characters_list_col_click)
-        self._create_characters_group_header_row(characters_tab)
+        self._characters_group_header = self._create_characters_group_header_row(characters_tab, self.characters_list)
 
         search_row = QHBoxLayout()
         search_ctrl = QLineEdit(characters_tab)
@@ -834,6 +843,8 @@ class ProxyUI(QMainWindow):
         self._list_filter_data[self.characters_list]["term_match_fn"] = _characters_key_term_match
         self._list_filter_data[self.characters_list]["filter_skip_columns"] = _CHARACTERS_FILTER_SKIP_COLS
         self._list_filter_data[self.characters_list]["center_columns"] = _CHARACTERS_CENTER_COLUMNS
+        # row[16]=liz_tip, row[17]=ch_tip, row[18]=r_tip (see _refresh_characters_list)
+        self._list_filter_data[self.characters_list]["cell_tooltips"] = {0: 18, 7: 16, 9: 17}
 
         characters_layout.addWidget(self._characters_group_header)
         characters_layout.addWidget(self.characters_list, 1)
@@ -856,11 +867,14 @@ class ProxyUI(QMainWindow):
         btn_row.addWidget(self.delete_local_account_btn)
         local_layout.addLayout(btn_row)
 
+        local_chars_tab = self._create_local_characters_subtab()
+
         sso_notebook.addTab(characters_tab, "Characters")
         sso_notebook.addTab(accounts_tab, "Accounts")
         sso_notebook.addTab(aliases_tab, "Aliases")
         sso_notebook.addTab(tags_tab, "Tags")
         sso_notebook.addTab(local_tab, "Local Accounts")
+        sso_notebook.addTab(local_chars_tab, "Local Characters")
 
         layout.addWidget(sso_notebook, 1)
 
@@ -881,6 +895,67 @@ class ProxyUI(QMainWindow):
         layout.addLayout(sso_bottom)
 
         notebook.addTab(tab, "SSO")
+        return tab
+
+    def _create_local_characters_subtab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        self.local_characters_list = self._create_table(
+            tab,
+            [
+                ("\u2713", 26),
+                ("Character", 90),
+                ("Class", 68),
+                ("Lvl", 30),
+                ("ST", 26),
+                ("VP", 26),
+                ("Sb", 26),
+                ("CT", 26),
+                ("Th", 26),
+                ("CH", 26),
+                ("Park Location", 124),
+                ("Bind Location", 124),
+                ("Account Name", 120),
+            ],
+        )
+        for col, tip in enumerate(_LOCAL_CHARACTERS_COLUMN_HEADER_TOOLTIPS):
+            self.local_characters_list.horizontalHeaderItem(col).setToolTip(tip)
+        self._local_characters_sort_col = 2  # Class
+        self._local_characters_sort_asc = True
+        self.local_characters_list.horizontalHeader().sectionClicked.connect(self.on_local_characters_list_col_click)
+        local_chars_group_header = self._create_characters_group_header_row(tab, self.local_characters_list)
+
+        search_ctrl = QLineEdit(tab)
+        search_ctrl.setPlaceholderText("Type to filter...")
+        search_ctrl.setClearButtonEnabled(True)
+        self._list_filter_data[self.local_characters_list] = {
+            "rows": [],
+            "search": search_ctrl,
+            "term_match_fn": _characters_key_term_match,
+            "filter_skip_columns": _LOCAL_CHARACTERS_FILTER_SKIP_COLS,
+            "center_columns": _LOCAL_CHARACTERS_CENTER_COLUMNS,
+            # Row shape (see _refresh_local_characters_list):
+            # 0..12 visible, 13=liz_tip, 14=ch_tip, 15=r_tip
+            "cell_tooltips": {0: 15, 7: 13, 9: 14},
+        }
+        search_ctrl.textChanged.connect(lambda _t: self._apply_filter(self.local_characters_list))
+
+        layout.addWidget(search_ctrl)
+        layout.addWidget(local_chars_group_header)
+        layout.addWidget(self.local_characters_list, 1)
+
+        btn_row = QHBoxLayout()
+        self.add_local_character_btn = QPushButton("Add Character")
+        self.add_local_character_btn.clicked.connect(self.on_add_local_character)
+        self.edit_local_character_btn = QPushButton("Edit Character")
+        self.edit_local_character_btn.clicked.connect(self.on_edit_local_character)
+        self.delete_local_character_btn = QPushButton("Delete Character")
+        self.delete_local_character_btn.clicked.connect(self.on_delete_local_character)
+        btn_row.addWidget(self.add_local_character_btn)
+        btn_row.addWidget(self.edit_local_character_btn)
+        btn_row.addWidget(self.delete_local_character_btn)
+        layout.addLayout(btn_row)
+
         return tab
 
     def _create_eq_tab(self, notebook: QTabWidget):
@@ -1010,6 +1085,14 @@ class ProxyUI(QMainWindow):
         self._create_changelog_tab(notebook)
 
         notebook.tabBarClicked.connect(self._on_main_tab_bar_clicked)
+
+        # Use queued connection so log_handler / watchdog threads can emit safely.
+        self.local_characters_updated.connect(
+            self._refresh_local_characters_list,
+            Qt.ConnectionType.QueuedConnection,
+        )
+        local_characters.ON_UPDATED.append(self.local_characters_updated.emit)
+        self._refresh_local_characters_list()
 
         main_layout.addWidget(notebook, 1)
 
@@ -1504,6 +1587,93 @@ class ProxyUI(QMainWindow):
             QMessageBox.critical(self, "Error", "Failed to save local accounts.")
         self.update_account_cache_display()
 
+    def on_add_local_character(self):
+        dialog = local_character_dialog.LocalCharacterDialog(self, title="Add Local Character")
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        result = dialog.get_result()
+        name = result["name"]
+        if not name:
+            QMessageBox.critical(self, "Error", "Character name cannot be empty.")
+            return
+        if name.lower() in config.LOCAL_CHARACTERS:
+            QMessageBox.critical(self, "Error", f"Character '{name}' already exists.")
+            return
+        local_characters.set_entry(result)
+        if not local_characters.save_now():
+            QMessageBox.critical(self, "Error", "Failed to save local characters.")
+        self._refresh_local_characters_list()
+
+    def on_edit_local_character(self):
+        selected_index = self.local_characters_list.currentRow()
+        if selected_index < 0:
+            QMessageBox.critical(self, "Error", "Please select a character to edit.")
+            return
+        name_cell = self.local_characters_list.item(selected_index, 1)
+        if name_cell is None:
+            return
+        name = name_cell.text()
+        entry = config.LOCAL_CHARACTERS.get(name.lower())
+        if entry is None:
+            QMessageBox.critical(self, "Error", f"Character '{name}' not found.")
+            return
+
+        dialog = local_character_dialog.LocalCharacterDialog(
+            self,
+            title="Edit Local Character",
+            name=entry.get("name") or name,
+            account=entry.get("account") or "",
+            klass=entry.get("class"),
+            level=entry.get("level"),
+            bind=entry.get("bind"),
+            park=entry.get("park"),
+            items=entry.get("items"),
+            lock_name=True,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        result = dialog.get_result()
+        # lock_name prevents renames, but guard anyway.
+        result["name"] = entry.get("name") or name
+        local_characters.set_entry(result)
+        if not local_characters.save_now():
+            QMessageBox.critical(self, "Error", "Failed to save local characters.")
+        self._refresh_local_characters_list()
+
+    def on_delete_local_character(self):
+        selected_index = self.local_characters_list.currentRow()
+        if selected_index < 0:
+            QMessageBox.critical(self, "Error", "Please select a character to delete.")
+            return
+        name_cell = self.local_characters_list.item(selected_index, 1)
+        if name_cell is None:
+            return
+        name = name_cell.text()
+        if name.lower() not in config.LOCAL_CHARACTERS:
+            QMessageBox.critical(self, "Error", f"Character '{name}' not found.")
+            return
+        reply = QMessageBox.question(
+            self,
+            "Confirm Deletion",
+            f"Are you sure you want to delete the character '{name}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        local_characters.delete_entry(name)
+        if not local_characters.save_now():
+            QMessageBox.critical(self, "Error", "Failed to save local characters.")
+        self._refresh_local_characters_list()
+
+    def on_local_characters_list_col_click(self, logical_index: int):
+        if self._local_characters_sort_col == logical_index:
+            self._local_characters_sort_asc = not self._local_characters_sort_asc
+        else:
+            self._local_characters_sort_col = logical_index
+            self._local_characters_sort_asc = True
+        self._refresh_local_characters_list()
+        self.local_characters_list.scrollToTop()
+
     def on_characters_list_col_click(self, logical_index: int):
         if self._characters_sort_col == logical_index:
             self._characters_sort_asc = not self._characters_sort_asc
@@ -1715,6 +1885,82 @@ class ProxyUI(QMainWindow):
                 semantic.active_blue if row[15] else semantic.active_amber,
             ),
         )
+
+    def _refresh_local_characters_list(self):
+        if not hasattr(self, "local_characters_list"):
+            return
+        rows = []
+        for key in sorted(config.LOCAL_CHARACTERS):
+            data = config.LOCAL_CHARACTERS[key]
+            char = data.get("name") or key
+            klass_raw = data.get("class")
+            class_text = _characters_tab_class_display(klass_raw)
+            level = data.get("level")
+            level_text = str(level) if level is not None else ""
+            items_raw = data.get("items") or {}
+            r_emoji, r_tip = count_display.readiness_cell_parts(klass_raw, items_raw)
+            st_mark = _characters_tab_key_cell(items_raw.get("st"))
+            vp_mark = _characters_tab_key_cell(items_raw.get("vp"))
+            seb_mark = _characters_tab_key_cell(items_raw.get("seb"))
+            ch_emoji, ch_tip = count_display.ch_bundle_cell_parts(
+                items_raw.get("neck"),
+                items_raw.get("void"),
+                items_raw.get("mb4"),
+            )
+            liz_raw = items_raw.get("lizard")
+            liz_emoji, liz_tip = count_display.stack_count_cell_parts("lizard", liz_raw)
+            if not liz_emoji and liz_raw is None:
+                liz_emoji = KEY_COLUMN_UNKNOWN
+                if not liz_tip:
+                    liz_tip = "Lizard Blood Potion: count unknown"
+            thurg_mark = _characters_tab_key_cell(items_raw.get("thurg"))
+            park_text = zone_translate.zonekey_to_zone(data.get("park")) or "Unknown"
+            bind_text = zone_translate.zonekey_to_zone(data.get("bind")) or "Unknown"
+            account = data.get("account") or ""
+            rows.append(
+                (
+                    r_emoji,
+                    char,
+                    class_text,
+                    level_text,
+                    st_mark,
+                    vp_mark,
+                    seb_mark,
+                    liz_emoji,
+                    thurg_mark,
+                    ch_emoji,
+                    park_text,
+                    bind_text,
+                    account,
+                    liz_tip,
+                    ch_tip,
+                    r_tip,
+                )
+            )
+
+        sort_col = self._local_characters_sort_col
+        sort_asc = self._local_characters_sort_asc
+        if sort_col == 0:
+            rows.sort(
+                key=lambda x: (count_display.readiness_column_sort_key(x[0]), x[1]),
+                reverse=not sort_asc,
+            )
+        elif sort_col == 7:
+            rows.sort(
+                key=lambda x: (count_display.count_column_sort_key(x[7]), x[1]),
+                reverse=not sort_asc,
+            )
+        elif sort_col == 9:
+            rows.sort(
+                key=lambda x: (count_display.count_column_sort_key(x[9]), x[1]),
+                reverse=not sort_asc,
+            )
+        elif sort_col in _KEY_COLUMNS:
+            rows.sort(key=lambda x: (_KEY_SORT_ORDER.get(x[sort_col], 2), x[1]), reverse=not sort_asc)
+        else:
+            rows.sort(key=lambda x: ((x[sort_col] or ""), x[1]), reverse=not sort_asc)
+
+        self._populate_list(self.local_characters_list, rows)
 
     def update_eq_status(self):
         status = eq_config.get_eq_status()
