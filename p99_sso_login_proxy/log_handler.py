@@ -9,7 +9,14 @@ from PySide6.QtWidgets import QWidget
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from p99_sso_login_proxy import config, inventory_parser, local_characters, ws_client, zone_translate
+from p99_sso_login_proxy import (
+    class_translate,
+    config,
+    inventory_parser,
+    local_characters,
+    ws_client,
+    zone_translate,
+)
 
 logger = logging.getLogger("log_handler")
 
@@ -136,12 +143,13 @@ class LogFileHandler(FileSystemEventHandler):
             logger.info("First watchdog event received: %s (is_directory=%s)", event.src_path, event.is_directory)
         latest = self.get_latest_log_file()
         if latest != self.latest_log_file:
-            logger.info(
-                "Switched to log file: %s (character: %s)", latest, _character_from_log_path(latest) if latest else "?"
-            )
+            character_name = _character_from_log_path(latest) if latest else "?"
+            logger.info("Switched to log file: %s (character: %s)", latest, character_name)
             self.latest_log_file = latest
             self._seek_to_latest_position()
             self.send_heartbeat()
+            if latest:
+                local_characters.try_auto_create(character_name)
         if event.src_path == self.latest_log_file:
             with open(self.latest_log_file, errors="ignore") as f:
                 f.seek(self._position)
@@ -208,8 +216,28 @@ class LogFileHandler(FileSystemEventHandler):
         elif m := config.MATCH_WHO_SELF.match(line):
             if m.group("name").lower() == character_name.lower():
                 level = int(m.group("level"))
-                logger.info("`%s` detected level %d from /who", character_name, level)
+                raw_klass = m.group("klass")
+                resolved_klass = class_translate.resolve_class(raw_klass)
+                if resolved_klass:
+                    logger.info(
+                        "`%s` detected level %d (%s -> %s) from /who",
+                        character_name,
+                        level,
+                        raw_klass,
+                        resolved_klass,
+                    )
+                else:
+                    logger.info(
+                        "`%s` detected level %d from /who (unrecognized class/title %r)",
+                        character_name,
+                        level,
+                        raw_klass,
+                    )
                 _broadcast_location(level=level)
+                # Class is only persisted for local characters; SSO class is
+                # authoritative on the server side and we must not overwrite it.
+                if in_local and resolved_klass:
+                    local_characters.apply_update(character_name, klass=resolved_klass)
         elif m := config.MATCH_LEVEL_UP.match(line):
             level = int(m.group("level"))
             logger.info("`%s` leveled up to %d", character_name, level)

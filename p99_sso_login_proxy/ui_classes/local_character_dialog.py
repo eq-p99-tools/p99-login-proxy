@@ -21,11 +21,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from p99_sso_login_proxy import config, zone_translate
-from p99_sso_login_proxy.readiness_by_class import READINESS_BY_CLASS
+from p99_sso_login_proxy import class_translate, config, zone_translate
 from p99_sso_login_proxy.theme import semantic
 
-CLASS_CHOICES: tuple[str, ...] = tuple(sorted(READINESS_BY_CLASS.keys()))
+CLASS_CHOICES: tuple[str, ...] = tuple(sorted(class_translate.CLASSES))
 
 _BOOL_ITEM_LABELS = {
     "seb": "Trakanon Idol (Seb key)",

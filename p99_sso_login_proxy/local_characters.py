@@ -21,6 +21,14 @@ _lock = threading.RLock()
 _save_timer: threading.Timer | None = None
 _SAVE_DEBOUNCE_SEC = 0.25
 
+# Login methods (from server.PROXY_STATS.user_login) that establish a local-account
+# binding suitable for pairing with the next new EQ log file.
+_LOCAL_METHODS = frozenset({"local", "local_char"})
+
+# The most recently observed local-account login. Set by note_login when a local
+# rewrite fires, cleared by any non-local login. Used by try_auto_create.
+_pending_local_account: str | None = None
+
 # Callbacks invoked (from the save-timer thread) whenever LOCAL_CHARACTERS mutates.
 # Subscribers are responsible for marshalling back to their UI thread.
 ON_UPDATED: list[Callable[[], None]] = []
@@ -104,6 +112,7 @@ def apply_update(
     park: str | None = None,
     bind: str | None = None,
     level: int | None = None,
+    klass: str | None = None,
     items: dict | None = None,
 ) -> bool:
     """Merge observed fields into :data:`config.LOCAL_CHARACTERS[name.lower()]`.
@@ -126,6 +135,9 @@ def apply_update(
             changed = True
         if level is not None and entry.get("level") != level:
             entry["level"] = level
+            changed = True
+        if klass is not None and entry.get("class") != klass:
+            entry["class"] = klass
             changed = True
         if items:
             bucket = entry.setdefault("items", _blank_items())
@@ -166,4 +178,70 @@ def delete_entry(name: str) -> bool:
             return False
         del config.LOCAL_CHARACTERS[key]
         config.LOCAL_CHARACTER_NAMES.discard(key)
+    return True
+
+
+def note_login(method: str, account: str | None) -> None:
+    """Record (or clear) the pending local account based on the login method.
+
+    Called by every rewrite path in :mod:`server`. If *method* is one of
+    :data:`_LOCAL_METHODS`, the resolved local account is stashed for the next
+    new log file to claim. Any other method clears the slot so a stale local
+    login can't be mis-paired with a subsequent non-local session.
+    """
+    global _pending_local_account
+    with _lock:
+        _pending_local_account = account.strip().lower() or None if method in _LOCAL_METHODS and account else None
+
+
+def try_auto_create(character_name: str) -> bool:
+    """Create a minimal local-character row for *character_name* when a local
+    login is pending.
+
+    Returns ``True`` if a new row was added. Safe no-op (with a logged warning)
+    on collision with an existing row bound to a different account.
+    """
+    if not config.AUTO_ADD_LOCAL_CHARACTERS:
+        return False
+    if not character_name:
+        return False
+
+    with _lock:
+        pending = _pending_local_account
+        if not pending:
+            return False
+        if pending not in config.LOCAL_ACCOUNTS:
+            logger.warning(
+                "Skipping auto-add for %s: pending local account %r is no longer in local_accounts.csv",
+                character_name,
+                pending,
+            )
+            return False
+
+        key = character_name.lower()
+        if key in config.LOCAL_CHARACTER_NAMES:
+            existing_account = (config.LOCAL_CHARACTERS.get(key) or {}).get("account") or ""
+            if existing_account.lower() != pending:
+                logger.warning(
+                    "Local character %s is bound to %s; saw recent local login as %s (not overwriting)",
+                    character_name,
+                    existing_account or "<unset>",
+                    pending,
+                )
+            return False
+
+        set_entry(
+            {
+                "name": character_name,
+                "account": pending,
+                "class": None,
+                "level": None,
+                "bind": None,
+                "park": None,
+                "items": {},
+            }
+        )
+        mark_dirty()
+
+    logger.info("Auto-added local character %s -> account %s", character_name, pending)
     return True

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from p99_sso_login_proxy import class_translate
 from p99_sso_login_proxy import count_display as cd
 
 ReadinessFn = Callable[[dict[str, object]], tuple[str, str]]
@@ -106,7 +107,7 @@ def readiness_wizard(_items: dict[str, object]) -> tuple[str, str]:
     return "", ""
 
 
-READINESS_BY_CLASS: dict[str, ReadinessFn] = {
+_READINESS_FUNCTIONS: dict[str, ReadinessFn] = {
     "Bard": readiness_bard,
     "Cleric": readiness_cleric,
     "Druid": readiness_druid,
@@ -122,6 +123,16 @@ READINESS_BY_CLASS: dict[str, ReadinessFn] = {
     "Warrior": readiness_warrior,
     "Wizard": readiness_wizard,
 }
+
+# Assert every canonical class has a readiness function so silent gaps fail loud
+# if CLASSES grows and a function is forgotten.
+assert set(_READINESS_FUNCTIONS) == set(class_translate.CLASSES), (
+    f"readiness functions out of sync with class_translate.CLASSES: "
+    f"missing={set(class_translate.CLASSES) - set(_READINESS_FUNCTIONS)}, "
+    f"extra={set(_READINESS_FUNCTIONS) - set(class_translate.CLASSES)}"
+)
+
+READINESS_BY_CLASS: dict[str, ReadinessFn] = {cls: _READINESS_FUNCTIONS[cls] for cls in class_translate.CLASSES}
 
 
 def dispatch_readiness(class_name: str | None, items: dict[str, object]) -> tuple[str, str]:

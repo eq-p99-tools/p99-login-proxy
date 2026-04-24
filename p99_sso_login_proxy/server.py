@@ -7,7 +7,7 @@ import functools
 import logging
 import time
 
-from p99_sso_login_proxy import config, ui, ws_client
+from p99_sso_login_proxy import config, local_characters, ui, ws_client
 from p99_sso_login_proxy import soe_protocol as soe
 from p99_sso_login_proxy.login_protocol import LoginPacket
 from p99_sso_login_proxy.session import ProxySessionState
@@ -70,6 +70,7 @@ class LoginProxy(asyncio.DatagramProtocol):
             not config.PROXY_ONLY
             and username not in config.SKIP_SSO_ACCOUNTS
             and username not in config.LOCAL_ACCOUNT_NAME_MAP
+            and username not in config.LOCAL_CHARACTER_NAMES
             and username in config.ALL_CACHED_NAMES
             and bool(config.USER_API_TOKEN)
         )
@@ -89,14 +90,21 @@ class LoginProxy(asyncio.DatagramProtocol):
 
         if config.PROXY_ONLY:
             ui.PROXY_STATS.user_login(alias=username, account=username, method="proxy_only")
+            local_characters.note_login("proxy_only", username)
             return buf, "proxy_only"
 
         if username in config.SKIP_SSO_ACCOUNTS:
             ui.PROXY_STATS.user_login(alias=username, account=username, method="skip_sso")
+            local_characters.note_login("skip_sso", username)
             return buf, "skip_sso"
 
-        if username not in config.ALL_CACHED_NAMES and username not in config.LOCAL_ACCOUNT_NAME_MAP:
+        if (
+            username not in config.ALL_CACHED_NAMES
+            and username not in config.LOCAL_ACCOUNT_NAME_MAP
+            and username not in config.LOCAL_CHARACTER_NAMES
+        ):
             ui.PROXY_STATS.user_login(alias=username, account=username, method="passthrough")
+            local_characters.note_login("passthrough", username)
             return buf, "passthrough"
 
         if username in config.LOCAL_ACCOUNT_NAME_MAP:
@@ -105,7 +113,28 @@ class LoginProxy(asyncio.DatagramProtocol):
             logger.info("Overwriting client supplied password with local account for %s: %s", username, new_user)
             result_buf = login.rewrite_credentials(new_user, new_pass, config.ENCRYPTION_KEY, config.iv())
             ui.PROXY_STATS.user_login(alias=username, account=new_user, method="local")
+            local_characters.note_login("local", new_user)
             return result_buf, "local"
+
+        if username in config.LOCAL_CHARACTER_NAMES:
+            character = config.LOCAL_CHARACTERS.get(username) or {}
+            new_user = (character.get("account") or "").lower()
+            account_data = config.LOCAL_ACCOUNTS.get(new_user) if new_user else None
+            if not account_data:
+                logger.warning(
+                    "Local character %s references unknown account %r; passing through",
+                    username,
+                    new_user,
+                )
+                ui.PROXY_STATS.user_login(alias=username, account=username, method="passthrough")
+                local_characters.note_login("passthrough", username)
+                return buf, "passthrough"
+            new_pass = account_data["password"]
+            logger.info("Overwriting client supplied password with local character for %s -> %s", username, new_user)
+            result_buf = login.rewrite_credentials(new_user, new_pass, config.ENCRYPTION_KEY, config.iv())
+            ui.PROXY_STATS.user_login(alias=username, account=new_user, method="local_char")
+            local_characters.note_login("local_char", new_user)
+            return result_buf, "local_char"
 
         return buf, None
 
@@ -128,6 +157,7 @@ class LoginProxy(asyncio.DatagramProtocol):
                 logger.info("Auth rewrite successful for %s -> %s", username, new_user)
                 data = login.splice_encrypted_credentials(encrypted)
                 ui.PROXY_STATS.user_login(alias=username, account=new_user, method="sso")
+                local_characters.note_login("sso", new_user)
         except Exception:
             logger.exception("Failed to check login for %s", username)
         finally:

@@ -543,6 +543,9 @@ class ProxyUI(QMainWindow):
         table.setAlternatingRowColors(False)
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        # Display-only: edits go through dedicated dialogs (e.g. local-character Edit button),
+        # not inline cell edits. Keeps data consistent with the underlying CSV schema.
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         return table
 
     def _apply_characters_group_header_appearance(self) -> None:
@@ -1183,6 +1186,7 @@ class ProxyUI(QMainWindow):
         method_labels = {
             "sso": "SSO",
             "local": "Local Account",
+            "local_char": "Local Character",
             "proxy_only": "Proxy Only",
             "skip_sso": "SSO Skipped",
             "passthrough": "Passthrough",

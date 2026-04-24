@@ -72,7 +72,7 @@ class ProxyStats(QObject):
 
         alias:   what the user typed in the EQ login screen
         account: the effective account name sent to the login server
-        method:  one of "sso", "local", "proxy_only", "skip_sso", "passthrough"
+        method:  one of "sso", "local", "local_char", "proxy_only", "skip_sso", "passthrough"
         """
         self.notify_user_connected(alias, account, method)
 

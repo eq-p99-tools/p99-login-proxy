@@ -106,6 +106,8 @@ LOCAL_CHARACTERS_FILE = CONFIG.get("DEFAULT", "local_characters_file", fallback=
 LOCAL_CHARACTERS: dict[str, dict] = utils.load_local_characters(LOCAL_CHARACTERS_FILE)
 LOCAL_CHARACTER_NAMES: set[str] = set(LOCAL_CHARACTERS.keys())
 
+AUTO_ADD_LOCAL_CHARACTERS = CONFIG.getboolean("DEFAULT", "auto_add_local_characters", fallback=True)
+
 # Allow the user to provide a list of accounts to never SSO check
 SKIP_SSO_ACCOUNTS = CONFIG.get("DEFAULT", "skip_sso_accounts", fallback="")
 SKIP_SSO_ACCOUNTS = [account.strip().lower() for account in SKIP_SSO_ACCOUNTS.split(",")]
@@ -185,7 +187,7 @@ def set_proxy_enabled(value: bool):
 TIMESTAMP = r"\[(?P<time>\w{3} \w{3} \d{2} \d\d:\d\d:\d\d \d{4})\] +"
 MATCH_ENTERED_ZONE = re.compile(rf"{TIMESTAMP}You have entered (?P<zone>.*?)\.")
 MATCH_WHO_ZONE = re.compile(rf"{TIMESTAMP}There (?:are|is) (?P<num>\d+) players? in (?P<zone>.+?)\.")
-MATCH_WHO_SELF = re.compile(rf"{TIMESTAMP}\[(?P<level>\d+) [\w ]+\] (?P<name>\w+) ")
+MATCH_WHO_SELF = re.compile(rf"{TIMESTAMP}\[(?P<level>\d+) (?P<klass>[\w ]+?)\] (?P<name>\w+) ")
 MATCH_CHARINFO = re.compile(f"{TIMESTAMP}You are currently bound in: (?P<zone>.*)")
 MATCH_BIND_CONFIRM = re.compile(rf"{TIMESTAMP}You feel yourself bind to the area\.")
 MATCH_LEVEL_UP = re.compile(rf"{TIMESTAMP}You have gained a level! Welcome to level (?P<level>\d+)!")
