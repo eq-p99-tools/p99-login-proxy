@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import platform
 import signal
 import sys
@@ -112,7 +113,6 @@ def _setup_win32_aumid():
 
     try:
         import glob
-        import os
 
         from PySide6.QtGui import QImage
 
@@ -176,15 +176,7 @@ def main():
 
     def start_eq_windows(eq_dir):
         logger.info("Starting EverQuest...")
-        import subprocess
-
-        subprocess.Popen(
-            ["powershell.exe", "-Command", "& { Start-Process eqgame.exe -ArgumentList @('patchme') -Verb RunAs }"],
-            cwd=eq_dir,
-            start_new_session=True,
-            shell=True,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW,
-        )
+        os.startfile("eqgame.exe", "runas", arguments="patchme", cwd=eq_dir)
 
     def start_eq_linux(eq_dir):
         logger.info("Starting EverQuest...")
