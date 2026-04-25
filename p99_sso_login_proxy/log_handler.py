@@ -245,17 +245,17 @@ class LogFileHandler(FileSystemEventHandler):
         elif config.MATCH_VELIUM_VAPORS_GLOW.match(line):
             logger.info("`%s` Vial of Velium Vapors used (log line)", character_name)
             _broadcast_location(items={"thurg": False})
-        elif in_sso and (m := config.MATCH_FTE.match(line)):
+        elif config.USER_API_TOKEN and (m := config.MATCH_FTE.match(line)):
             mob = m.group("mob")
             player = m.group("player")
             logger.info("FTE detected: `%s` engages `%s` (seen by `%s`)", mob, player, character_name)
             _run_async(ws_client.send_fte(mob, player, character_name, m.group("time")))
-        elif in_sso and (m := config.MATCH_YOU_SLAIN.match(line)):
+        elif config.USER_API_TOKEN and (m := config.MATCH_YOU_SLAIN.match(line)):
             mob = m.group("mob")
             if mob.lower() in config.RAID_TARGETS:
                 logger.info("Raid target slain: `%s` (by `%s`)", mob, character_name)
                 _run_async(ws_client.send_mob_death(mob, m.group("time"), character_name))
-        elif in_sso and (m := config.MATCH_MOB_SLAIN.match(line)):
+        elif config.USER_API_TOKEN and (m := config.MATCH_MOB_SLAIN.match(line)):
             mob = m.group("mob")
             if mob.lower() in config.RAID_TARGETS:
                 logger.info(

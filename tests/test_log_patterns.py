@@ -68,3 +68,57 @@ def test_match_charinfo_captures_bind_zone():
 def test_match_bind_confirm_fires_on_rebind_line():
     assert config.MATCH_BIND_CONFIRM.match(f"{_TS}You feel yourself bind to the area.") is not None
     assert config.MATCH_BIND_CONFIRM.match(f"{_TS}You feel yourself bind to the area") is None
+
+
+# ---- MATCH_FTE / MATCH_YOU_SLAIN / MATCH_MOB_SLAIN ------------------------
+#
+# These three regexes drive the FTE / raid-target-kill relay. They were
+# previously only exercised at runtime and gated behind ``in_sso``; now that
+# local-only characters can also report (anti-troll gate moved server-side),
+# lock the capture groups so a careless tweak doesn't silently break the wire.
+
+
+def test_match_fte_captures_mob_player_and_time():
+    m = config.MATCH_FTE.match(f"{_TS}Cekenar engages Toald!")
+    assert m is not None
+    assert m.group("mob") == "Cekenar"
+    assert m.group("player") == "Toald"
+    assert m.group("time") == "Mon Jul 22 23:08:38 2024"
+
+
+def test_match_fte_handles_multi_word_mob_name():
+    m = config.MATCH_FTE.match(f"{_TS}Lord Nagafen engages Toald!")
+    assert m is not None
+    assert m.group("mob") == "Lord Nagafen"
+    assert m.group("player") == "Toald"
+
+
+def test_match_fte_does_not_match_unrelated_lines():
+    assert config.MATCH_FTE.match(f"{_TS}You have entered East Commonlands.") is None
+    assert config.MATCH_FTE.match(f"{_TS}Cekenar engages Toald.") is None  # missing trailing "!"
+
+
+def test_match_you_slain_captures_mob_and_time():
+    m = config.MATCH_YOU_SLAIN.match(f"{_TS}You have slain King Tormax!")
+    assert m is not None
+    assert m.group("mob") == "King Tormax"
+    assert m.group("time") == "Mon Jul 22 23:08:38 2024"
+
+
+def test_match_you_slain_does_not_match_other_slain_lines():
+    assert config.MATCH_YOU_SLAIN.match(f"{_TS}King Tormax has been slain by Toald!") is None
+
+
+def test_match_mob_slain_captures_mob_slayer_and_time():
+    m = config.MATCH_MOB_SLAIN.match(f"{_TS}King Tormax has been slain by Toald!")
+    assert m is not None
+    assert m.group("mob") == "King Tormax"
+    assert m.group("slayer") == "Toald"
+    assert m.group("time") == "Mon Jul 22 23:08:38 2024"
+
+
+def test_match_mob_slain_handles_multi_word_slayer():
+    m = config.MATCH_MOB_SLAIN.match(f"{_TS}Lord Nagafen has been slain by a fire goblin!")
+    assert m is not None
+    assert m.group("mob") == "Lord Nagafen"
+    assert m.group("slayer") == "a fire goblin"
