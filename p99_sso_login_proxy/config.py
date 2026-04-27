@@ -31,7 +31,7 @@ except socket.gaierror:
 EQEMU_ADDR = (EQEMU_LOGIN_IP, EQEMU_PORT)
 
 SSO_API_OPTIONS = [
-    ("P99 Login Proxy", "https://proxy.p99loginproxy.net"),
+    ("Kingdom Login Proxy", "https://bot.kingdomdkp.com"),
 ]
 if __version_semver__.prerelease:
     SSO_API_OPTIONS.append(("Localhost", "http://localhost:5998"))

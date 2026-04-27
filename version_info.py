@@ -37,7 +37,7 @@ VSVersionInfo(
             StringStruct(u'LegalCopyright',
                          u'P99 Login Proxy Contributors'),
             StringStruct(u'OriginalFilename',
-                         u'P99LoginProxy-{_V}.exe'),
+                         u'KingdomLoginProxy-{_V}.exe'),
             StringStruct(u'ProductName',
                          u'P99 Login Proxy'),
             StringStruct(u'ProductVersion',

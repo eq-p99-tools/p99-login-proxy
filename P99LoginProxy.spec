@@ -41,7 +41,7 @@ exe = EXE(
     a.binaries,
     a.zipfiles,
     a.datas,
-    name=f'P99LoginProxy-{config.APP_VERSION}',
+    name=f'KingdomLoginProxy-{config.APP_VERSION}',
     debug=CONSOLE_BUILD,
     strip=False,
     upx=False,
@@ -55,6 +55,6 @@ import zipfile
 import os
 
 os.chdir('dist')
-zipfile.ZipFile(f"P99LoginProxy-{config.APP_VERSION}.zip", "w", zipfile.ZIP_DEFLATED).write(
-    f"P99LoginProxy-{config.APP_VERSION}.exe")
+zipfile.ZipFile(f"KingdomLoginProxy-{config.APP_VERSION}.zip", "w", zipfile.ZIP_DEFLATED).write(
+    f"KingdomLoginProxy-{config.APP_VERSION}.exe")
 os.chdir('..')

@@ -1,4 +1,4 @@
-; P99 Login Proxy – example configuration
+; Kingdom Login Proxy – example configuration
 ; All keys shown below are optional; defaults are listed in comments.
 
 [DEFAULT]
@@ -11,8 +11,8 @@
 ; login_port = 5998
 
 ; SSO API backend currently in use (URL and display name)
-; sso_api = https://proxy.p99loginproxy.net
-; sso_api_name = P99 Login Proxy
+; sso_api = https://bot.kingdomdkp.com
+; sso_api_name = Kingdom Login Proxy
 
 ; Timeout in seconds for SSO HTTP requests
 ; sso_timeout = 10
