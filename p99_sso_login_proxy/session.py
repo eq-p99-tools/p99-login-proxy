@@ -16,7 +16,6 @@ diverge, so the proxy must rewrite them in both directions:
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
 
 from p99_sso_login_proxy import login_protocol as lp
 from p99_sso_login_proxy import soe_protocol as soe
@@ -31,30 +30,54 @@ P99_SERVER_PREFIXES = (
 
 class ProxySessionState:
     """Manages sequence-number translation and server-list
-    reassembly for one login session."""
+    reassembly for one login session.
+
+    Sequence translation has two independent counters:
+
+    * ``seq_to_client``   - next OP_Packet/OP_Fragment sequence the proxy
+      will hand to the client. Advances every time we forward a server
+      packet, but **not** when we suppress one.
+    * ``seq_from_server`` - the highest server-side sequence we have seen.
+      Used to ACK back to the server. Advances on **every** server packet,
+      including ones we suppress.
+
+    A third counter, ``cs_offset``, tracks how many extra C->S OP_Packets
+    the proxy has injected on top of what the client sent. This is used by
+    the SSO bad-password retry path: when the proxy replays the original
+    Login on the existing SOE session, every subsequent client OP_Packet
+    sequence has to be shifted by +1 before forwarding to the server, or
+    the server will see duplicate / out-of-order sequences.
+    """
 
     def __init__(self):
         self.seq_to_client: int = 0
         self.seq_from_server: int = 0
+        self.cs_offset: int = 0
         self._fragment_assembler = soe.FragmentAssembler()
         self._pending_app_opcode: int | None = None
 
     def reset(self):
         self.seq_to_client = 0
         self.seq_from_server = 0
+        self.cs_offset = 0
         self._fragment_assembler.reset()
         self._pending_app_opcode = None
 
     # ------------------------------------------------------------------
-    # Client -> Server  (rewrite ACK sequences)
+    # Client -> Server  (rewrite ACK sequences, apply cs_offset)
     # ------------------------------------------------------------------
     def adjust_combined(self, buf: bytearray) -> None:
-        """Rewrite ACK sub-packets inside a client-to-server
-        OP_Combined."""
+        """Adjust a client-to-server OP_Combined in place.
+
+        Rewrites every ACK sub-packet to the server's sequence space and
+        shifts every Packet sub-packet by ``cs_offset``.
+        """
         combined = soe.CombinedPacket.parse(buf)
         for sub in combined:
             if sub.transport_op == soe.TransportOp.Ack:
                 self._rewrite_ack(buf, sub.offset)
+            elif sub.transport_op == soe.TransportOp.Packet and self.cs_offset:
+                self._shift_packet_seq(buf, sub.offset, self.cs_offset)
 
     def adjust_ack(
         self,
@@ -63,6 +86,33 @@ class ProxySessionState:
     ) -> None:
         """Rewrite a standalone client-to-server ACK packet."""
         self._rewrite_ack(buf, offset)
+
+    def adjust_client_packet(
+        self,
+        buf: bytearray,
+        offset: int = 0,
+    ) -> None:
+        """Apply ``cs_offset`` to a standalone client-to-server OP_Packet."""
+        if self.cs_offset:
+            self._shift_packet_seq(buf, offset, self.cs_offset)
+
+    def adjust_server_ack(
+        self,
+        buf: bytearray,
+        offset: int = 0,
+    ) -> None:
+        """Translate a server-to-client ACK back to the client's seq space.
+
+        After the SSO retry has fired, the server's outgoing ACKs reference
+        sequences that are ``cs_offset`` ahead of what the client knows it
+        sent. Subtract that offset so the client sees ACKs for sequences it
+        actually issued.
+        """
+        if not self.cs_offset:
+            return
+        cur = soe.get_sequence(buf, offset)
+        new_seq = max(cur - self.cs_offset, 0)
+        soe.set_sequence(buf, offset, new_seq)
 
     def _rewrite_ack(
         self,
@@ -74,26 +124,80 @@ class ProxySessionState:
         new_seq = max(self.seq_from_server - 1, 0)
         soe.set_sequence(buf, offset, new_seq)
 
+    @staticmethod
+    def _shift_packet_seq(buf: bytearray, offset: int, delta: int) -> None:
+        """Shift the 2-byte BE sequence field of an OP_Packet/OP_Fragment
+        starting at *offset* by *delta*."""
+        cur = soe.get_sequence(buf, offset)
+        soe.set_sequence(buf, offset, (cur + delta) & 0xFFFF)
+
+    # ------------------------------------------------------------------
+    # Retry bookkeeping
+    # ------------------------------------------------------------------
+    def note_suppressed_server_packet(self, server_seq: int) -> None:
+        """Record that the proxy ate a S->C packet without forwarding it.
+
+        Advances ``seq_from_server`` past the suppressed sequence so future
+        client ACKs (which the proxy rewrites to ``seq_from_server - 1``)
+        correctly reference the suppressed packet, but leaves
+        ``seq_to_client`` untouched so the next forwarded server packet
+        slots into the sequence the client is already expecting.
+        """
+        # Be defensive: the suppressed packet's sequence might be ahead of
+        # what we've seen if the server skipped one for any reason.
+        self.seq_from_server = max(self.seq_from_server, server_seq + 1)
+
+    def note_injected_client_packet(self) -> None:
+        """Record that the proxy injected an extra C->S OP_Packet.
+
+        Bumps ``cs_offset`` so all subsequent client-supplied OP_Packet
+        sequences are shifted by the same amount before forwarding.
+        """
+        self.cs_offset += 1
+
     # ------------------------------------------------------------------
     # Server -> Client  (rewrite sequences, reassemble fragments)
     # ------------------------------------------------------------------
     def recv_combined(
         self,
         buf: bytearray,
-        recv_func: Callable,
         start_index: int = 0,
         length: int | None = None,
-    ) -> None:
-        """Split a server-to-client OP_Combined and dispatch each
-        sub-packet."""
+    ) -> bytearray | None:
+        """Apply S->C rewrites to every sub-packet of an ``OP_Combined``.
+
+        Rewrites are applied in place on *buf*; the (possibly trimmed) buffer
+        is returned so the caller can forward it once. Returns ``None`` if
+        the Combined contains a sub-packet that should not be forwarded
+        (e.g. a non-final ``OP_Fragment``).
+
+        Unlike the previous fan-out callback model, this method emits a
+        single output datagram per input Combined. Sending one Combined
+        twice (once with raw inner sequences, once with rewrites applied)
+        was harmless when server-seq == client-seq but caused the EQ client
+        to stall on out-of-order sequences after the SSO retry had shifted
+        sequences.
+        """
+        if length is None:
+            length = len(buf) - start_index
+
         combined = soe.CombinedPacket.parse(buf, start_index, length)
         for sub in combined:
-            recv_func(
-                buf,
-                start_index=sub.offset,
-                length=sub.length,
-                addr=None,
-            )
+            if sub.transport_op == soe.TransportOp.Ack:
+                self.adjust_server_ack(buf, sub.offset)
+            elif sub.transport_op == soe.TransportOp.Packet:
+                self._rewrite_server_packet_seq(buf, sub.offset)
+            elif sub.transport_op == soe.TransportOp.Fragment:
+                # Fragments inside Combineds are uncommon in this protocol;
+                # the server list is sent as standalone Fragments. If we
+                # ever see one here, leave it alone and forward as-is.
+                logger.debug("Unexpected Fragment inside server Combined; forwarding raw")
+
+        if start_index == 0 and length == len(buf):
+            return buf
+        # Return just the relevant slice so we don't leak any leading or
+        # trailing bytes from the outer datagram.
+        return bytearray(buf[start_index : start_index + length])
 
     def recv_packet(
         self,
@@ -108,9 +212,21 @@ class ProxySessionState:
         """
         if length is None:
             length = len(buf) - start_index
+        self._rewrite_server_packet_seq(buf, start_index)
+        return None
 
-        server_seq = soe.get_sequence(buf, start_index)
-        soe.set_sequence(buf, start_index, self.seq_to_client)
+    def _rewrite_server_packet_seq(self, buf: bytearray, offset: int) -> None:
+        """Translate a S->C OP_Packet sequence to the client's space.
+
+        Always advances ``seq_to_client`` (the client's view of the next
+        sequence number, regardless of whether the proxy has consumed any
+        server sequences). Advances ``seq_from_server`` only when the
+        server's sequence matches what we expected next; out-of-order
+        packets are still rewritten so the client sees a coherent stream
+        but ``seq_from_server`` is not bumped past a gap.
+        """
+        server_seq = soe.get_sequence(buf, offset)
+        soe.set_sequence(buf, offset, self.seq_to_client)
         self.seq_to_client += 1
 
         if server_seq != self.seq_from_server:
@@ -119,9 +235,8 @@ class ProxySessionState:
                 server_seq,
                 self.seq_from_server,
             )
-            return None
+            return
         self.seq_from_server += 1
-        return None
 
     def recv_fragment(
         self,

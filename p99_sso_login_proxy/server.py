@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import functools
 import logging
+import struct
 import time
 
 from p99_sso_login_proxy import config, local_characters, ui, ws_client
+from p99_sso_login_proxy import login_protocol as lp
 from p99_sso_login_proxy import soe_protocol as soe
 from p99_sso_login_proxy.login_protocol import LoginPacket
 from p99_sso_login_proxy.session import ProxySessionState
@@ -46,10 +47,19 @@ class LoginProxy(asyncio.DatagramProtocol):
         self.session = ProxySessionState()
         self._auth_in_flight = False
         self._auth_task: asyncio.Task | None = None
+        # SSO bad-password retry state. Set in _async_auth_and_forward
+        # whenever we successfully rewrite credentials, consumed exactly
+        # once on the first server response that follows.
+        self._sso_original_login: bytes | None = None
+        self._sso_retry_armed: bool = False
+        self._sso_retry_fired: bool = False
         ui.PROXY_STATS.update_status("Initializing")
 
     def session_free(self):
         self.session.reset()
+        self._sso_original_login = None
+        self._sso_retry_armed = False
+        self._sso_retry_fired = False
 
     def connection_made(self, transport):
         self.transport = transport
@@ -146,6 +156,9 @@ class LoginProxy(asyncio.DatagramProtocol):
     ) -> None:
         """Perform SSO auth over WebSocket and forward."""
         username = login.username.lower()
+        # Snapshot the original client Login packet so we can replay it if the
+        # SSO password is rejected (see _fire_sso_retry).
+        original_packet = bytes(data)
         try:
             new_user, encrypted, error_detail = await ws_client.request_login_auth(username)
 
@@ -156,6 +169,10 @@ class LoginProxy(asyncio.DatagramProtocol):
             if new_user and encrypted:
                 logger.info("Auth rewrite successful for %s -> %s", username, new_user)
                 data = login.splice_encrypted_credentials(encrypted)
+                self._sso_original_login = original_packet
+                self._sso_retry_armed = True
+                self._sso_retry_fired = False
+                logger.debug("SSO retry armed for %s (orig %d bytes)", username, len(original_packet))
                 ui.PROXY_STATS.user_login(alias=username, account=new_user, method="sso")
                 local_characters.note_login("sso", new_user)
         except Exception:
@@ -164,6 +181,169 @@ class LoginProxy(asyncio.DatagramProtocol):
             self._auth_in_flight = False
             self.last_recv_time = recv_time
             self.send_to_loginserver(data)
+
+    # ------------------------------------------------------------------
+    # SSO bad-password retry  (server -> client interception)
+    # ------------------------------------------------------------------
+    def _try_intercept_bad_password_combined(
+        self,
+        data: bytearray,
+        start_index: int,
+        length: int,
+    ) -> bool:
+        """Inspect a S->C ``OP_Combined`` for the SSO LoginAccepted response.
+
+        Walks the sub-packets looking for an ``OP_Packet`` carrying a
+        ``LoginAccepted``. If we find one:
+
+        * **Good login**: just disarm, return ``False``, let the caller's
+          normal Combined dispatch forward everything.
+        * **Bad password**: forward the surviving sub-packets (the server's
+          ``Ack`` of the client's original Login is critical so the client
+          retires its packet) BEFORE firing the retry, then fire the retry,
+          and return ``True`` so the caller drops the original datagram.
+
+        Returns ``True`` iff the caller must NOT forward the original
+        datagram itself.
+        """
+        if not self._sso_retry_armed or self._sso_retry_fired:
+            return False
+        try:
+            cp = soe.CombinedPacket.parse(data, start_index, length)
+        except (struct.error, ValueError):
+            return False
+
+        bad_sub = None
+        for sub in cp:
+            if sub.transport_op != soe.TransportOp.Packet:
+                continue
+            classification = self._classify_login_accepted_sub(data, sub.offset, sub.length)
+            if classification is None:
+                continue
+            self._sso_retry_armed = False
+            if classification == "good":
+                logger.debug("SSO LoginAccepted ok inside Combined; no retry needed")
+                return False
+            bad_sub = sub
+            break
+
+        if bad_sub is None:
+            return False
+
+        # Forward the surviving sub-packets first, while cs_offset is still
+        # zero. The most important one is the server's Ack of the client's
+        # original Login -- if we drop it the client will retransmit and the
+        # retry orchestration desynchronizes.
+        for sub in cp:
+            if sub.offset == bad_sub.offset:
+                continue
+            self._forward_server_sub(data, sub)
+
+        self._fire_sso_retry(soe.get_sequence(data, bad_sub.offset))
+        return True
+
+    def _try_intercept_bad_password_packet(
+        self,
+        data: bytes,
+        start_index: int,
+        length: int,
+    ) -> bool:
+        """Inspect a standalone S->C ``OP_Packet`` for the SSO response.
+
+        On a bad password, fire the retry and tell the caller to suppress.
+        On a good login (or any other LoginAccepted-shaped payload), disarm
+        and let the caller forward normally.
+        """
+        if not self._sso_retry_armed or self._sso_retry_fired:
+            return False
+        classification = self._classify_login_accepted_sub(data, start_index, length)
+        if classification is None:
+            return False
+
+        self._sso_retry_armed = False
+        if classification == "good":
+            logger.debug("SSO LoginAccepted ok; no retry needed")
+            return False
+
+        self._fire_sso_retry(soe.get_sequence(data, start_index))
+        return True
+
+    @staticmethod
+    def _classify_login_accepted_sub(
+        data: bytes,
+        start_index: int,
+        length: int,
+    ) -> str | None:
+        """Return ``"good"``, ``"bad"``, or ``None`` for an OP_Packet sub.
+
+        ``None`` means "not a LoginAccepted" (so we keep waiting). Any
+        LoginAccepted (regardless of result) returns either ``"good"`` or
+        ``"bad"`` so the caller can disarm.
+        """
+        if length < 6:  # transport(4) + at least app opcode(2)
+            return None
+        app_payload = bytes(data[start_index + 4 : start_index + length])
+        if len(app_payload) < 2:
+            return None
+        if lp.get_app_opcode(app_payload) != lp.AppOp.LoginAccepted:
+            return None
+        return "bad" if lp.is_bad_password_login_result(app_payload) else "good"
+
+    def _forward_server_sub(self, data: bytes, sub) -> None:
+        """Forward one sub-packet of a S->C Combined as its own datagram.
+
+        Used when the proxy is surgically removing one sub-packet (the bad
+        LoginAccepted) and forwarding the rest. Applies the same rewrites
+        that ``recv_combined`` would have applied for a sub of this type.
+        """
+        sub_buf = bytearray(data[sub.offset : sub.offset + sub.length])
+        if sub.transport_op == soe.TransportOp.Ack:
+            self.session.adjust_server_ack(sub_buf, 0)
+        elif sub.transport_op == soe.TransportOp.Packet:
+            self.session.recv_packet(sub_buf, 0)
+        # Other transport ops (Fragment etc.) are forwarded raw.
+        self.send_to_client(sub_buf)
+
+    def _fire_sso_retry(self, server_seq_to_ack: int) -> None:
+        """Replay the original client Login on the existing SOE session.
+
+        Sequencing:
+          1. ACK the suppressed bad LoginAccepted directly so the server stops
+             retransmitting it.
+          2. Advance ``seq_from_server`` past the suppressed packet (without
+             advancing ``seq_to_client`` -- the next forwarded server packet
+             still slots into the client's expected sequence).
+          3. Bump ``cs_offset`` so the replayed Login (and every subsequent
+             client OP_Packet) lands at the next server-side sequence.
+          4. Send the replayed Login.
+        """
+        if self._sso_original_login is None:
+            logger.error(
+                "SSO bad-password detected but no original Login captured "
+                "(server seq=%d); cannot retry, forwarding instead",
+                server_seq_to_ack,
+            )
+            self._sso_retry_armed = True  # let it fall through normally
+            return
+
+        logger.warning(
+            "SSO password rejected by server (seq=%d); retrying with original client credentials",
+            server_seq_to_ack,
+        )
+        self.send_to_loginserver(soe.build_ack(server_seq_to_ack))
+        self.session.note_suppressed_server_packet(server_seq_to_ack)
+        self.session.note_injected_client_packet()
+
+        retry = bytearray(self._sso_original_login)
+        self.session.adjust_combined(retry)
+        self._sso_retry_fired = True
+        logger.debug(
+            "SSO retry fired: cs_offset=%d, seq_from_server=%d, seq_to_client=%d",
+            self.session.cs_offset,
+            self.session.seq_from_server,
+            self.session.seq_to_client,
+        )
+        self.send_to_loginserver(retry)
 
     # ------------------------------------------------------------------
     # Client -> Login Server
@@ -227,6 +407,11 @@ class LoginProxy(asyncio.DatagramProtocol):
             logger.debug("Adjusting ACK sequence values")
             self.session.adjust_ack(data)
 
+        elif opcode == soe.TransportOp.Packet:
+            # Standalone client OP_Packet (e.g. ServerListRequest sent
+            # without a leading ACK). Apply cs_offset if a retry has fired.
+            self.session.adjust_client_packet(data)
+
         elif opcode == soe.TransportOp.KeepAlive:
             logger.debug("Keep-alive packet received")
 
@@ -262,22 +447,21 @@ class LoginProxy(asyncio.DatagramProtocol):
             logger.debug("Session response received, session established")
 
         elif opcode == soe.TransportOp.Combined:
-            logger.debug("Received combined packet, splitting into individual packets")
-            self.session.recv_combined(
-                data,
-                functools.partial(self.handle_server_packet),
-                start_index,
-                length,
-            )
-            # Pieces will be forwarded individually
-            return
+            logger.debug("Received combined packet, applying rewrites")
+            if self._try_intercept_bad_password_combined(data, start_index, length):
+                logger.debug("Suppressed SSO bad-password Combined from server")
+                return
+            forwarded = self.session.recv_combined(data, start_index, length)
+            if forwarded is None:
+                return
+            data = forwarded
 
         elif opcode == soe.TransportOp.Packet:
             logger.debug("Processing standard packet")
-            maybe_server_list = self.session.recv_packet(data, start_index, length)
-            if maybe_server_list is not None:
-                data = maybe_server_list
-                logger.debug("Server list packet detected and processed")
+            if self._try_intercept_bad_password_packet(data, start_index, length):
+                logger.debug("Suppressed SSO bad-password Packet from server")
+                return
+            self.session.recv_packet(data, start_index, length)
 
         elif opcode == soe.TransportOp.Fragment:
             # logger.debug("Processing fragment packet")
@@ -294,7 +478,8 @@ class LoginProxy(asyncio.DatagramProtocol):
                 return
 
         elif opcode == soe.TransportOp.Ack:
-            logger.debug("Forwarding server ACK to client")
+            logger.debug("Forwarding server ACK to client (cs_offset=%d)", self.session.cs_offset)
+            self.session.adjust_server_ack(data, start_index)
 
         logger.debug("Forwarding processed packet to client")
         self.send_to_client(data)

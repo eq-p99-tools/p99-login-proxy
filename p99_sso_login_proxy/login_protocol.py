@@ -104,6 +104,68 @@ def parse_login_base(data: bytes) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# LoginAccepted classification
+#
+# OP_LoginAccepted carries:
+#   2 bytes  app opcode (LE)
+#   10 bytes LoginBaseMessage (sequence=3, encrypt_type=2 in P99/Titanium)
+#   N bytes  DES-encrypted body (8-byte aligned; some servers append a stray
+#            trailing byte that must be stripped before decrypting)
+#
+# Decrypted body layout:
+#   u32 account_id
+#   u32 reserved          (always 0 in observed captures)
+#   u32 status            (0xFFFFFFFF == "bad password"; otherwise play-token)
+#   N bytes tail          (zero on failure; LSKey + flags on success)
+# ---------------------------------------------------------------------------
+LOGIN_RESULT_HEADER_SIZE = 2 + LOGIN_BASE_SIZE  # 12 bytes
+LOGIN_RESULT_FAILURE_STATUS = 0xFFFFFFFF
+
+
+def is_bad_password_login_result(
+    app_payload: bytes,
+    key: bytes = DES_KEY,
+    iv: bytes = DES_IV,
+) -> bool:
+    """Return True if *app_payload* is an OP_LoginAccepted indicating a
+    rejected password.
+
+    Verified against ``example_data/NoProxy_BadPassword.json`` (true) and
+    ``example_data/NoProxy_ServerListIdle.json`` (false).
+    """
+    if len(app_payload) < LOGIN_RESULT_HEADER_SIZE:
+        return False
+    if get_app_opcode(app_payload) != AppOp.LoginAccepted:
+        return False
+
+    base = parse_login_base(app_payload[2:LOGIN_RESULT_HEADER_SIZE])
+    if base["sequence"] != 3 or base["encrypt_type"] != 2:
+        return False
+
+    encrypted = app_payload[LOGIN_RESULT_HEADER_SIZE:]
+    # Some captures show a trailing byte past the DES block boundary; drop it.
+    if encrypted and len(encrypted) % 8 == 1:
+        encrypted = encrypted[:-1]
+    if not encrypted or len(encrypted) % 8:
+        return False
+
+    try:
+        decrypted = des_decrypt(encrypted, key, iv)
+    except (ValueError, TypeError):
+        return False
+    if len(decrypted) < 12:
+        return False
+
+    _account_id, _reserved, status = struct.unpack("<III", decrypted[:12])
+    if status != LOGIN_RESULT_FAILURE_STATUS:
+        return False
+    # On failure the tail is zero-padding. A non-zero tail (e.g. an LSKey)
+    # means this is a successful login that happens to use 0xFFFFFFFF
+    # somewhere else, which we treat as not-bad to be safe.
+    return all(b == 0 for b in decrypted[12:])
+
+
+# ---------------------------------------------------------------------------
 # LoginPacket  — wraps a Combined(ACK + Login) buffer
 #
 # Wire layout of Combined(ACK + OP_Packet(Login)):
