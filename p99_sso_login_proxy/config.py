@@ -39,12 +39,12 @@ if __version_semver__.prerelease:
 if CONFIG.has_section("sso_backends"):
     _known_names = {name for name, _ in SSO_API_OPTIONS}
     _default_keys = set(CONFIG.defaults())
-    for name, url in CONFIG.items("sso_backends"):
-        if name in _default_keys:
+    for _backend_name, _backend_url in CONFIG.items("sso_backends"):
+        if _backend_name in _default_keys:
             continue
-        if name not in _known_names:
-            SSO_API_OPTIONS.append((name, url))
-            _known_names.add(name)
+        if _backend_name not in _known_names:
+            SSO_API_OPTIONS.append((_backend_name, _backend_url))
+            _known_names.add(_backend_name)
 
 SSO_API = CONFIG.get("DEFAULT", "sso_api", fallback=SSO_API_OPTIONS[0][1])
 _url_to_name = {}
@@ -66,6 +66,8 @@ WARN_RUSTLE = CONFIG.getboolean("DEFAULT", "warn_rustle", fallback=False)
 
 OPT_INTO_PRERELEASES = CONFIG.getboolean("DEFAULT", "opt_into_prereleases", fallback=False)
 
+LAUNCH_ADMIN = CONFIG.getboolean("DEFAULT", "launch_admin", fallback=True)
+
 EQ_DIRECTORY = CONFIG.get("DEFAULT", "eq_directory", fallback="")
 
 # Optional second EverQuest install root: same role as eq_directory for Logs/, *-Inventory.txt, Rustle scan
@@ -85,7 +87,7 @@ if not CONFIG.has_section(_API_TOKENS_SECTION):
     CONFIG.add_section(_API_TOKENS_SECTION)
     if _legacy_token:
         CONFIG.set(_API_TOKENS_SECTION, SSO_API_NAME, _legacy_token)
-        with open("proxyconfig.ini", "w") as _f:
+        with open("proxyconfig.ini", "w", encoding="utf-8") as _f:
             CONFIG.write(_f)
 
 USER_API_TOKEN = CONFIG.get(_API_TOKENS_SECTION, SSO_API_NAME, fallback=_legacy_token)
@@ -121,7 +123,7 @@ def _set_config(global_name: str, config_key: str, value):
     """Update a module-level config global, persist it to proxyconfig.ini."""
     globals()[global_name] = value
     CONFIG.set("DEFAULT", config_key, str(value))
-    with open("proxyconfig.ini", "w") as configfile:
+    with open("proxyconfig.ini", "w", encoding="utf-8") as configfile:
         CONFIG.write(configfile)
 
 
@@ -133,43 +135,47 @@ def set_dark_mode(value: bool):
     _set_config("DARK_MODE", "dark_mode", value)
 
 
+def set_launch_admin(value: bool):
+    _set_config("LAUNCH_ADMIN", "launch_admin", value)
+
+
 def set_proxy_only(value: bool):
     """Set whether to run in proxy-only mode"""
     _set_config("PROXY_ONLY", "proxy_only", value)
 
 
-def get_api_token(name: str) -> str:
+def get_api_token(backend_name: str) -> str:
     """Return the stored API token for a given backend name."""
-    return CONFIG.get(_API_TOKENS_SECTION, name, fallback="")
+    return CONFIG.get(_API_TOKENS_SECTION, backend_name, fallback="")
 
 
-def set_api_token_for_backend(name: str, token: str):
+def set_api_token_for_backend(backend_name: str, token: str):
     """Save an API token for a specific backend name.
 
     Also keeps the legacy user_api_token in DEFAULT in sync when
     the token belongs to the currently active backend.
     """
-    CONFIG.set(_API_TOKENS_SECTION, name, token)
-    if name == globals()["SSO_API_NAME"]:
+    CONFIG.set(_API_TOKENS_SECTION, backend_name, token)
+    if backend_name == globals()["SSO_API_NAME"]:
         globals()["USER_API_TOKEN"] = token
         CONFIG.set("DEFAULT", "user_api_token", token)
-    with open("proxyconfig.ini", "w") as configfile:
+    with open("proxyconfig.ini", "w", encoding="utf-8") as configfile:
         CONFIG.write(configfile)
 
 
-def set_sso_api(name: str, url: str) -> str:
+def set_sso_api(backend_name: str, backend_url: str) -> str:
     """Set the SSO API endpoint and swap the active API token.
 
     Returns the API token associated with the new backend.
     """
-    globals()["SSO_API"] = url
-    globals()["SSO_API_NAME"] = name
-    CONFIG.set("DEFAULT", "sso_api", url)
-    CONFIG.set("DEFAULT", "sso_api_name", name)
-    token = get_api_token(name)
+    globals()["SSO_API"] = backend_url
+    globals()["SSO_API_NAME"] = backend_name
+    CONFIG.set("DEFAULT", "sso_api", backend_url)
+    CONFIG.set("DEFAULT", "sso_api_name", backend_name)
+    token = get_api_token(backend_name)
     globals()["USER_API_TOKEN"] = token
     CONFIG.set("DEFAULT", "user_api_token", token)
-    with open("proxyconfig.ini", "w") as configfile:
+    with open("proxyconfig.ini", "w", encoding="utf-8") as configfile:
         CONFIG.write(configfile)
     return token
 
