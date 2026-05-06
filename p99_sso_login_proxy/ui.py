@@ -976,12 +976,26 @@ class ProxyUI(QMainWindow):
         self.browse_eq_btn.setMinimumWidth(100)
         self.browse_eq_btn.clicked.connect(self.on_browse_eq_directory)
         self.browse_eq_btn.setToolTip("Browse to eqgame.exe; the install folder is taken from that file's location")
+        self.launch_admin_cb = QCheckBox("Launch EverQuest as Admin")
+        self.launch_admin_cb.setChecked(config.LAUNCH_ADMIN)
+        self.launch_admin_cb.toggled.connect(self.on_launch_admin_changed)
+        self.launch_admin_cb.setToolTip(
+            "Uncheck if EverQuest is on a RAMDisk or mapped drive that isn't visible to elevated processes"
+        )
         eq_dir_row.addWidget(eq_dir_label)
         eq_dir_row.addWidget(self.eq_dir_text, 1)
         eq_dir_row.addWidget(self.browse_eq_btn)
         eq_layout.addLayout(eq_dir_row)
 
-        self.eqhost_text = self._add_label_value_row(tab, eq_layout, "eqhost.txt Path:", "Checking...")
+        eqhost_row = QHBoxLayout()
+        eqhost_label = QLabel("eqhost.txt Path:")
+        eqhost_label.setFont(QFont(eqhost_label.font().family(), weight=QFont.Weight.Bold))
+        self.eqhost_text = QLabel("Checking...")
+        self.eqhost_text.setStyleSheet(f"color: {semantic.value_text.name()};")
+        eqhost_row.addWidget(eqhost_label)
+        eqhost_row.addWidget(self.eqhost_text, 1)
+        eqhost_row.addWidget(self.launch_admin_cb)
+        eq_layout.addLayout(eqhost_row)
 
         eqhost_content_label = QLabel("eqhost.txt Content:")
         eqhost_content_label.setFont(QFont(eqhost_content_label.font().family(), weight=QFont.Weight.Bold))
@@ -1411,6 +1425,10 @@ class ProxyUI(QMainWindow):
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, checked)
         self.show()
         config.set_always_on_top(checked)
+
+    @Slot(bool)
+    def on_launch_admin_changed(self, checked: bool):
+        config.set_launch_admin(checked)
 
     def on_api_token_changed(self, _text=None):
         token = self.api_token_field.text()

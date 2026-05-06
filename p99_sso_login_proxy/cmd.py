@@ -149,7 +149,7 @@ def _setup_win32_aumid():
 
         import pythoncom  # noqa: F401
         from win32com.client import Dispatch
-        from win32com.propsys import propsys, pscon
+        from win32com.propsys import propsys, pscon  # pyright: ignore[reportMissingModuleSource]
 
         shell = Dispatch("WScript.Shell")
         shortcut = shell.CreateShortCut(lnk_path)
@@ -176,7 +176,15 @@ def main():
 
     def start_eq_windows(eq_dir):
         logger.info("Starting EverQuest...")
-        os.startfile("eqgame.exe", "runas", arguments="patchme", cwd=eq_dir)
+        exe = os.path.join(eq_dir, "eqgame.exe")
+        verb = "runas" if config.LAUNCH_ADMIN else "open"
+        try:
+            os.startfile(exe, verb, arguments="patchme", cwd=eq_dir)
+        except OSError:
+            if verb != "runas":
+                raise
+            logger.warning("Elevated launch failed; retrying without elevation")
+            os.startfile(exe, "open", arguments="patchme", cwd=eq_dir)
 
     def start_eq_linux(eq_dir):
         logger.info("Starting EverQuest...")
