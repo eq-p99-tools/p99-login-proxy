@@ -83,9 +83,9 @@ except Exception as e:
     LOG = PrintLogger()
     LOG.warning("Failed to set up logging: %s", e)
 
-GITHUB_API_LATEST_RELEASE_URL = "https://api.github.com/repos/eq-p99-tools/p99-login-proxy/releases/latest"
-GITHUB_API_TAGGED_RELEASE_URL = "https://api.github.com/repos/eq-p99-tools/p99-login-proxy/releases/tags/{tag}"
-GITHUB_API_RELEASES_URL = "https://api.github.com/repos/eq-p99-tools/p99-login-proxy/releases?per_page={max_releases}"
+GITHUB_API_LATEST_RELEASE_URL = "https://api.github.com/repos/TheGrandPackard/p99-login-proxy/releases/latest"
+GITHUB_API_TAGGED_RELEASE_URL = "https://api.github.com/repos/TheGrandPackard/p99-login-proxy/releases/tags/{tag}"
+GITHUB_API_RELEASES_URL = "https://api.github.com/repos/TheGrandPackard/p99-login-proxy/releases?per_page={max_releases}"
 
 REQUEST_TIMEOUT = (5, 15)  # (connect, read) in seconds
 
