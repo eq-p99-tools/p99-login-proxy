@@ -218,7 +218,7 @@ def download_and_unpack(url: str):
     return None
 
 
-STABLE_EXE_NAME = "P99LoginProxy.exe"
+STABLE_EXE_NAME = "KingdomLoginProxy.exe"
 
 
 def _prompt_and_apply_update(releases, latest_version):
@@ -243,10 +243,10 @@ def _prompt_and_apply_update(releases, latest_version):
     current_exe = os.path.basename(sys.executable)
     is_packaged = not current_exe.lower().startswith("python")
     backed_up = False
-    backup_name = f"P99LoginProxy-{config.APP_VERSION}.exe"
+    backup_name = f"KingdomLoginProxy-{config.APP_VERSION}.exe"
 
     # Rename current exe to versioned backup BEFORE extraction so the zip can
-    # extract P99LoginProxy.exe without hitting a Windows file lock.
+    # extract KingdomLoginProxy.exe without hitting a Windows file lock.
     if is_packaged and current_exe.lower() == STABLE_EXE_NAME.lower():
         try:
             if os.path.exists(backup_name):
