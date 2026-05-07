@@ -430,11 +430,6 @@ class ProxyUI(QMainWindow):
             use_dark = self.dark_mode_cb.isChecked()
             apply_windows_window_frame(self, dark_mode=use_dark)
 
-        if not getattr(self, "_launched_on_startup", False) and config.LAUNCH_STARTUP:
-            self._launched_on_startup = True
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(0, self.on_launch_eq)
-
     def nativeEvent(self, eventType, message):
         if platform.system() == "Windows" and eventType == b"windows_generic_MSG":
             try:

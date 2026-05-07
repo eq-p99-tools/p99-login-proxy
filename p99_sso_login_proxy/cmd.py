@@ -198,6 +198,9 @@ def main():
     else:
         main_window.start_eq_func = start_eq_linux
 
+    if config.LAUNCH_STARTUP:
+        QTimer.singleShot(0, main_window.on_launch_eq)
+
     main_window.power_resume_requested.connect(qt_app.restart_proxy_server)
 
     try:
