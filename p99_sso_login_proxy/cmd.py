@@ -6,8 +6,8 @@ import signal
 import sys
 import threading
 
-from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QSharedMemory, QTimer
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from p99_sso_login_proxy import config, log_handler, server, theme, ui, updater, ws_client
 
@@ -167,9 +167,39 @@ def _setup_win32_aumid():
         logger.debug("Could not create notification shortcut", exc_info=True)
 
 
+_SINGLE_INSTANCE_KEY = "KingdomLoginProxy-singleton"
+_single_instance_guard: QSharedMemory | None = None
+
+
+def _enforce_single_instance() -> bool:
+    """Return True if this is the first instance; False if another is running.
+
+    Holds a module-level reference so the shared memory segment lives for the
+    process lifetime — releasing it would let a second launch slip through.
+    """
+    global _single_instance_guard
+    guard = QSharedMemory(_SINGLE_INSTANCE_KEY)
+    # Detach any segment left orphaned by a prior crash so create() can succeed.
+    if guard.attach():
+        guard.detach()
+        return False
+    if not guard.create(1):
+        return False
+    _single_instance_guard = guard
+    return True
+
+
 def main():
     qt_app = QtAsyncApp(sys.argv)
     theme.apply_app_theme(qt_app, dark_mode=config.DARK_MODE)
+
+    if not _enforce_single_instance():
+        QMessageBox.information(
+            None,
+            config.APP_NAME,
+            f"{config.APP_NAME} is already running. Check the system tray.",
+        )
+        sys.exit(0)
 
     if platform.system() == "Windows":
         _setup_win32_aumid()
