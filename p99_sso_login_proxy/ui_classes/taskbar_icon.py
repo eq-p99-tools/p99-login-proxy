@@ -3,19 +3,14 @@ import logging
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
 
-from p99_sso_login_proxy import config, eq_config, updater, utils
+from p99_sso_login_proxy import config, updater, utils
 
 logger = logging.getLogger("taskbar_icon")
 
 
 def _icon_filename_for_state():
     """Return the tray icon filename matching the current proxy state."""
-    using_proxy, _ = eq_config.is_using_proxy()
-    if using_proxy and not config.PROXY_ONLY:
-        return "tray_icon.png"
-    if using_proxy and config.PROXY_ONLY:
-        return "tray_icon_proxy_only.png"
-    return "tray_icon_disabled.png"
+    return "kingdom.png"
 
 
 def _load_qicon(filename: str) -> QIcon:

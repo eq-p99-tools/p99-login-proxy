@@ -118,7 +118,7 @@ def _setup_win32_aumid():
 
         from p99_sso_login_proxy import config, utils
 
-        png_path = utils.find_resource_path("tray_icon.png")
+        png_path = utils.find_resource_path("kingdom.png")
         if not png_path:
             return
 

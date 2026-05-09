@@ -15,9 +15,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
-        ('tray_icon.png', '.'),
-        ('tray_icon_proxy_only.png', '.'),
-        ('tray_icon_disabled.png', '.'),
+        ('kingdom.png', '.'),
     ],
     hiddenimports=['PySide6.QtCore', 'PySide6.QtGui', 'PySide6.QtWidgets'],
     hookspath=[],
@@ -47,7 +45,7 @@ exe = EXE(
     upx=False,
     runtime_tmpdir=None,
     console=CONSOLE_BUILD,
-    icon='tray_icon.png',
+    icon='kingdom.png',
     version='version_info.txt',
 )
 

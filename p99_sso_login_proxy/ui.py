@@ -1459,7 +1459,7 @@ class ProxyUI(QMainWindow):
         self.close_application()
 
     def set_icon(self):
-        path = utils.find_resource_path("tray_icon.png")
+        path = utils.find_resource_path("kingdom.png")
         if path:
             try:
                 from PySide6.QtGui import QIcon

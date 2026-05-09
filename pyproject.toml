@@ -56,7 +56,7 @@ p99loginproxy = "p99_sso_login_proxy.cmd:main"
 packages = ["p99_sso_login_proxy"]
 
 [tool.setuptools.package-data]
-"*" = ["tray_icon*"]
+"*" = ["kingdom.png"]
 
 [project.optional-dependencies]
 dev = [
