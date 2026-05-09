@@ -27,6 +27,8 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.13"
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
 
       - name: Stamp version from tag
         if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.tag
