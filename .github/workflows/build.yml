@@ -93,6 +93,13 @@ jobs:
           name: p99-login-proxy
           path: dist
 
+      - name: Package exe into zip for auto-updater
+        run: |
+          cd dist
+          for exe in KingdomLoginProxy-*.exe; do
+            zip "${exe%.exe}.zip" "$exe"
+          done
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -100,6 +107,7 @@ jobs:
           name: ${{ github.event.inputs.tag || github.ref_name }}
           files: |
             dist/KingdomLoginProxy-*.exe
+            dist/KingdomLoginProxy-*.zip
 
   notify:
     runs-on: ubuntu-latest
