@@ -45,7 +45,7 @@ exe = EXE(
     upx=False,
     runtime_tmpdir=None,
     console=CONSOLE_BUILD,
-    icon='kingdom.png',
+    icon='kingdom.ico',
     version='version_info.txt',
 )
 

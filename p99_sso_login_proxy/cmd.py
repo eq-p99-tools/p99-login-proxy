@@ -7,9 +7,10 @@ import sys
 import threading
 
 from PySide6.QtCore import QSharedMemory, QTimer
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from p99_sso_login_proxy import config, log_handler, server, theme, ui, updater, ws_client
+from p99_sso_login_proxy import config, log_handler, server, theme, ui, updater, utils, ws_client
 
 logger = logging.getLogger("cmd")
 
@@ -192,6 +193,10 @@ def _enforce_single_instance() -> bool:
 def main():
     qt_app = QtAsyncApp(sys.argv)
     theme.apply_app_theme(qt_app, dark_mode=config.DARK_MODE)
+
+    icon_path = utils.find_resource_path("kingdom.png")
+    if icon_path:
+        qt_app.setWindowIcon(QIcon(icon_path))
 
     if not _enforce_single_instance():
         QMessageBox.information(
