@@ -98,7 +98,6 @@ jobs:
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           name: ${{ github.event.inputs.tag || github.ref_name }}
-          generate_release_notes: true
           files: |
             dist/KingdomLoginProxy-*.exe
 
