@@ -982,6 +982,12 @@ class ProxyUI(QMainWindow):
         self.launch_admin_cb.setToolTip(
             "Uncheck if EverQuest is on a RAMDisk or mapped drive that isn't visible to elevated processes"
         )
+        self.launch_on_start = QCheckBox("Launch EverQuest on Proxy Start")
+        self.launch_on_start.setChecked(config.LAUNCH_STARTUP)
+        self.launch_on_start.toggled.connect(self.on_launch_startup_changed)
+        self.launch_on_start.setToolTip(
+            "Check if you want to launch EverQuest as soon as the P99 Login Proxy starts"
+        )
         eq_dir_row.addWidget(eq_dir_label)
         eq_dir_row.addWidget(self.eq_dir_text, 1)
         eq_dir_row.addWidget(self.browse_eq_btn)
@@ -995,6 +1001,7 @@ class ProxyUI(QMainWindow):
         eqhost_row.addWidget(eqhost_label)
         eqhost_row.addWidget(self.eqhost_text, 1)
         eqhost_row.addWidget(self.launch_admin_cb)
+        eqhost_row.addWidget(self.launch_on_start)
         eq_layout.addLayout(eqhost_row)
 
         eqhost_content_label = QLabel("eqhost.txt Content:")
@@ -1429,6 +1436,10 @@ class ProxyUI(QMainWindow):
     @Slot(bool)
     def on_launch_admin_changed(self, checked: bool):
         config.set_launch_admin(checked)
+
+    @Slot(bool)
+    def on_launch_startup_changed(self, checked: bool):
+        config.set_launch_startup(checked)
 
     def on_api_token_changed(self, _text=None):
         token = self.api_token_field.text()

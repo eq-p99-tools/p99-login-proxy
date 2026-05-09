@@ -68,6 +68,8 @@ OPT_INTO_PRERELEASES = CONFIG.getboolean("DEFAULT", "opt_into_prereleases", fall
 
 LAUNCH_ADMIN = CONFIG.getboolean("DEFAULT", "launch_admin", fallback=True)
 
+LAUNCH_STARTUP = CONFIG.getboolean("DEFAULT", "launch_startup", fallback=False)
+
 EQ_DIRECTORY = CONFIG.get("DEFAULT", "eq_directory", fallback="")
 
 # Optional second EverQuest install root: same role as eq_directory for Logs/, *-Inventory.txt, Rustle scan
@@ -137,6 +139,10 @@ def set_dark_mode(value: bool):
 
 def set_launch_admin(value: bool):
     _set_config("LAUNCH_ADMIN", "launch_admin", value)
+
+
+def set_launch_startup(value: bool):
+    _set_config("LAUNCH_STARTUP", "launch_startup", value)
 
 
 def set_proxy_only(value: bool):
