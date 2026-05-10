@@ -8,11 +8,12 @@ import time
 from collections import deque
 from heapq import merge as _heapmerge
 
-from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import (
     QBrush,
     QCloseEvent,
     QColor,
+    QDesktopServices,
     QFont,
     QPainter,
     QPalette,
@@ -1004,28 +1005,41 @@ class ProxyUI(QMainWindow):
         eqhost_row.addWidget(self.launch_on_start)
         eq_layout.addLayout(eqhost_row)
 
-        eqhost_content_label = QLabel("eqhost.txt Content:")
-        eqhost_content_label.setFont(QFont(eqhost_content_label.font().family(), weight=QFont.Weight.Bold))
-        eq_layout.addWidget(eqhost_content_label)
-        self.eqhost_contents = QTextEdit()
-        doc_font = QFont(self.eqhost_contents.font())
+        doc_font = QFont(QApplication.font())
         base_pt = doc_font.pointSizeF()
-        if base_pt <= 0:
-            base_pt = QApplication.font().pointSizeF()
         if base_pt <= 0:
             base_pt = 10.0
         doc_font.setPointSizeF(base_pt + 2.0)
+
+        eqhost_content_label = QLabel("eqhost.txt (current):")
+        eqhost_content_label.setFont(QFont(eqhost_content_label.font().family(), weight=QFont.Weight.Bold))
+        eq_layout.addWidget(eqhost_content_label)
+        self.eqhost_contents = QTextEdit()
+        self.eqhost_contents.setReadOnly(True)
         self.eqhost_contents.setFont(doc_font)
-        self.eqhost_contents.setMinimumHeight(120)
+        self.eqhost_contents.setMinimumHeight(60)
         eq_layout.addWidget(self.eqhost_contents, 1)
 
+        eqhost_backup_label = QLabel("eqhost.txt.bak (backup):")
+        eqhost_backup_label.setFont(QFont(eqhost_backup_label.font().family(), weight=QFont.Weight.Bold))
+        eq_layout.addWidget(eqhost_backup_label)
+        self.eqhost_backup_contents = QTextEdit()
+        self.eqhost_backup_contents.setReadOnly(True)
+        self.eqhost_backup_contents.setFont(doc_font)
+        self.eqhost_backup_contents.setMinimumHeight(60)
+        eq_layout.addWidget(self.eqhost_backup_contents, 1)
+
         btn_row = QHBoxLayout()
-        self.save_eqhost_btn = QPushButton("Save")
-        self.save_eqhost_btn.clicked.connect(self.on_save_eqhost)
-        self.reset_eqhost_btn = QPushButton("Reset")
-        self.reset_eqhost_btn.clicked.connect(self.on_reset_eqhost)
-        btn_row.addWidget(self.save_eqhost_btn)
-        btn_row.addWidget(self.reset_eqhost_btn)
+        self.restore_backup_btn = QPushButton("Restore Backup")
+        self.restore_backup_btn.setToolTip(
+            "Restore eqhost.txt from eqhost.txt.bak and disable the proxy."
+        )
+        self.restore_backup_btn.clicked.connect(self.on_restore_backup)
+        self.open_eq_folder_btn = QPushButton("Open Folder")
+        self.open_eq_folder_btn.setToolTip("Open the EverQuest install directory.")
+        self.open_eq_folder_btn.clicked.connect(self.on_open_eq_folder)
+        btn_row.addWidget(self.restore_backup_btn)
+        btn_row.addWidget(self.open_eq_folder_btn)
         eq_layout.addLayout(btn_row)
 
         layout.addWidget(eq_box, 1)
@@ -1369,23 +1383,21 @@ class ProxyUI(QMainWindow):
         eq_config.clear_cache()
         self.update_eq_status()
 
-    def on_save_eqhost(self):
+    def on_restore_backup(self):
+        success, err = eq_config.restore_backup()
+        if not success:
+            QMessageBox.warning(self, "Restore Backup", err or "Failed to restore eqhost.txt.")
+            self.update_eq_status()
+            return
+        QMessageBox.information(self, "Restore Backup", "eqhost.txt restored from backup.")
+        self.update_eq_status()
+
+    def on_open_eq_folder(self):
         eq_dir = eq_config.find_eq_directory()
         if not eq_dir:
-            logger.error("EverQuest directory not found when trying to save eqhost.txt")
+            QMessageBox.warning(self, "Open Folder", "EverQuest directory not found.")
             return
-        eqhost_path = os.path.join(eq_dir, "eqhost.txt")
-        content = self.eqhost_contents.toPlainText()
-        try:
-            with open(eqhost_path, "w", encoding="utf-8") as f:
-                f.write(content)
-            logger.info("Successfully wrote to eqhost.txt at %s", eqhost_path)
-            self.update_eq_status()
-        except OSError:
-            logger.exception("Failed to save eqhost.txt")
-
-    def on_reset_eqhost(self):
-        self.update_eq_status()
+        QDesktopServices.openUrl(QUrl.fromLocalFile(eq_dir))
 
     def _repolish_widget_tree(self) -> None:
         """Re-apply style after global palette/QSS change (avoids mixed light/dark chrome)."""
@@ -2025,6 +2037,14 @@ class ProxyUI(QMainWindow):
         self.eqhost_contents.clear()
         if status["eqhost_contents"]:
             self.eqhost_contents.setPlainText("\n".join(status["eqhost_contents"]))
+
+        backup_lines = eq_config.read_eqhost_backup_file(status.get("eqhost_path"))
+        self.eqhost_backup_contents.clear()
+        if backup_lines:
+            self.eqhost_backup_contents.setPlainText("\n".join(backup_lines))
+        else:
+            self.eqhost_backup_contents.setPlaceholderText("(no backup file)")
+        self.restore_backup_btn.setEnabled(bool(backup_lines))
 
         self.proxy_mode_choice.blockSignals(True)
         try:
