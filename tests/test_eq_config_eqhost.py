@@ -13,6 +13,10 @@ import pytest
 
 from p99_sso_login_proxy import eq_config
 
+# Expected file content when the proxy writes eqhost.txt (includes INI section header)
+_PROXY_CONTENT = f"{eq_config._EQHOST_SECTION}\n{eq_config.DEFAULT_PROXY_ADDRESS}\n"
+_DEFAULT_CONTENT = f"{eq_config._EQHOST_SECTION}\n{eq_config.DEFAULT_LOGIN_SERVER}\n"
+
 
 @pytest.fixture
 def eqhost(tmp_path, monkeypatch):
@@ -36,7 +40,7 @@ def test_enable_with_custom_content_snapshots_verbatim(eqhost):
     ok, err = eq_config.enable_proxy()
 
     assert ok and err is None
-    assert path.read_text(encoding="utf-8") == eq_config.DEFAULT_PROXY_ADDRESS + "\n"
+    assert path.read_text(encoding="utf-8") == _PROXY_CONTENT
     assert backup.read_text(encoding="utf-8") == "Host=guild.example.com:5998\n# old comment\n"
 
 
@@ -58,8 +62,8 @@ def test_enable_when_already_proxy_only_writes_synthetic_default_backup(eqhost):
     ok, _ = eq_config.enable_proxy()
 
     assert ok
-    assert path.read_text(encoding="utf-8") == eq_config.DEFAULT_PROXY_ADDRESS + "\n"
-    assert backup.read_text(encoding="utf-8") == eq_config.DEFAULT_LOGIN_SERVER + "\n"
+    assert path.read_text(encoding="utf-8") == _PROXY_CONTENT
+    assert backup.read_text(encoding="utf-8") == _DEFAULT_CONTENT
 
 
 def test_enable_when_eqhost_missing_writes_synthetic_default_backup(eqhost):
@@ -69,8 +73,8 @@ def test_enable_when_eqhost_missing_writes_synthetic_default_backup(eqhost):
     ok, _ = eq_config.enable_proxy()
 
     assert ok
-    assert path.read_text(encoding="utf-8") == eq_config.DEFAULT_PROXY_ADDRESS + "\n"
-    assert backup.read_text(encoding="utf-8") == eq_config.DEFAULT_LOGIN_SERVER + "\n"
+    assert path.read_text(encoding="utf-8") == _PROXY_CONTENT
+    assert backup.read_text(encoding="utf-8") == _DEFAULT_CONTENT
 
 
 def test_enable_when_only_commented_hosts_writes_synthetic_default_backup(eqhost):
@@ -80,7 +84,7 @@ def test_enable_when_only_commented_hosts_writes_synthetic_default_backup(eqhost
     ok, _ = eq_config.enable_proxy()
 
     assert ok
-    assert backup.read_text(encoding="utf-8") == eq_config.DEFAULT_LOGIN_SERVER + "\n"
+    assert backup.read_text(encoding="utf-8") == _DEFAULT_CONTENT
 
 
 def test_disable_with_backup_restores_and_consumes_backup(eqhost):
@@ -102,7 +106,7 @@ def test_disable_without_backup_writes_default(eqhost):
     ok, _ = eq_config.disable_proxy()
 
     assert ok
-    assert path.read_text(encoding="utf-8") == eq_config.DEFAULT_LOGIN_SERVER + "\n"
+    assert path.read_text(encoding="utf-8") == _DEFAULT_CONTENT
     assert not backup.exists()
 
 
@@ -124,7 +128,7 @@ def test_full_enable_disable_roundtrip(eqhost):
     _write(path, original)
 
     eq_config.enable_proxy()
-    assert path.read_text(encoding="utf-8") == eq_config.DEFAULT_PROXY_ADDRESS + "\n"
+    assert path.read_text(encoding="utf-8") == _PROXY_CONTENT
 
     eq_config.disable_proxy()
     assert path.read_text(encoding="utf-8") == original

@@ -643,7 +643,7 @@ class ProxyUI(QMainWindow):
         stats_box = QGroupBox("Statistics")
         stats_layout = QFormLayout(stats_box)
         stats_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        stats_layout.setVerticalSpacing(16)
+        stats_layout.setVerticalSpacing(22)
         self.total_value = self._add_label_value_row(
             tab, stats_layout, "Total Connections:", str(PROXY_STATS.total_connections)
         )
@@ -662,7 +662,7 @@ class ProxyUI(QMainWindow):
         action_box = QGroupBox("Settings")
         action_layout = QFormLayout(action_box)
         action_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        action_layout.setVerticalSpacing(12)
+        action_layout.setVerticalSpacing(14)
 
         self.proxy_mode_choice = QComboBox()
         self.proxy_mode_choice.addItems(["Enabled (SSO)", "Enabled (Proxy Only)", "Disabled"])

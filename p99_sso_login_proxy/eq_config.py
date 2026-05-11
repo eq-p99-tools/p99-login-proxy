@@ -39,11 +39,14 @@ DEFAULT_EQ_PATHS = [
     r"Program Files\Sony\EverQuest",
 ]
 
-# Default login server address and proxy address
+# Default login server address and proxy address (just the Host= line, no section header)
 DEFAULT_LOGIN_SERVER = f"Host={config.EQEMU_LOGIN_HOST}:{config.EQEMU_PORT}"
 DEFAULT_PROXY_ADDRESS = (
     f"Host={config.LISTEN_HOST if config.LISTEN_HOST != '0.0.0.0' else 'localhost'}:{config.LISTEN_PORT}"
 )
+
+# eqhost.txt is an INI file; EQ requires the [LoginServer] section header
+_EQHOST_SECTION = "[LoginServer]"
 
 
 def get_available_drives() -> list[str]:
@@ -367,11 +370,11 @@ def enable_proxy() -> tuple[bool, str | None]:
             else:
                 # File is empty / all-comments / already proxy-only -- write a
                 # synthetic default so disable_proxy has a clean restore target.
-                backup_content = DEFAULT_LOGIN_SERVER + "\n"
+                backup_content = f"{_EQHOST_SECTION}\n{DEFAULT_LOGIN_SERVER}\n"
             _atomic_write_text(backup_path, backup_content)
             logger.info("Backed up eqhost.txt to %s", backup_path)
 
-        _atomic_write_text(eqhost_path, DEFAULT_PROXY_ADDRESS + "\n")
+        _atomic_write_text(eqhost_path, f"{_EQHOST_SECTION}\n{DEFAULT_PROXY_ADDRESS}\n")
         logger.info("Wrote proxy eqhost.txt at %s", eqhost_path)
         return True, None
     except PermissionError as e:
@@ -399,7 +402,7 @@ def disable_proxy() -> tuple[bool, str | None]:
             os.replace(backup_path, eqhost_path)
             logger.info("Restored eqhost.txt from %s", backup_path)
         else:
-            _atomic_write_text(eqhost_path, DEFAULT_LOGIN_SERVER + "\n")
+            _atomic_write_text(eqhost_path, f"{_EQHOST_SECTION}\n{DEFAULT_LOGIN_SERVER}\n")
             logger.info("No backup found; wrote default login server to %s", eqhost_path)
         return True, None
     except PermissionError as e:
