@@ -16,7 +16,6 @@ jobs:
   build:
     runs-on: windows-latest
     outputs:
-      exe_name: ${{ steps.artifacts.outputs.exe_name }}
       zip_name: ${{ steps.artifacts.outputs.zip_name }}
     steps:
       - uses: actions/checkout@v4
@@ -36,11 +35,9 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
-          python -m pip install --upgrade pip
           pip install "semver>=3.0.1"
           python - <<'PY'
-          import os
-          import semver
+          import os, semver
           tag = os.environ["RELEASE_TAG"].lstrip("v")
           v = semver.Version.parse(tag)
           pre = repr(v.prerelease) if v.prerelease else "None"
@@ -57,30 +54,23 @@ jobs:
           print(f"Stamped version: {v}")
           PY
 
-      - name: Install dependencies
+      - name: Build
         run: |
-          python -m pip install --upgrade pip
-          pip install .[dev]
-
-      - name: Build custom bootloader
-        run: python build_bootloader.py
-
-      - name: Build with PyInstaller
-        run: pyinstaller P99LoginProxy.spec
+          pip install tox
+          tox -e build
 
       - name: Resolve artifact names
         id: artifacts
         shell: pwsh
         run: |
-          $exe = Get-ChildItem dist -Filter "P99LoginProxy-*.exe" | Select-Object -First 1
-          "exe_name=$($exe.Name)" >> $env:GITHUB_OUTPUT
+          $zip = Get-ChildItem dist -Filter "P99LoginProxy-*.zip" | Select-Object -First 1
+          "zip_name=$($zip.Name)" >> $env:GITHUB_OUTPUT
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: p99-login-proxy
-          path: |
-            dist/P99LoginProxy-*.exe
+          path: dist/P99LoginProxy-*.zip
           if-no-files-found: error
 
   release:
@@ -96,21 +86,26 @@ jobs:
           name: p99-login-proxy
           path: dist
 
-      - name: Package exe into zip for auto-updater
+      - name: Detect pre-release tag
+        id: prerelease
         run: |
-          cd dist
-          for exe in P99LoginProxy-*.exe; do
-            zip "${exe%.exe}.zip" "$exe"
-          done
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          # Strip leading 'v', check for hyphen (semver pre-release separator)
+          VERSION="${TAG#v}"
+          if [[ "$VERSION" == *-* ]]; then
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           name: ${{ github.event.inputs.tag || github.ref_name }}
-          files: |
-            dist/P99LoginProxy-*.exe
-            dist/P99LoginProxy-*.zip
+          draft: true
+          prerelease: ${{ steps.prerelease.outputs.is_prerelease == 'true' }}
+          files: dist/P99LoginProxy-*.zip
 
   notify:
     runs-on: ubuntu-latest
@@ -123,18 +118,18 @@ jobs:
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
           REPO: ${{ github.repository }}
           SERVER_URL: ${{ github.server_url }}
-          EXE_NAME: ${{ needs.build.outputs.exe_name }}
+          ZIP_NAME: ${{ needs.build.outputs.zip_name }}
         run: |
           if [ -z "$WEBHOOK_URL" ]; then
             echo "DISCORD_WEBHOOK_URL not set; skipping Discord notification."
             exit 0
           fi
           RELEASE_URL="${SERVER_URL}/${REPO}/releases/tag/${TAG}"
-          EXE_URL="${SERVER_URL}/${REPO}/releases/download/${TAG}/${EXE_NAME}"
+          ZIP_URL="${SERVER_URL}/${REPO}/releases/download/${TAG}/${ZIP_NAME}"
           payload=$(jq -n \
             --arg title "P99 Login Proxy ${TAG}" \
             --arg url "$RELEASE_URL" \
-            --arg desc "New release available. [Download ${EXE_NAME}](${EXE_URL}) or view all assets on the [release page](${RELEASE_URL})." \
+            --arg desc "New release available. [Download ${ZIP_NAME}](${ZIP_URL}) or view all assets on the [release page](${RELEASE_URL})." \
             '{
               embeds: [{
                 title: $title,
