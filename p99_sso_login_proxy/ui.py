@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QFileDialog,
+    QFormLayout,
     QFrame,
     QGroupBox,
     QHBoxLayout,
@@ -446,17 +447,14 @@ class ProxyUI(QMainWindow):
     def _on_rustle_ui_warning(self, msg: str):
         QMessageBox.warning(self, "Rustle UI Detected", msg)
 
-    def _add_label_value_row(self, parent, layout: QVBoxLayout, label_text: str, initial_value=""):
-        row = QHBoxLayout()
+    def _add_label_value_row(self, parent, layout: QFormLayout, label_text: str, initial_value=""):
         label = QLabel(label_text)
         f = label.font()
         f.setBold(True)
         label.setFont(f)
         value = QLabel(initial_value)
         value.setStyleSheet(f"color: {semantic.value_text.name()};")
-        row.addWidget(label)
-        row.addWidget(value, 1)
-        layout.addLayout(row)
+        layout.addRow(label, value)
         return value
 
     def _populate_list(self, table: QTableWidget, rows, row_color_fn=None):
@@ -631,7 +629,9 @@ class ProxyUI(QMainWindow):
         layout = QVBoxLayout(tab)
 
         status_box = QGroupBox("Status")
-        status_layout = QVBoxLayout(status_box)
+        status_layout = QFormLayout(status_box)
+        status_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        status_layout.setVerticalSpacing(12)
         assert PROXY_STATS is not None
         self.address_value = self._add_label_value_row(
             tab, status_layout, "Listening on:", f"{PROXY_STATS.listening_address}:{PROXY_STATS.listening_port}"
@@ -641,7 +641,9 @@ class ProxyUI(QMainWindow):
         self.uptime_value = self._add_label_value_row(tab, status_layout, "Uptime:", PROXY_STATS.get_uptime())
 
         stats_box = QGroupBox("Statistics")
-        stats_layout = QVBoxLayout(stats_box)
+        stats_layout = QFormLayout(stats_box)
+        stats_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        stats_layout.setVerticalSpacing(16)
         self.total_value = self._add_label_value_row(
             tab, stats_layout, "Total Connections:", str(PROXY_STATS.total_connections)
         )
@@ -658,12 +660,10 @@ class ProxyUI(QMainWindow):
         layout.addLayout(top_row)
 
         action_box = QGroupBox("Settings")
-        action_layout = QVBoxLayout(action_box)
+        action_layout = QFormLayout(action_box)
+        action_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        action_layout.setVerticalSpacing(12)
 
-        controls_row = QHBoxLayout()
-        mode_row = QHBoxLayout()
-        mode_label = QLabel("Proxy Mode:")
-        mode_label.setFont(QFont(mode_label.font().family(), weight=QFont.Weight.Bold))
         self.proxy_mode_choice = QComboBox()
         self.proxy_mode_choice.addItems(["Enabled (SSO)", "Enabled (Proxy Only)", "Disabled"])
 
@@ -681,11 +681,12 @@ class ProxyUI(QMainWindow):
             "Enabled (Proxy Only): Proxy active but no SSO interaction ('middlemand' mode)\n"
             "Disabled: Proxy inactive, direct connection to server"
         )
-        self.proxy_mode_choice.setMinimumWidth(self.proxy_mode_choice.sizeHint().width() + 20)
-        mode_row.addWidget(mode_label)
-        mode_row.addWidget(self.proxy_mode_choice)
-        mode_row.addStretch()
-        controls_row.addLayout(mode_row)
+
+        mode_field = QWidget()
+        mode_field_layout = QHBoxLayout(mode_field)
+        mode_field_layout.setContentsMargins(0, 0, 0, 0)
+        mode_field_layout.addWidget(self.proxy_mode_choice)
+        mode_field_layout.addStretch()
 
         self.dark_mode_cb = QCheckBox("Dark Mode")
         self.dark_mode_cb.blockSignals(True)
@@ -693,7 +694,7 @@ class ProxyUI(QMainWindow):
         self.dark_mode_cb.blockSignals(False)
         self.dark_mode_cb.toggled.connect(self.on_dark_mode_changed)
         self.dark_mode_cb.setToolTip("Dark or light Fusion theme (saved in proxyconfig.ini)")
-        controls_row.addWidget(self.dark_mode_cb)
+        mode_field_layout.addWidget(self.dark_mode_cb)
 
         self.always_on_top_cb = QCheckBox("Always On Top")
         self.always_on_top_cb.setChecked(config.ALWAYS_ON_TOP)
@@ -701,33 +702,13 @@ class ProxyUI(QMainWindow):
             self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.always_on_top_cb.toggled.connect(self.on_always_on_top)
         self.always_on_top_cb.setToolTip("Keep the application window on top of other windows")
-        controls_row.addWidget(self.always_on_top_cb)
-        action_layout.addLayout(controls_row)
+        mode_field_layout.addWidget(self.always_on_top_cb)
 
-        token_row = QHBoxLayout()
-        token_label = QLabel("API Token:")
-        token_label.setFont(QFont(token_label.font().family(), weight=QFont.Weight.Bold))
-        self.api_token_field = QLineEdit(tab)
-        self.api_token_field.setEchoMode(QLineEdit.EchoMode.Password)
-        self.api_token_field.setText(config.USER_API_TOKEN)
-        self.api_token_field.setToolTip(
-            "API Token for auto-authentication. When this is set, the password entered in the EQ UI will be ignored."
-        )
-        add_password_visibility_toggle(
-            self.api_token_field,
-            show_tip="Show API token",
-            hide_tip="Hide API token",
-        )
-        token_row.addWidget(token_label)
-        token_row.addWidget(self.api_token_field, 1)
-        self.api_token_field.textChanged.connect(self.on_api_token_changed)
-        action_layout.addLayout(token_row)
+        mode_label = QLabel("Proxy Mode:")
+        mode_label.setFont(QFont(mode_label.font().family(), weight=QFont.Weight.Bold))
+        action_layout.addRow(mode_label, mode_field)
 
-        sso_row = QHBoxLayout()
-        sso_label = QLabel("SSO API:")
-        sso_label.setFont(QFont(sso_label.font().family(), weight=QFont.Weight.Bold))
         known_names = {name for name, _, _ in config.SSO_API_OPTIONS}
-        # Prepend placeholder for "no backend selected"
         _placeholder = "Select SSO Server\u2026"
         choices = [_placeholder] + [name for name, _, _ in config.SSO_API_OPTIONS]
         self._sso_api_url_map = [""] + [url for _, url, _ in config.SSO_API_OPTIONS]
@@ -749,17 +730,36 @@ class ProxyUI(QMainWindow):
         self.sso_api_choice.setCurrentIndex(selection)
         self.sso_api_choice.currentIndexChanged.connect(self.on_sso_api_changed)
         self.sso_api_choice.setToolTip("Select the SSO API server endpoint")
-        sso_row.addWidget(sso_label)
-        sso_row.addWidget(self.sso_api_choice, 1)
-        action_layout.addLayout(sso_row)
+
+        sso_label = QLabel("SSO API:")
+        sso_label.setFont(QFont(sso_label.font().family(), weight=QFont.Weight.Bold))
+        action_layout.addRow(sso_label, self.sso_api_choice)
+
+        self.api_token_field = QLineEdit(tab)
+        self.api_token_field.setEchoMode(QLineEdit.EchoMode.Password)
+        self.api_token_field.setText(config.USER_API_TOKEN)
+        self.api_token_field.setToolTip(
+            "API Token for auto-authentication. When this is set, the password entered in the EQ UI will be ignored."
+        )
+        add_password_visibility_toggle(
+            self.api_token_field,
+            show_tip="Show API token",
+            hide_tip="Hide API token",
+        )
+        self.api_token_field.textChanged.connect(self.on_api_token_changed)
+
+        token_label = QLabel("API Token:")
+        token_label.setFont(QFont(token_label.font().family(), weight=QFont.Weight.Bold))
+        action_layout.addRow(token_label, self.api_token_field)
 
         layout.addWidget(action_box)
 
         account_cache_box = QGroupBox("Account Data")
         account_cache_layout = QVBoxLayout(account_cache_box)
         cache_controls = QHBoxLayout()
-        cache_info = QVBoxLayout()
-        cache_info.setSpacing(12)
+        cache_info = QFormLayout()
+        cache_info.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        cache_info.setVerticalSpacing(16)
         self.ws_status_text = self._add_label_value_row(tab, cache_info, "SSO Service:", "Connecting...")
         self.ws_status_text.setToolTip("WebSocket connection status for real-time account updates")
 

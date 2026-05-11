@@ -35,8 +35,9 @@ DEFAULT_ICON_SET = "p99"
 # Each entry: (display_name, url, icon_set_directory)
 # icon_set_directory is a folder name under icons/ containing default.png, proxy_only.png, disabled.png.
 SSO_API_OPTIONS: list[tuple[str, str, str]] = [
-    ("P99 Login Proxy", "https://proxy.p99loginproxy.net", "p99"),
+    ("Good Guys", "https://proxy.p99loginproxy.net", "p99"),
     ("Kingdom", "https://bot.kingdomdkp.com", "kingdom"),
+    ("Marginal Threat", "https://proxy.p99loginproxy.net", "p99"),
 ]
 if __version_semver__.prerelease:
     SSO_API_OPTIONS.append(("Localhost", "http://localhost:5998", "p99"))
@@ -101,12 +102,21 @@ _legacy_token = CONFIG.get("DEFAULT", "user_api_token", fallback="")
 
 if not CONFIG.has_section(_API_TOKENS_SECTION):
     CONFIG.add_section(_API_TOKENS_SECTION)
-    if _legacy_token and SSO_API_NAME:
-        CONFIG.set(_API_TOKENS_SECTION, SSO_API_NAME, _legacy_token)
-        with open("proxyconfig.ini", "w", encoding="utf-8") as _f:
-            CONFIG.write(_f)
 
-USER_API_TOKEN = CONFIG.get(_API_TOKENS_SECTION, SSO_API_NAME, fallback=_legacy_token) if SSO_API_NAME else ""
+# One-time migration: "P99 Login Proxy" -> seed both Good Guys and Marginal Threat
+_OLD_P99_NAME = "P99 Login Proxy"
+if SSO_API_NAME == _OLD_P99_NAME or (not SSO_API_NAME and _legacy_token):
+    _migrate_token = CONFIG.get(_API_TOKENS_SECTION, _OLD_P99_NAME, fallback=_legacy_token)
+    if _migrate_token:
+        CONFIG.set(_API_TOKENS_SECTION, "Good Guys", _migrate_token)
+        CONFIG.set(_API_TOKENS_SECTION, "Marginal Threat", _migrate_token)
+    CONFIG.set("DEFAULT", "sso_api_name", "Good Guys")
+    CONFIG.set("DEFAULT", "sso_api", "https://proxy.p99loginproxy.net")
+    with open("proxyconfig.ini", "w", encoding="utf-8") as _f:
+        CONFIG.write(_f)
+    SSO_API_NAME = "Good Guys"
+
+USER_API_TOKEN = CONFIG.get(_API_TOKENS_SECTION, SSO_API_NAME, fallback="") if SSO_API_NAME else ""
 
 # Variables to store account list and timestamp
 ALL_CACHED_NAMES = []
