@@ -1,4 +1,5 @@
 import logging
+import os
 
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
@@ -7,15 +8,25 @@ from p99_sso_login_proxy import config, eq_config, updater, utils
 
 logger = logging.getLogger("taskbar_icon")
 
+_ICON_STATES = ("default", "proxy_only", "disabled")
 
-def _icon_filename_for_state():
-    """Return the tray icon filename matching the current proxy state."""
+
+def icon_path_for_state(state: str, icon_set: str | None = None) -> str:
+    """Return the relative path to an icon file for the given state and icon set."""
+    iset = icon_set or config.get_icon_set()
+    return os.path.join("icons", iset, f"{state}.png")
+
+
+def _icon_filename_for_state() -> str:
+    """Return the tray icon path matching the current backend + proxy state."""
     using_proxy, _ = eq_config.is_using_proxy()
     if using_proxy and not config.PROXY_ONLY:
-        return "tray_icon.png"
-    if using_proxy and config.PROXY_ONLY:
-        return "tray_icon_proxy_only.png"
-    return "tray_icon_disabled.png"
+        state = "default"
+    elif using_proxy and config.PROXY_ONLY:
+        state = "proxy_only"
+    else:
+        state = "disabled"
+    return icon_path_for_state(state)
 
 
 def _load_qicon(filename: str) -> QIcon:

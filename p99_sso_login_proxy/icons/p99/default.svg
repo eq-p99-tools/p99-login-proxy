@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <!-- Blue circle with "99" text -->
+  <circle cx="32" cy="32" r="30" fill="#2c9f6a" fill-opacity="0.8" stroke="#2c9f6a" stroke-width="3"/>
+  <text x="32" y="49" font-family="Arial, sans-serif" font-size="46" text-anchor="middle" fill="white">99</text>
+</svg>

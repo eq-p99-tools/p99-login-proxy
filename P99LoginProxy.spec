@@ -15,9 +15,8 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
-        ('tray_icon.png', '.'),
-        ('tray_icon_proxy_only.png', '.'),
-        ('tray_icon_disabled.png', '.'),
+        (os.path.join('p99_sso_login_proxy', 'icons', 'p99'), os.path.join('icons', 'p99')),
+        (os.path.join('p99_sso_login_proxy', 'icons', 'kingdom'), os.path.join('icons', 'kingdom')),
     ],
     hiddenimports=['PySide6.QtCore', 'PySide6.QtGui', 'PySide6.QtWidgets'],
     hookspath=[],
@@ -47,7 +46,7 @@ exe = EXE(
     upx=False,
     runtime_tmpdir=None,
     console=CONSOLE_BUILD,
-    icon='tray_icon.png',
+    icon=os.path.join('p99_sso_login_proxy', 'icons', 'p99', 'default.png'),
     version='version_info.txt',
 )
 

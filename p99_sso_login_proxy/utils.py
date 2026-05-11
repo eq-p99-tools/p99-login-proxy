@@ -9,18 +9,34 @@ logger = logging.getLogger("utils")
 
 
 def find_resource_path(filename):
-    """Find a resource file by checking common locations (source dir, PyInstaller bundle, cwd)."""
+    """Find a resource file by checking common locations (source dir, PyInstaller bundle, cwd).
+
+    For .png files, also tries the .svg extension as a fallback (Qt supports SVG natively).
+    """
     candidates = []
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
         candidates.append(os.path.join(meipass, filename))
+    pkg_dir = os.path.dirname(os.path.abspath(__file__))
     candidates.extend(
         [
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", filename),
+            os.path.join(pkg_dir, "..", filename),
+            os.path.join(pkg_dir, filename),
             os.path.join(os.path.dirname(sys.executable), filename),
             filename,
         ]
     )
+    # If .png not found, try .svg fallback (Qt loads SVGs natively)
+    if filename.endswith(".png"):
+        svg_name = filename[:-4] + ".svg"
+        if meipass:
+            candidates.append(os.path.join(meipass, svg_name))
+        candidates.extend(
+            [
+                os.path.join(pkg_dir, "..", svg_name),
+                os.path.join(pkg_dir, svg_name),
+            ]
+        )
     for path in candidates:
         if os.path.exists(path):
             return path

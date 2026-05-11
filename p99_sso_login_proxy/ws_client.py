@@ -356,9 +356,9 @@ async def _run(reconnect_requested: asyncio.Event):
         reconnect_requested.clear()
         _auth_failed_detail = None
 
-        if not config.USER_API_TOKEN:
+        if not config.USER_API_TOKEN or not config.SSO_API:
             _notify_ui()
-            # Park until a reconnect is requested (token was set)
+            # Park until a reconnect is requested (token/backend was set)
             await reconnect_requested.wait()
             continue
 
