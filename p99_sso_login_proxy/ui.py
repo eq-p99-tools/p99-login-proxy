@@ -8,12 +8,14 @@ import time
 from collections import deque
 from heapq import merge as _heapmerge
 
-from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import (
     QBrush,
     QCloseEvent,
     QColor,
+    QDesktopServices,
     QFont,
+    QIcon,
     QPainter,
     QPalette,
     QPen,
@@ -724,19 +726,23 @@ class ProxyUI(QMainWindow):
         sso_row = QHBoxLayout()
         sso_label = QLabel("SSO API:")
         sso_label.setFont(QFont(sso_label.font().family(), weight=QFont.Weight.Bold))
-        known_names = {name for name, _ in config.SSO_API_OPTIONS}
-        choices = [name for name, _ in config.SSO_API_OPTIONS]
-        self._sso_api_url_map = [url for _, url in config.SSO_API_OPTIONS]
-        self._sso_api_name_map = list(choices)
+        known_names = {name for name, _, _ in config.SSO_API_OPTIONS}
+        # Prepend placeholder for "no backend selected"
+        _placeholder = "Select SSO Server\u2026"
+        choices = [_placeholder] + [name for name, _, _ in config.SSO_API_OPTIONS]
+        self._sso_api_url_map = [""] + [url for _, url, _ in config.SSO_API_OPTIONS]
+        self._sso_api_name_map = [""] + [name for name, _, _ in config.SSO_API_OPTIONS]
 
-        if config.SSO_API_NAME in known_names:
+        if config.SSO_API_NAME and config.SSO_API_NAME in known_names:
             selection = self._sso_api_name_map.index(config.SSO_API_NAME)
-        else:
+        elif config.SSO_API_NAME and config.SSO_API:
             custom_label = f"Custom: {config.SSO_API}"
             choices.append(custom_label)
             self._sso_api_url_map.append(config.SSO_API)
-            self._sso_api_name_map.append(custom_label)
+            self._sso_api_name_map.append(config.SSO_API_NAME)
             selection = len(choices) - 1
+        else:
+            selection = 0  # placeholder
 
         self.sso_api_choice = QComboBox()
         self.sso_api_choice.addItems(choices)
@@ -976,7 +982,11 @@ class ProxyUI(QMainWindow):
         self.browse_eq_btn.setMinimumWidth(100)
         self.browse_eq_btn.clicked.connect(self.on_browse_eq_directory)
         self.browse_eq_btn.setToolTip("Browse to eqgame.exe; the install folder is taken from that file's location")
-        self.launch_admin_cb = QCheckBox("Launch EverQuest as Admin")
+        self.launch_on_start = QCheckBox("Launch EQ on Start")
+        self.launch_on_start.setChecked(config.LAUNCH_STARTUP)
+        self.launch_on_start.toggled.connect(self.on_launch_startup_changed)
+        self.launch_on_start.setToolTip("Launch EverQuest automatically when the proxy starts")
+        self.launch_admin_cb = QCheckBox("as Admin")
         self.launch_admin_cb.setChecked(config.LAUNCH_ADMIN)
         self.launch_admin_cb.toggled.connect(self.on_launch_admin_changed)
         self.launch_admin_cb.setToolTip(
@@ -994,31 +1004,43 @@ class ProxyUI(QMainWindow):
         self.eqhost_text.setStyleSheet(f"color: {semantic.value_text.name()};")
         eqhost_row.addWidget(eqhost_label)
         eqhost_row.addWidget(self.eqhost_text, 1)
+        eqhost_row.addWidget(self.launch_on_start)
         eqhost_row.addWidget(self.launch_admin_cb)
         eq_layout.addLayout(eqhost_row)
 
-        eqhost_content_label = QLabel("eqhost.txt Content:")
-        eqhost_content_label.setFont(QFont(eqhost_content_label.font().family(), weight=QFont.Weight.Bold))
-        eq_layout.addWidget(eqhost_content_label)
-        self.eqhost_contents = QTextEdit()
-        doc_font = QFont(self.eqhost_contents.font())
+        doc_font = QFont(QApplication.font())
         base_pt = doc_font.pointSizeF()
-        if base_pt <= 0:
-            base_pt = QApplication.font().pointSizeF()
         if base_pt <= 0:
             base_pt = 10.0
         doc_font.setPointSizeF(base_pt + 2.0)
+
+        eqhost_content_label = QLabel("eqhost.txt (current):")
+        eqhost_content_label.setFont(QFont(eqhost_content_label.font().family(), weight=QFont.Weight.Bold))
+        eq_layout.addWidget(eqhost_content_label)
+        self.eqhost_contents = QTextEdit()
+        self.eqhost_contents.setReadOnly(True)
         self.eqhost_contents.setFont(doc_font)
-        self.eqhost_contents.setMinimumHeight(120)
+        self.eqhost_contents.setMinimumHeight(60)
         eq_layout.addWidget(self.eqhost_contents, 1)
 
+        eqhost_backup_label = QLabel("eqhost.txt.bak (backup):")
+        eqhost_backup_label.setFont(QFont(eqhost_backup_label.font().family(), weight=QFont.Weight.Bold))
+        eq_layout.addWidget(eqhost_backup_label)
+        self.eqhost_backup_contents = QTextEdit()
+        self.eqhost_backup_contents.setReadOnly(True)
+        self.eqhost_backup_contents.setFont(doc_font)
+        self.eqhost_backup_contents.setMinimumHeight(60)
+        eq_layout.addWidget(self.eqhost_backup_contents, 1)
+
         btn_row = QHBoxLayout()
-        self.save_eqhost_btn = QPushButton("Save")
-        self.save_eqhost_btn.clicked.connect(self.on_save_eqhost)
-        self.reset_eqhost_btn = QPushButton("Reset")
-        self.reset_eqhost_btn.clicked.connect(self.on_reset_eqhost)
-        btn_row.addWidget(self.save_eqhost_btn)
-        btn_row.addWidget(self.reset_eqhost_btn)
+        self.restore_backup_btn = QPushButton("Restore Backup")
+        self.restore_backup_btn.setToolTip("Restore eqhost.txt from eqhost.txt.bak and disable the proxy.")
+        self.restore_backup_btn.clicked.connect(self.on_restore_backup)
+        self.open_eq_folder_btn = QPushButton("Open Folder")
+        self.open_eq_folder_btn.setToolTip("Open the EverQuest install directory.")
+        self.open_eq_folder_btn.clicked.connect(self.on_open_eq_folder)
+        btn_row.addWidget(self.restore_backup_btn)
+        btn_row.addWidget(self.open_eq_folder_btn)
         eq_layout.addLayout(btn_row)
 
         layout.addWidget(eq_box, 1)
@@ -1314,15 +1336,30 @@ class ProxyUI(QMainWindow):
         idx = self.sso_api_choice.currentIndex()
         name = self._sso_api_name_map[idx]
         url = self._sso_api_url_map[idx]
+        if not name:
+            return  # placeholder selected, do nothing
         if name != config.SSO_API_NAME:
             self._ws_error_shown = False
             new_token = config.set_sso_api(name, url)
             self.api_token_field.setText(new_token)
+            self._update_backend_icon()
             if hasattr(self, "ws_status_text"):
                 self.ws_status_text.setText("Connecting...")
                 self.ws_status_text.setStyleSheet(f"color: {semantic.warning.name()};")
             ws_client.request_reconnect()
         self.update_account_cache_display()
+
+    def _update_backend_icon(self):
+        """Update app and tray icons to match the currently selected backend."""
+        from p99_sso_login_proxy.ui_classes.taskbar_icon import icon_path_for_state
+
+        path = utils.find_resource_path(icon_path_for_state("default"))
+        if path:
+            app = QApplication.instance()
+            if app:
+                app.setWindowIcon(QIcon(path))
+        if self.tray_icon:
+            self.tray_icon.update_icon()
 
     def on_browse_eq_directory(self):
         start_dir = config.EQ_DIRECTORY or ""
@@ -1362,23 +1399,21 @@ class ProxyUI(QMainWindow):
         eq_config.clear_cache()
         self.update_eq_status()
 
-    def on_save_eqhost(self):
+    def on_restore_backup(self):
+        success, err = eq_config.restore_backup()
+        if not success:
+            QMessageBox.warning(self, "Restore Backup", err or "Failed to restore eqhost.txt.")
+            self.update_eq_status()
+            return
+        QMessageBox.information(self, "Restore Backup", "eqhost.txt restored from backup.")
+        self.update_eq_status()
+
+    def on_open_eq_folder(self):
         eq_dir = eq_config.find_eq_directory()
         if not eq_dir:
-            logger.error("EverQuest directory not found when trying to save eqhost.txt")
+            QMessageBox.warning(self, "Open Folder", "EverQuest directory not found.")
             return
-        eqhost_path = os.path.join(eq_dir, "eqhost.txt")
-        content = self.eqhost_contents.toPlainText()
-        try:
-            with open(eqhost_path, "w", encoding="utf-8") as f:
-                f.write(content)
-            logger.info("Successfully wrote to eqhost.txt at %s", eqhost_path)
-            self.update_eq_status()
-        except OSError:
-            logger.exception("Failed to save eqhost.txt")
-
-    def on_reset_eqhost(self):
-        self.update_eq_status()
+        QDesktopServices.openUrl(QUrl.fromLocalFile(eq_dir))
 
     def _repolish_widget_tree(self) -> None:
         """Re-apply style after global palette/QSS change (avoids mixed light/dark chrome)."""
@@ -1430,6 +1465,10 @@ class ProxyUI(QMainWindow):
     def on_launch_admin_changed(self, checked: bool):
         config.set_launch_admin(checked)
 
+    @Slot(bool)
+    def on_launch_startup_changed(self, checked: bool):
+        config.set_launch_startup(checked)
+
     def on_api_token_changed(self, _text=None):
         token = self.api_token_field.text()
         config.set_api_token_for_backend(config.SSO_API_NAME, token)
@@ -1448,11 +1487,11 @@ class ProxyUI(QMainWindow):
         self.close_application()
 
     def set_icon(self):
-        path = utils.find_resource_path("tray_icon.png")
+        from p99_sso_login_proxy.ui_classes.taskbar_icon import icon_path_for_state
+
+        path = utils.find_resource_path(icon_path_for_state("default"))
         if path:
             try:
-                from PySide6.QtGui import QIcon
-
                 self.setWindowIcon(QIcon(path))
             except Exception:
                 logger.warning("Failed to load icon from %s", path, exc_info=True)
@@ -2014,6 +2053,14 @@ class ProxyUI(QMainWindow):
         self.eqhost_contents.clear()
         if status["eqhost_contents"]:
             self.eqhost_contents.setPlainText("\n".join(status["eqhost_contents"]))
+
+        backup_lines = eq_config.read_eqhost_backup_file(status.get("eqhost_path"))
+        self.eqhost_backup_contents.clear()
+        if backup_lines:
+            self.eqhost_backup_contents.setPlainText("\n".join(backup_lines))
+        else:
+            self.eqhost_backup_contents.setPlaceholderText("(no backup file)")
+        self.restore_backup_btn.setEnabled(bool(backup_lines))
 
         self.proxy_mode_choice.blockSignals(True)
         try:

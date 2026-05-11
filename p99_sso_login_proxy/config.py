@@ -30,28 +30,42 @@ except socket.gaierror:
     EQEMU_LOGIN_IP = EQEMU_LOGIN_HOST
 EQEMU_ADDR = (EQEMU_LOGIN_IP, EQEMU_PORT)
 
-SSO_API_OPTIONS = [
-    ("P99 Login Proxy", "https://proxy.p99loginproxy.net"),
+DEFAULT_ICON_SET = "p99"
+
+# Each entry: (display_name, url, icon_set_directory)
+# icon_set_directory is a folder name under icons/ containing default.png, proxy_only.png, disabled.png.
+SSO_API_OPTIONS: list[tuple[str, str, str]] = [
+    ("P99 Login Proxy", "https://proxy.p99loginproxy.net", "p99"),
+    ("Kingdom", "https://bot.kingdomdkp.com", "kingdom"),
 ]
 if __version_semver__.prerelease:
-    SSO_API_OPTIONS.append(("Localhost", "http://localhost:5998"))
+    SSO_API_OPTIONS.append(("Localhost", "http://localhost:5998", "p99"))
 
 if CONFIG.has_section("sso_backends"):
-    _known_names = {name for name, _ in SSO_API_OPTIONS}
+    _known_names = {name for name, _, _ in SSO_API_OPTIONS}
     _default_keys = set(CONFIG.defaults())
     for _backend_name, _backend_url in CONFIG.items("sso_backends"):
         if _backend_name in _default_keys:
             continue
         if _backend_name not in _known_names:
-            SSO_API_OPTIONS.append((_backend_name, _backend_url))
+            SSO_API_OPTIONS.append((_backend_name, _backend_url, DEFAULT_ICON_SET))
             _known_names.add(_backend_name)
 
-SSO_API = CONFIG.get("DEFAULT", "sso_api", fallback=SSO_API_OPTIONS[0][1])
+SSO_API = CONFIG.get("DEFAULT", "sso_api", fallback="")
 _url_to_name = {}
-for _n, _u in SSO_API_OPTIONS:
+_name_to_icon_set: dict[str, str] = {}
+for _n, _u, _iset in SSO_API_OPTIONS:
     if _u not in _url_to_name:
         _url_to_name[_u] = _n
-SSO_API_NAME = CONFIG.get("DEFAULT", "sso_api_name", fallback=_url_to_name.get(SSO_API, SSO_API))
+    _name_to_icon_set[_n] = _iset
+SSO_API_NAME = CONFIG.get("DEFAULT", "sso_api_name", fallback=_url_to_name.get(SSO_API, ""))
+
+
+def get_icon_set(backend_name: str | None = None) -> str:
+    """Return the icon set directory name for the given backend (or the current one)."""
+    name = backend_name or SSO_API_NAME
+    return _name_to_icon_set.get(name, DEFAULT_ICON_SET)
+
 
 SSO_TIMEOUT = CONFIG.getint("DEFAULT", "sso_timeout", fallback=10)
 SSO_CA_BUNDLE = CONFIG.get("DEFAULT", "sso_ca_bundle", fallback=True)
@@ -67,6 +81,8 @@ WARN_RUSTLE = CONFIG.getboolean("DEFAULT", "warn_rustle", fallback=False)
 OPT_INTO_PRERELEASES = CONFIG.getboolean("DEFAULT", "opt_into_prereleases", fallback=False)
 
 LAUNCH_ADMIN = CONFIG.getboolean("DEFAULT", "launch_admin", fallback=True)
+
+LAUNCH_STARTUP = CONFIG.getboolean("DEFAULT", "launch_startup", fallback=False)
 
 EQ_DIRECTORY = CONFIG.get("DEFAULT", "eq_directory", fallback="")
 
@@ -85,12 +101,12 @@ _legacy_token = CONFIG.get("DEFAULT", "user_api_token", fallback="")
 
 if not CONFIG.has_section(_API_TOKENS_SECTION):
     CONFIG.add_section(_API_TOKENS_SECTION)
-    if _legacy_token:
+    if _legacy_token and SSO_API_NAME:
         CONFIG.set(_API_TOKENS_SECTION, SSO_API_NAME, _legacy_token)
         with open("proxyconfig.ini", "w", encoding="utf-8") as _f:
             CONFIG.write(_f)
 
-USER_API_TOKEN = CONFIG.get(_API_TOKENS_SECTION, SSO_API_NAME, fallback=_legacy_token)
+USER_API_TOKEN = CONFIG.get(_API_TOKENS_SECTION, SSO_API_NAME, fallback=_legacy_token) if SSO_API_NAME else ""
 
 # Variables to store account list and timestamp
 ALL_CACHED_NAMES = []
@@ -137,6 +153,10 @@ def set_dark_mode(value: bool):
 
 def set_launch_admin(value: bool):
     _set_config("LAUNCH_ADMIN", "launch_admin", value)
+
+
+def set_launch_startup(value: bool):
+    _set_config("LAUNCH_STARTUP", "launch_startup", value)
 
 
 def set_proxy_only(value: bool):

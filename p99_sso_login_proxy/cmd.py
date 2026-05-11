@@ -6,10 +6,11 @@ import signal
 import sys
 import threading
 
-from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QSharedMemory, QTimer
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import QApplication, QMessageBox
 
-from p99_sso_login_proxy import config, log_handler, server, theme, ui, updater, ws_client
+from p99_sso_login_proxy import config, log_handler, server, theme, ui, updater, utils, ws_client
 
 logger = logging.getLogger("cmd")
 
@@ -117,8 +118,9 @@ def _setup_win32_aumid():
         from PySide6.QtGui import QImage
 
         from p99_sso_login_proxy import config, utils
+        from p99_sso_login_proxy.ui_classes.taskbar_icon import icon_path_for_state
 
-        png_path = utils.find_resource_path("tray_icon.png")
+        png_path = utils.find_resource_path(icon_path_for_state("default"))
         if not png_path:
             return
 
@@ -167,9 +169,45 @@ def _setup_win32_aumid():
         logger.debug("Could not create notification shortcut", exc_info=True)
 
 
+_SINGLE_INSTANCE_KEY = "P99LoginProxy-singleton"
+_single_instance_guard: QSharedMemory | None = None
+
+
+def _enforce_single_instance() -> bool:
+    """Return True if this is the first instance; False if another is running.
+
+    Holds a module-level reference so the shared memory segment lives for the
+    process lifetime -- releasing it would let a second launch slip through.
+    """
+    global _single_instance_guard
+    guard = QSharedMemory(_SINGLE_INSTANCE_KEY)
+    # Detach any segment left orphaned by a prior crash so create() can succeed.
+    if guard.attach():
+        guard.detach()
+        return False
+    if not guard.create(1):
+        return False
+    _single_instance_guard = guard
+    return True
+
+
 def main():
     qt_app = QtAsyncApp(sys.argv)
     theme.apply_app_theme(qt_app, dark_mode=config.DARK_MODE)
+
+    from p99_sso_login_proxy.ui_classes.taskbar_icon import icon_path_for_state
+
+    icon_path = utils.find_resource_path(icon_path_for_state("default"))
+    if icon_path:
+        qt_app.setWindowIcon(QIcon(icon_path))
+
+    if not _enforce_single_instance():
+        QMessageBox.information(
+            None,
+            config.APP_NAME,
+            f"{config.APP_NAME} is already running. Check the system tray.",
+        )
+        sys.exit(0)
 
     if platform.system() == "Windows":
         _setup_win32_aumid()
@@ -197,6 +235,9 @@ def main():
         main_window.start_eq_func = start_eq_windows
     else:
         main_window.start_eq_func = start_eq_linux
+
+    if config.LAUNCH_STARTUP:
+        QTimer.singleShot(0, main_window.on_launch_eq)
 
     main_window.power_resume_requested.connect(qt_app.restart_proxy_server)
 
