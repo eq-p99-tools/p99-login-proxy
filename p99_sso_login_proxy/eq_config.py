@@ -6,6 +6,7 @@ the eqhost.txt file which controls which login server the game connects to.
 """
 
 import configparser
+import contextlib
 import logging
 import os
 import platform
@@ -13,7 +14,7 @@ import re
 import shutil
 import stat
 import string
-from dataclasses import dataclass
+import tempfile
 
 from p99_sso_login_proxy import config
 
@@ -243,218 +244,196 @@ def get_eqclient_path(eq_dir: str | None = None) -> str | None:
     return None
 
 
+BACKUP_SUFFIX = ".bak"
+
+
+def get_eqhost_backup_path(eqhost_path: str | None = None) -> str | None:
+    """Return the path of the eqhost.txt backup file, or None if eqhost.txt is not found."""
+    if not eqhost_path:
+        eqhost_path = get_eqhost_path()
+    if not eqhost_path:
+        return None
+    return eqhost_path + BACKUP_SUFFIX
+
+
 def read_eqhost_file(eqhost_path: str | None = None) -> list[str]:
-    """
-    Read the contents of the eqhost.txt file.
-
-    Args:
-        eqhost_path (Optional[str]): Path to eqhost.txt. If None, will attempt to find it.
-
-    Returns:
-        List[str]: Lines from the eqhost.txt file, or empty list if file not found
-    """
+    """Read eqhost.txt and return its lines (stripped of trailing whitespace and BOM)."""
     if not eqhost_path:
         eqhost_path = get_eqhost_path()
         if not eqhost_path:
             return []
-
+    if not os.path.exists(eqhost_path):
+        return []
     try:
-        if os.path.exists(eqhost_path):
-            with open(eqhost_path) as f:
-                return [line.strip() for line in f.readlines()]
-        else:
-            logger.warning(f"eqhost.txt not found at {eqhost_path}")
-            return []
-    except Exception:
+        with open(eqhost_path, encoding="utf-8-sig", errors="replace") as f:
+            return [line.rstrip("\r\n").rstrip() for line in f]
+    except OSError:
         logger.exception("Error reading eqhost.txt")
         return []
 
 
-def write_eqhost_file(lines: list[str], eqhost_path: str | None = None) -> tuple[bool, str | None]:
-    """
-    Write contents to the eqhost.txt file.
-
-    Args:
-        lines (List[str]): Lines to write to the file
-        eqhost_path (Optional[str]): Path to eqhost.txt. If None, will attempt to find it.
-
-    Returns:
-        Tuple[bool, Optional[str]]: (success, error_message)
-    """
-    if not eqhost_path:
-        eqhost_path = get_eqhost_path()
-        if not eqhost_path:
-            return False, None
-
+def read_eqhost_backup_file(eqhost_path: str | None = None) -> list[str]:
+    """Read the eqhost.txt backup, or return [] if it does not exist."""
+    backup_path = get_eqhost_backup_path(eqhost_path)
+    if not backup_path or not os.path.exists(backup_path):
+        return []
     try:
-        ### Check if the eqhost file is read-only
-        ### (this requires running as admin and sometimes doesn't work, so disabled for now)
-        # if not os.access(eqhost_path, os.W_OK):
-        #     # Make it writeable
-        #     os.chmod(eqhost_path, 0o777)
-
-        with open(eqhost_path, "w") as f:
-            for line in lines:
-                f.write(f"{line}\n")
-        logger.info(f"Successfully wrote to eqhost.txt at {eqhost_path}")
-        return True, None
-    except PermissionError as e:
-        logger.exception("Error writing to eqhost.txt. Please turn off the read-only flag on this file: %s", e.filename)
-        return False, (
-            f"Failed to write to eqhost.txt. Please turn off the read-only flag on this file:\n\n{e.filename}"
-        )
-    except Exception as e:
-        logger.exception("Error writing to eqhost.txt")
-        return False, f"Failed to write to eqhost.txt:\n\n{e!s}"
+        with open(backup_path, encoding="utf-8-sig", errors="replace") as f:
+            return [line.rstrip("\r\n").rstrip() for line in f]
+    except OSError:
+        logger.exception("Error reading eqhost.txt backup")
+        return []
 
 
-@dataclass
-class EqHostEntry:
-    """Represents a single line in the eqhost.txt file."""
+def _atomic_write_text(path: str, content: str) -> None:
+    """Atomically write text to *path* via a temp file in the same directory.
 
-    raw: str  # The line content (stripped of leading #)
-    is_host: bool  # Whether this is a Host= line
-    commented: bool  # Whether the line is commented out
-    is_proxy: bool  # Whether it matches the proxy address
+    Uses os.replace, which is atomic on Windows for same-volume rename -- so a
+    crash mid-write either leaves the original file untouched or installs the
+    new content fully.  Always writes UTF-8 with LF line endings.
+    """
+    directory = os.path.dirname(path) or "."
+    fd, tmp_path = tempfile.mkstemp(prefix=".eqhost-", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+            f.write(content)
+            f.flush()
+            with contextlib.suppress(OSError):
+                os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    except Exception:
+        with contextlib.suppress(OSError):
+            os.remove(tmp_path)
+        raise
 
 
-def _parse_eqhost_lines(lines: list[str]) -> list[EqHostEntry]:
-    """Parse raw eqhost.txt lines into structured entries."""
-    entries = []
+def _has_active_non_proxy_host(lines: list[str]) -> bool:
+    """True if any line is an uncommented ``Host=...`` that is NOT the proxy address."""
+    proxy = DEFAULT_PROXY_ADDRESS.lower()
     for line in lines:
         stripped = line.strip()
-        if not stripped:
-            entries.append(EqHostEntry(raw="", is_host=False, commented=False, is_proxy=False))
+        if not stripped or stripped.startswith("#"):
             continue
-
-        is_commented = stripped.startswith("#")
-        uncommented = stripped.lstrip("#").strip()
-        is_host_line = uncommented.startswith("Host=")
-        is_proxy_line = DEFAULT_PROXY_ADDRESS in stripped
-
-        entries.append(
-            EqHostEntry(
-                raw=uncommented,
-                is_host=is_host_line,
-                commented=is_commented,
-                is_proxy=is_proxy_line,
-            )
-        )
-    return entries
-
-
-def _serialize_eqhost_entries(entries: list[EqHostEntry]) -> list[str]:
-    """Serialize structured entries back into eqhost.txt lines."""
-    result = []
-    for entry in entries:
-        if not entry.is_host:
-            result.append(entry.raw)
-        elif entry.commented:
-            result.append(f"#{entry.raw}")
-        else:
-            result.append(entry.raw)
-    return result
+        lower = stripped.lower()
+        if lower.startswith("host=") and lower != proxy:
+            return True
+    return False
 
 
 def is_using_proxy(eq_dir: str | None = None) -> tuple[bool, str | None]:
-    """
-    Check if EverQuest is configured to use the proxy.
-
-    Returns:
-        Tuple[bool, Optional[str]]:
-            - bool: True if using proxy, False otherwise
-            - Optional[str]: Path to eqhost.txt if found, None otherwise
-    """
+    """True iff the only active ``Host=`` line in eqhost.txt is the proxy address."""
     eqhost_path = get_eqhost_path(eq_dir)
     if not eqhost_path:
         return False, None
 
-    lines = read_eqhost_file(eqhost_path)
-    if not lines:
-        return False, eqhost_path
+    proxy = DEFAULT_PROXY_ADDRESS.lower()
+    active_hosts: list[str] = []
+    for line in read_eqhost_file(eqhost_path):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.lower().startswith("host="):
+            active_hosts.append(stripped.lower())
 
-    # Check if any line contains the proxy address
-    return any(DEFAULT_PROXY_ADDRESS in line and not line.startswith("#") for line in lines), eqhost_path
+    using = len(active_hosts) == 1 and active_hosts[0] == proxy
+    return using, eqhost_path
+
+
+def _prepare_eqhost_for_write(eqhost_path: str) -> None:
+    """Best-effort clear read-only flags on the EQ directory and eqhost.txt."""
+    _try_clear_readonly(os.path.dirname(eqhost_path))
+    if os.path.exists(eqhost_path):
+        _try_clear_readonly(eqhost_path)
 
 
 def enable_proxy() -> tuple[bool, str | None]:
-    """
-    Configure EverQuest to use the proxy in a non-destructive way.
-    - Adds proxy line to the end if not present
-    - Comments out other uncommented Host lines
-    - Uncomments proxy line if it's commented
-
-    Returns:
-        Tuple[bool, Optional[str]]: (success, error_message)
+    """Snapshot the current eqhost.txt to .bak (if no backup yet) and write a clean
+    single-line proxy file.  Idempotent -- re-enabling does not corrupt the backup.
     """
     eqhost_path = get_eqhost_path()
     if not eqhost_path:
         return False, None
 
-    lines = read_eqhost_file(eqhost_path)
+    backup_path = get_eqhost_backup_path(eqhost_path)
+    assert backup_path is not None  # backup_path is None only when eqhost_path is None
 
-    # If file doesn't exist or is empty, create it with proxy address
-    if not lines:
-        return write_eqhost_file([DEFAULT_PROXY_ADDRESS], eqhost_path)
+    try:
+        _prepare_eqhost_for_write(eqhost_path)
 
-    entries = _parse_eqhost_lines(lines)
-    has_proxy = False
+        if not os.path.exists(backup_path):
+            current_lines = read_eqhost_file(eqhost_path) if os.path.exists(eqhost_path) else []
+            if _has_active_non_proxy_host(current_lines):
+                backup_content = "\n".join(current_lines) + ("\n" if current_lines else "")
+            else:
+                # File is empty / all-comments / already proxy-only -- write a
+                # synthetic default so disable_proxy has a clean restore target.
+                backup_content = DEFAULT_LOGIN_SERVER + "\n"
+            _atomic_write_text(backup_path, backup_content)
+            logger.info("Backed up eqhost.txt to %s", backup_path)
 
-    for entry in entries:
-        if entry.is_proxy:
-            # Uncomment the proxy line
-            entry.commented = False
-            has_proxy = True
-        elif entry.is_host and not entry.commented:
-            # Comment out other active Host lines
-            entry.commented = True
-
-    # If proxy line wasn't in the file at all, add it
-    if not has_proxy:
-        entries.append(EqHostEntry(raw=DEFAULT_PROXY_ADDRESS, is_host=True, commented=False, is_proxy=True))
-
-    return write_eqhost_file(_serialize_eqhost_entries(entries), eqhost_path)
+        _atomic_write_text(eqhost_path, DEFAULT_PROXY_ADDRESS + "\n")
+        logger.info("Wrote proxy eqhost.txt at %s", eqhost_path)
+        return True, None
+    except PermissionError as e:
+        logger.exception("Permission denied writing eqhost.txt")
+        target = e.filename or eqhost_path
+        return False, f"Failed to write eqhost.txt. Please turn off the read-only flag on:\n\n{target}"
+    except OSError as e:
+        logger.exception("Error writing eqhost.txt")
+        return False, f"Failed to write eqhost.txt:\n\n{e!s}"
 
 
 def disable_proxy() -> tuple[bool, str | None]:
-    """
-    Configure EverQuest to use the official login server instead of the proxy in a non-destructive way.
-    - Comments out the proxy line if present
-    - Uncomments the last non-proxy Host line
-
-    Returns:
-        Tuple[bool, Optional[str]]: (success, error_message)
-    """
+    """Restore eqhost.txt from .bak if present, else write the eqemu default."""
     eqhost_path = get_eqhost_path()
     if not eqhost_path:
         return False, None
 
-    lines = read_eqhost_file(eqhost_path)
-    if not lines:
-        # If file doesn't exist, create it with default login server
-        return write_eqhost_file([DEFAULT_LOGIN_SERVER], eqhost_path)
+    backup_path = get_eqhost_backup_path(eqhost_path)
+    assert backup_path is not None
 
-    entries = _parse_eqhost_lines(lines)
-    had_active_proxy = False
+    try:
+        _prepare_eqhost_for_write(eqhost_path)
 
-    # Comment out the proxy line
-    for entry in entries:
-        if entry.is_proxy and not entry.commented:
-            entry.commented = True
-            had_active_proxy = True
+        if os.path.exists(backup_path):
+            os.replace(backup_path, eqhost_path)
+            logger.info("Restored eqhost.txt from %s", backup_path)
+        else:
+            _atomic_write_text(eqhost_path, DEFAULT_LOGIN_SERVER + "\n")
+            logger.info("No backup found; wrote default login server to %s", eqhost_path)
+        return True, None
+    except PermissionError as e:
+        logger.exception("Permission denied restoring eqhost.txt")
+        target = e.filename or eqhost_path
+        return False, f"Failed to restore eqhost.txt. Please turn off the read-only flag on:\n\n{target}"
+    except OSError as e:
+        logger.exception("Error restoring eqhost.txt")
+        return False, f"Failed to restore eqhost.txt:\n\n{e!s}"
 
-    # If we disabled the proxy, uncomment the last non-proxy Host line
-    if had_active_proxy:
-        for entry in reversed(entries):
-            if entry.is_host and not entry.is_proxy and entry.commented:
-                entry.commented = False
-                break
 
-    # If there are no active Host lines at all, add the default login server
-    if not any(e.is_host and not e.commented for e in entries):
-        entries.append(EqHostEntry(raw=DEFAULT_LOGIN_SERVER, is_host=True, commented=False, is_proxy=False))
+def restore_backup() -> tuple[bool, str | None]:
+    """Restore eqhost.txt from the .bak file.  Errors when no backup exists."""
+    eqhost_path = get_eqhost_path()
+    if not eqhost_path:
+        return False, "EverQuest directory not found."
 
-    return write_eqhost_file(_serialize_eqhost_entries(entries), eqhost_path)
+    backup_path = get_eqhost_backup_path(eqhost_path)
+    assert backup_path is not None
+    if not os.path.exists(backup_path):
+        return False, "No backup file found. The proxy has not been enabled yet."
+
+    try:
+        _prepare_eqhost_for_write(eqhost_path)
+        os.replace(backup_path, eqhost_path)
+        logger.info("Restored eqhost.txt from %s", backup_path)
+        return True, None
+    except PermissionError as e:
+        logger.exception("Permission denied restoring eqhost.txt")
+        target = e.filename or eqhost_path
+        return False, f"Failed to restore eqhost.txt. Please turn off the read-only flag on:\n\n{target}"
+    except OSError as e:
+        logger.exception("Error restoring eqhost.txt")
+        return False, f"Failed to restore eqhost.txt:\n\n{e!s}"
 
 
 def get_eq_status() -> dict:
