@@ -55,6 +55,8 @@ jobs:
           PY
 
       - name: Build
+        env:
+          TOX_BASEPYTHON: python3.13
         run: |
           pip install tox
           tox -e build
