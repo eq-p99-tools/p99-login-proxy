@@ -8,6 +8,7 @@ import logging
 import ssl
 import uuid
 
+import certifi
 import websockets
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QApplication
@@ -242,19 +243,44 @@ def _build_ws_url() -> str:
     return "wss://" + base + "/ws/accounts"
 
 
+def _resolve_ca_mode() -> tuple[str, str | None]:
+    """Resolve ``config.SSO_CA_BUNDLE`` into a (mode, path) pair.
+
+    Modes:
+      * ``"certifi"`` -- bundled certifi CA store (the default); path is the
+        certifi bundle location.
+      * ``"system"`` -- platform default trust store; path is ``None``.
+      * ``"custom"`` -- user-supplied CA bundle file; path is that file.
+    """
+    ca = config.SSO_CA_BUNDLE
+    # Unset/True (bool fallback) or the literal strings "true"/"" mean "use the
+    # app default" rather than a file path on disk.
+    if ca is True or (isinstance(ca, str) and ca.strip().lower() in ("", "true")):
+        return "certifi", certifi.where()
+    if isinstance(ca, str) and ca.strip().lower() == "system":
+        return "system", None
+    if ca is False or (isinstance(ca, str) and ca.strip().lower() == "false"):
+        return "system", None
+    return "custom", str(ca)
+
+
 def _get_ssl_context() -> ssl.SSLContext | None:
     url = _build_ws_url()
     if not url.startswith("wss://"):
+        logger.info("SSO TLS: plaintext ws:// endpoint, no SSL context")
         return None
     if not config.SSO_VERIFY_TLS:
+        logger.warning("SSO TLS: certificate verification DISABLED (sso_verify_tls=False)")
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
         return ctx
-    ca = config.SSO_CA_BUNDLE
-    ctx = ssl.create_default_context()
-    if isinstance(ca, str):
-        ctx.load_verify_locations(ca)
+    mode, path = _resolve_ca_mode()
+    if mode == "system":
+        logger.info("SSO TLS: verifying with system trust store")
+        return ssl.create_default_context()
+    ctx = ssl.create_default_context(cafile=path)
+    logger.info("SSO TLS: verifying with %s CA bundle (%s)", mode, path)
     return ctx
 
 
@@ -502,6 +528,7 @@ async def start():
     global _task, _reconnect_event
     _reconnect_event = asyncio.Event()
     _task = asyncio.current_task()
+    logger.info("SSO config loaded from %s", config.CONFIG_PATH)
     await _run(_reconnect_event)
 
 

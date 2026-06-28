@@ -1,13 +1,17 @@
 import configparser
 import datetime
+import os
 import re
 import socket
 
 from p99_sso_login_proxy import __version_semver__, utils
 
+CONFIG_FILE = "proxyconfig.ini"
+# Absolute path of the config file actually read, for diagnostics/logging.
+CONFIG_PATH = os.path.abspath(CONFIG_FILE)
 CONFIG = configparser.ConfigParser()
 CONFIG.optionxform = str
-CONFIG.read("proxyconfig.ini")
+CONFIG.read(CONFIG_FILE)
 
 APP_NAME = "P99 Login Proxy"
 APP_VERSION = __version_semver__

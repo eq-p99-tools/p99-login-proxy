@@ -17,8 +17,18 @@
 ; Timeout in seconds for SSO HTTP requests
 ; sso_timeout = 10
 
-; Custom CA bundle path, or True to use the system default
+; Certificate authority bundle used to verify the SSO server's TLS certificate.
+;   True (default) -> use the bundled certifi CA store (recommended; consistent
+;                     across machines regardless of the local Windows trust store)
+;   system         -> use the operating system's trust store
+;   <path>         -> path to a custom CA bundle (.pem) file
 ; sso_ca_bundle = True
+
+; Verify the SSO server's TLS certificate. Leave this True.
+; Setting it to False disables certificate verification entirely and is an
+; INSECURE emergency workaround only. The app must be restarted for a change
+; to take effect.
+; sso_verify_tls = True
 
 ; Keep the window on top of other windows
 ; always_on_top = False
