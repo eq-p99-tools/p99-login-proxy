@@ -10,9 +10,10 @@
 ; login_server = login.eqemulator.net
 ; login_port = 5998
 
-; SSO API backend currently in use (URL and display name)
+; SSO API backend currently in use (URL and display name).
+; Use a plain display name here (e.g. Good Guys), not the UI's "Custom: ..." label.
 ; sso_api = https://proxy.p99loginproxy.net
-; sso_api_name = P99 Login Proxy
+; sso_api_name = Good Guys
 
 ; Timeout in seconds for SSO HTTP requests
 ; sso_timeout = 10
@@ -36,6 +37,18 @@
 ; Use the built-in dark Fusion theme (set False for light theme)
 ; dark_mode = True
 
+; Warn when Rustle (unauthorized EQ client files) is detected in the install
+; warn_rustle = False
+
+; Opt in to pre-release update notifications
+; opt_into_prereleases = False
+
+; Launch EverQuest automatically when the proxy starts
+; launch_startup = False
+
+; Launch EverQuest with administrator privileges
+; launch_admin = True
+
 ; Path to the EverQuest installation directory (auto-detected if empty)
 ; eq_directory =
 
@@ -56,6 +69,12 @@
 ; CSV file containing locally-stored account credentials
 ; local_accounts_file = local_accounts.csv
 
+; CSV file containing locally-tracked character data
+; local_characters_file = local_characters.csv
+
+; Automatically add characters to local_characters.csv when they log in locally
+; auto_add_local_characters = True
+
 ; Comma-separated account names that should never be SSO-checked
 ; skip_sso_accounts =
 
@@ -63,16 +82,19 @@
 ; Each backend name maps to its own API token. When you switch backends
 ; in the UI the correct token is loaded automatically.
 ; The key is the display name from the dropdown (built-in or custom).
+; Keys must not contain ":" or "=" characters.
 ;
 ; [api_tokens]
-; P99 Login Proxy = YourTokenHere
-; My Guild Server = AnotherTokenHere
+; Good Guys = YourTokenHere
+; Marginal Threat = AnotherTokenHere
+; Kingdom = YourKingdomTokenHere
 
 ; ── Custom SSO backends ─────────────────────────────────────────────
 ; Add extra entries to the SSO API dropdown. Built-in backends are
 ; always present; entries here are appended to the list.
 ; The key is the display name shown in the dropdown; the value is the URL.
 ; Multiple entries may share the same URL (each with its own API token).
+; Keys must not contain ":" or "=" characters.
 ;
 ; [sso_backends]
 ; My Guild Server = https://guild.example.com
