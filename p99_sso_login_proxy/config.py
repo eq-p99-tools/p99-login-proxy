@@ -5,13 +5,21 @@ import re
 import socket
 
 from p99_sso_login_proxy import __version_semver__, utils
+from p99_sso_login_proxy.config_repair import load_config_parser, resolve_backend_name
 
 CONFIG_FILE = "proxyconfig.ini"
 # Absolute path of the config file actually read, for diagnostics/logging.
 CONFIG_PATH = os.path.abspath(CONFIG_FILE)
-CONFIG = configparser.ConfigParser()
-CONFIG.optionxform = str
-CONFIG.read(CONFIG_FILE)
+CONFIG = load_config_parser(CONFIG_FILE)
+
+
+def _write_config():
+    """Atomically persist CONFIG to proxyconfig.ini."""
+    tmp_path = f"{CONFIG_FILE}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as configfile:
+        CONFIG.write(configfile)
+    os.replace(tmp_path, CONFIG_FILE)
+
 
 APP_NAME = "P99 Login Proxy"
 APP_VERSION = __version_semver__
@@ -109,18 +117,27 @@ if not CONFIG.has_section(_API_TOKENS_SECTION):
 
 # One-time migration: "P99 Login Proxy" -> seed both Good Guys and Marginal Threat
 _OLD_P99_NAME = "P99 Login Proxy"
+_repaired_sso_api_name = resolve_backend_name(SSO_API_NAME, url_hint=SSO_API, url_to_name=_url_to_name)
+if _repaired_sso_api_name != SSO_API_NAME:
+    SSO_API_NAME = _repaired_sso_api_name
+    CONFIG.set("DEFAULT", "sso_api_name", SSO_API_NAME)
+    _write_config()
+
 if SSO_API_NAME == _OLD_P99_NAME or (not SSO_API_NAME and _legacy_token):
     _migrate_token = CONFIG.get(_API_TOKENS_SECTION, _OLD_P99_NAME, fallback=_legacy_token)
     if _migrate_token:
         CONFIG.set(_API_TOKENS_SECTION, "Good Guys", _migrate_token)
         CONFIG.set(_API_TOKENS_SECTION, "Marginal Threat", _migrate_token)
+    if CONFIG.has_option(_API_TOKENS_SECTION, _OLD_P99_NAME):
+        CONFIG.remove_option(_API_TOKENS_SECTION, _OLD_P99_NAME)
     CONFIG.set("DEFAULT", "sso_api_name", "Good Guys")
     CONFIG.set("DEFAULT", "sso_api", "https://proxy.p99loginproxy.net")
-    with open("proxyconfig.ini", "w", encoding="utf-8") as _f:
-        CONFIG.write(_f)
+    _write_config()
     SSO_API_NAME = "Good Guys"
 
 USER_API_TOKEN = CONFIG.get(_API_TOKENS_SECTION, SSO_API_NAME, fallback="") if SSO_API_NAME else ""
+if not USER_API_TOKEN:
+    USER_API_TOKEN = _legacy_token
 
 # Variables to store account list and timestamp
 ALL_CACHED_NAMES = []
@@ -149,12 +166,16 @@ def iv():
     return ENCRYPTION_IV[:]
 
 
+def _normalize_backend_name(backend_name: str, backend_url: str | None = None) -> str:
+    """Return a safe backend name for use as an INI option key."""
+    return resolve_backend_name(backend_name, url_hint=backend_url, url_to_name=_url_to_name)
+
+
 def _set_config(global_name: str, config_key: str, value):
     """Update a module-level config global, persist it to proxyconfig.ini."""
     globals()[global_name] = value
     CONFIG.set("DEFAULT", config_key, str(value))
-    with open("proxyconfig.ini", "w", encoding="utf-8") as configfile:
-        CONFIG.write(configfile)
+    _write_config()
 
 
 def set_always_on_top(value: bool):
@@ -189,12 +210,12 @@ def set_api_token_for_backend(backend_name: str, token: str):
     Also keeps the legacy user_api_token in DEFAULT in sync when
     the token belongs to the currently active backend.
     """
-    CONFIG.set(_API_TOKENS_SECTION, backend_name, token)
-    if backend_name == globals()["SSO_API_NAME"]:
+    safe_name = _normalize_backend_name(backend_name, globals().get("SSO_API"))
+    CONFIG.set(_API_TOKENS_SECTION, safe_name, token)
+    if safe_name == globals()["SSO_API_NAME"]:
         globals()["USER_API_TOKEN"] = token
         CONFIG.set("DEFAULT", "user_api_token", token)
-    with open("proxyconfig.ini", "w", encoding="utf-8") as configfile:
-        CONFIG.write(configfile)
+    _write_config()
 
 
 def set_sso_api(backend_name: str, backend_url: str) -> str:
@@ -202,15 +223,17 @@ def set_sso_api(backend_name: str, backend_url: str) -> str:
 
     Returns the API token associated with the new backend.
     """
+    safe_name = _normalize_backend_name(backend_name, backend_url)
     globals()["SSO_API"] = backend_url
-    globals()["SSO_API_NAME"] = backend_name
+    globals()["SSO_API_NAME"] = safe_name
     CONFIG.set("DEFAULT", "sso_api", backend_url)
-    CONFIG.set("DEFAULT", "sso_api_name", backend_name)
-    token = get_api_token(backend_name)
+    CONFIG.set("DEFAULT", "sso_api_name", safe_name)
+    token = get_api_token(safe_name)
+    if not token:
+        token = CONFIG.get("DEFAULT", "user_api_token", fallback="")
     globals()["USER_API_TOKEN"] = token
     CONFIG.set("DEFAULT", "user_api_token", token)
-    with open("proxyconfig.ini", "w", encoding="utf-8") as configfile:
-        CONFIG.write(configfile)
+    _write_config()
     return token
 
 
