@@ -15,9 +15,16 @@ target
 
 # Portable / user data (same as Python client)
 *.ini
+!tests/fixtures/**/*.ini
 *.csv
+!tests/fixtures/**/*.csv
 *.log
 test-portable/
+
+# Local release/build outputs (never commit)
+P99LoginProxy-*.exe
+P99LoginProxy-*.zip
+*.AppImage
 
 # Editor directories and files
 .vscode/*

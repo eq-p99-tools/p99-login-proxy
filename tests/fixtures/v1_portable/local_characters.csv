@@ -1,0 +1,3 @@
+account,name,class,level,bind,park,item_seb,item_vp,item_st,item_void,item_neck,item_thurg,item_reaper,item_brass_idol,item_lizard,item_pearl,item_peridot,item_mb3,item_mb4,item_mb5
+main,Alice,Cleric,60,kael,nro,true,false,,,,,,,3,,,,,
+main,Bob,Warrior,55,,,false,true,,,,,,,1,,,,,

@@ -1,0 +1,3 @@
+name,password,aliases
+main,secret-main,alias1|alias2
+alt,secret-alt,
