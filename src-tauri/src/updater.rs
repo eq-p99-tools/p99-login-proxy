@@ -319,6 +319,7 @@ pub(crate) fn emit_update_check_info(app: &AppHandle, result: &UpdateCheckResult
     );
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
 const STABLE_EXE_NAME: &str = "P99LoginProxy.exe";
 
 fn expected_update_asset_name(version: &Version) -> String {
@@ -500,6 +501,7 @@ fn is_directory_writable(path: &Path) -> Result<bool, String> {
     }
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
 fn extract_first_zip_member(zip_bytes: &[u8], destination: &Path) -> Result<PathBuf, String> {
     let mut archive = zip::ZipArchive::new(Cursor::new(zip_bytes))
         .map_err(|error| format!("Invalid update zip: {error}"))?;
@@ -563,6 +565,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(windows)]
     fn selects_exact_windows_zip_asset() {
         let release = ParsedRelease {
             version: Version::parse("2.0.1").unwrap(),
@@ -581,7 +584,6 @@ mod tests {
                 },
             ],
         };
-        #[cfg(windows)]
         assert_eq!(
             select_update_asset(&release).map(|asset| asset.browser_download_url.as_str()),
             Some("zip")
@@ -660,6 +662,8 @@ mod tests {
     #[test]
     #[cfg(target_os = "linux")]
     fn replaces_appimage_with_backup_and_executable_mode() {
+        use std::os::unix::fs::PermissionsExt;
+
         let dir = tempfile::tempdir().unwrap();
         let appimage = dir.path().join("P99LoginProxy.AppImage");
         std::fs::write(&appimage, b"old").unwrap();

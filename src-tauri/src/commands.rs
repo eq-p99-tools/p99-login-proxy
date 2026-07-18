@@ -570,6 +570,7 @@ pub fn launch_everquest_at(dir: &std::path::Path, launch_admin: bool) -> Result<
     }
     #[cfg(not(windows))]
     {
+        let _ = launch_admin;
         // Parity with the Python client: EverQuest is a Windows binary, so on
         // Linux/macOS launch it through Wine (`wine eqgame.exe patchme`).
         use std::os::unix::process::CommandExt;
