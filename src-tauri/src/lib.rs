@@ -5,6 +5,7 @@ mod notifications;
 mod state;
 mod tray;
 mod updater;
+pub mod webview2_preflight;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};

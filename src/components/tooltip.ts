@@ -1,4 +1,7 @@
 /** Props for custom multiline tooltips (native `title` collapses newlines in WebView). */
+export const TOOLTIP_AFFIRMATIVE = "\u2705"; // ✅
+export const TOOLTIP_NEGATIVE = "\u274C"; // ❌
+
 export function tooltipProps(text: string | undefined): { "data-tooltip"?: string } {
   if (!text) {
     return {};

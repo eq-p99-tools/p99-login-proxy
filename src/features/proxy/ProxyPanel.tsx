@@ -379,7 +379,11 @@ export function ProxyPanel() {
               <ProxyStatusBadge lifecycle={lifecycle} />
             </FormRow>
             <FormRow label="EQ Config:">
-              <EqConfigBadge enabled={stats?.eq_config_enabled ?? false} />
+              <EqConfigBadge
+                enabled={stats?.eq_config_enabled ?? false}
+                eqhostProxyEnabled={stats?.eqhost_proxy_enabled ?? false}
+                eqclientLogEnabled={stats?.eqclient_log_enabled ?? false}
+              />
             </FormRow>
             <FormRow label="Listening on:">
               <FormValue title="Double-click to change the listen port">

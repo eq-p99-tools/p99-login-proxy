@@ -6,6 +6,7 @@ use std::time::Duration;
 use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
 use proxy_core::AccountCache;
+use proxy_core::SsoCaBundleMode;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -25,6 +26,7 @@ pub struct SsoClientConfig {
     pub backend_name: String,
     pub client_version: String,
     pub verify_tls: bool,
+    pub ca_bundle: SsoCaBundleMode,
     pub timeout_secs: u64,
     pub client_settings: Value,
 }
@@ -397,18 +399,30 @@ async fn run_ws_loop(
         }
         info!(%url, backend = %config.backend_name, client_version = %config.client_version, "connecting SSO WebSocket");
 
+        let tls_connector = if url.starts_with("wss://") {
+            match crate::sso_tls::build_tls_connector(config.verify_tls, &config.ca_bundle) {
+                Ok(connector) => Some(connector),
+                Err(error) => {
+                    warn!("SSO TLS setup failed: {error}");
+                    notify_state(&on_state, WsStateEvent::AuthFailed { reason: error });
+                    sleep_backoff(&cancel, delay).await;
+                    delay = (delay * 2).min(RECONNECT_MAX);
+                    continue;
+                }
+            }
+        } else {
+            None
+        };
+
         let connect = tokio::select! {
             biased;
             _ = cancel.cancelled() => return,
             result = tokio::time::timeout(CONNECT_TIMEOUT, async {
-                if url.starts_with("wss://") && !config.verify_tls {
-                    let cfg = rustls::ClientConfig::builder()
-                        .dangerous()
-                        .with_custom_certificate_verifier(Arc::new(NoVerifier))
-                        .with_no_client_auth();
-                    let connector = tokio_tungstenite::Connector::Rustls(Arc::new(cfg));
-                    tokio_tungstenite::connect_async_tls_with_config(&url, None, false, Some(connector))
-                        .await
+                if let Some(connector) = tls_connector {
+                    tokio_tungstenite::connect_async_tls_with_config(
+                        &url, None, false, Some(connector),
+                    )
+                    .await
                 } else {
                     tokio_tungstenite::connect_async(&url).await
                 }
@@ -666,48 +680,6 @@ async fn resolve_login_auth_response(
         }
     };
     let _ = tx.send(result);
-}
-
-#[derive(Debug)]
-struct NoVerifier;
-
-impl rustls::client::danger::ServerCertVerifier for NoVerifier {
-    fn verify_server_cert(
-        &self,
-        _end_entity: &rustls::pki_types::CertificateDer<'_>,
-        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
-        _server_name: &rustls::pki_types::ServerName<'_>,
-        _ocsp_response: &[u8],
-        _now: rustls::pki_types::UnixTime,
-    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-        Ok(rustls::client::danger::ServerCertVerified::assertion())
-    }
-
-    fn verify_tls12_signature(
-        &self,
-        _message: &[u8],
-        _cert: &rustls::pki_types::CertificateDer<'_>,
-        _dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
-    }
-
-    fn verify_tls13_signature(
-        &self,
-        _message: &[u8],
-        _cert: &rustls::pki_types::CertificateDer<'_>,
-        _dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        vec![
-            rustls::SignatureScheme::RSA_PKCS1_SHA256,
-            rustls::SignatureScheme::ECDSA_NISTP256_SHA256,
-            rustls::SignatureScheme::ED25519,
-        ]
-    }
 }
 
 #[cfg(test)]

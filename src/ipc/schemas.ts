@@ -45,6 +45,8 @@ export const ProxyStatsSchema = z.object({
   heartbeat_character: z.string().nullable().optional().transform((v) => v ?? null),
   proxy_mode: ProxyModeSchema,
   eq_config_enabled: z.boolean(),
+  eqhost_proxy_enabled: z.boolean().default(false),
+  eqclient_log_enabled: z.boolean().default(false),
   listen_address: z.string(),
   listen_port: z.number(),
   client_connected: z.boolean(),

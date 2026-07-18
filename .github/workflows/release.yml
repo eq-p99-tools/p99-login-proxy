@@ -3,12 +3,27 @@ name: release
 on:
   push:
     tags:
-      - "v*"
+      - "v2.*"
 
 jobs:
-  release:
-    permissions:
-      contents: write
+  validate-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate v2 tag and rust branch
+        run: |
+          tag="${{ github.ref_name }}"
+          if ! echo "$tag" | grep -Eq '^v2\.[0-9]+\.[0-9]+(-[0-9A-Za-z\.-]+)?$'; then
+            echo "Release tag must match v2.<minor>.<patch>[-prerelease], got: $tag" >&2
+            exit 1
+          fi
+          git fetch origin rust --depth=1
+          git merge-base --is-ancestor "${{ github.sha }}" origin/rust
+
+  build-windows:
+    needs: validate-tag
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,6 +43,15 @@ jobs:
           npm version $version --no-git-tag-version
           $env:RELEASE_VERSION = $version
           node -e "const fs=require('fs'); const v=process.env.RELEASE_VERSION; const p='Cargo.toml'; let s=fs.readFileSync(p,'utf8'); s=s.replace(/(\[workspace\.package\][\s\S]*?version\s*=\s*\")[^\"]+/, '`$1'+v); fs.writeFileSync(p,s); const t='src-tauri/tauri.conf.json'; const j=JSON.parse(fs.readFileSync(t,'utf8')); j.version=v; fs.writeFileSync(t,JSON.stringify(j,null,2)+'\n');"
+      - name: Download WebView2 bootstrapper
+        shell: pwsh
+        run: |
+          $dest = "src-tauri/resources/webview2/MicrosoftEdgeWebview2Setup.exe"
+          New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
+          Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile $dest
+          if ((Get-Item $dest).Length -lt 1000000) {
+            throw "Downloaded WebView2 bootstrapper looks too small"
+          }
       - run: npm ci
       - name: Build portable executable
         run: npm run tauri build -- --target x86_64-pc-windows-msvc --no-bundle
@@ -37,11 +61,139 @@ jobs:
           $version = "${{ github.ref_name }}".TrimStart("v")
           $exe = "P99LoginProxy-$version.exe"
           Copy-Item "target/x86_64-pc-windows-msvc/release/P99LoginProxy.exe" $exe
-          Compress-Archive -Path $exe -DestinationPath "P99LoginProxy-$version.zip"
+          Compress-Archive -Path $exe -DestinationPath "P99LoginProxy-$version.zip" -Force
+      - name: Validate update archive layout
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          $zipPath = "P99LoginProxy-$version.zip"
+          $expected = "P99LoginProxy-$version.exe"
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
+          try {
+            if ($zip.Entries.Count -ne 1) {
+              throw "Expected exactly one zip member, found $($zip.Entries.Count)"
+            }
+            $entry = $zip.Entries[0]
+            if ($entry.FullName -ne $expected) {
+              throw "Expected top-level member '$expected', found '$($entry.FullName)'"
+            }
+          } finally {
+            $zip.Dispose()
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: P99LoginProxy-*.zip
+
+  build-linux:
+    needs: validate-tag
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Stamp release version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          npm version "$version" --no-git-tag-version
+          export RELEASE_VERSION="$version"
+          node -e "const fs=require('fs'); const v=process.env.RELEASE_VERSION; const p='Cargo.toml'; let s=fs.readFileSync(p,'utf8'); s=s.replace(/(\[workspace\.package\][\s\S]*?version\s*=\s*\")[^\"]+/, '\$1'+v); fs.writeFileSync(p,s); const t='src-tauri/tauri.conf.json'; const j=JSON.parse(fs.readFileSync(t,'utf8')); j.version=v; fs.writeFileSync(t,JSON.stringify(j,null,2)+'\n');"
+      - name: Linux WebKit deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+      - name: Build AppImage
+        run: npm run tauri build -- --target x86_64-unknown-linux-gnu --config src-tauri/tauri.linux.bundle.json
+        env:
+          CI: true
+      - name: Rename AppImage to canonical release name
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          canonical="P99LoginProxy-${version}-x86_64.AppImage"
+          appimage="$(find src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage -name '*.AppImage' -print -quit)"
+          if [ -z "$appimage" ]; then
+            echo "AppImage bundle not found" >&2
+            exit 1
+          fi
+          cp "$appimage" "$canonical"
+          chmod +x "$canonical"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-release
+          path: P99LoginProxy-*-x86_64.AppImage
+
+  publish:
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+      - name: Flatten release artifacts
+        run: |
+          mkdir -p upload
+          find release-assets -type f \( -name '*.zip' -o -name '*.AppImage' \) -exec cp {} upload/ \;
+          ls -la upload
       - name: Create draft release
         uses: softprops/action-gh-release@v2
         with:
           name: "P99 Login Proxy ${{ github.ref_name }}"
           draft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
-          files: P99LoginProxy-*.zip
+      - name: Upload release assets with explicit MIME types
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ github.ref_name }}"
+          upload_url="$(gh api "repos/${{ github.repository }}/releases/tags/${tag}" --jq .upload_url | sed 's/{.*//')"
+          for file in upload/*; do
+            name="$(basename "$file")"
+            case "$name" in
+              *.zip) ctype="application/zip" ;;
+              *.AppImage) ctype="application/vnd.appimage" ;;
+              *) echo "Skipping unknown asset: $name"; continue ;;
+            esac
+            curl -sfL \
+              -X POST \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "Content-Type: ${ctype}" \
+              --data-binary @"${file}" \
+              "${upload_url}?name=${name}"
+          done
+      - name: Verify release asset MIME types
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ github.ref_name }}"
+          release_id="$(gh api "repos/${{ github.repository }}/releases/tags/${tag}" --jq .id)"
+          gh api "repos/${{ github.repository }}/releases/${release_id}/assets" --paginate --jq '.[] | [.id,.name,.content_type] | @tsv' | while IFS=$'\t' read -r asset_id name content_type; do
+            case "$name" in
+              *.zip)
+                expected="application/zip"
+                ;;
+              *.AppImage)
+                expected="application/vnd.appimage"
+                ;;
+              *)
+                continue
+                ;;
+            esac
+            if [ "$content_type" != "$expected" ]; then
+              echo "Asset $name has content_type=$content_type; expected $expected" >&2
+              exit 1
+            fi
+          done

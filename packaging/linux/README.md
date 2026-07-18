@@ -1,13 +1,19 @@
 # Linux packaging notes
 
-- Linux remains manually buildable, but tagged releases publish only the Windows portable
-  zip so Python 1.x updaters cannot select an incompatible asset.
+- Tagged releases publish `P99LoginProxy-{version}-x86_64.AppImage` beside the Windows zip.
+- The AppImage is uploaded with MIME type `application/vnd.appimage`, so legacy v1 Windows
+  updaters ignore it even on mixed releases.
+- Native v2 Linux auto-update requires launching the AppImage so `$APPIMAGE` is set.
 - A fully static musl binary is not feasible because Tauri links system WebKitGTK.
-- The Python-style automatic installer is Windows-only. Linux users replace their binary
-  manually.
 - **Validation targets:** Ubuntu 24.04 LTS (GNOME Wayland/X11), current Fedora KDE
 
-Build with `npm run tauri build -- --target x86_64-unknown-linux-gnu --no-bundle`.
+Build the AppImage with:
+
+```bash
+npm run tauri build -- --target x86_64-unknown-linux-gnu --config src-tauri/tauri.linux.bundle.json
+```
+
+The bundle lands under `src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/`.
 
 ## Constraints
 
@@ -18,6 +24,7 @@ Build with `npm run tauri build -- --target x86_64-unknown-linux-gnu --no-bundle
 
 ## Beta checklist
 
-- [ ] Native executable launches on Ubuntu 24.04 Wayland
+- [ ] Native AppImage launches on Ubuntu 24.04 Wayland
+- [ ] AppImage self-update replaces the current `$APPIMAGE` path and relaunches
 - [ ] eqhost.txt read/write on user-selected prefix path
 - [ ] Launch EverQuest spawns `wine eqgame.exe patchme` when Wine is installed

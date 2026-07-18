@@ -118,6 +118,10 @@ pub struct ConfigFileV1 {
     pub prerelease_updates: bool,
     #[serde(default)]
     pub api_tokens: HashMap<String, String>,
+    #[serde(default)]
+    pub sso_backends: HashMap<String, String>,
+    #[serde(default = "default_sso_ca_bundle")]
+    pub sso_ca_bundle: String,
 }
 
 fn default_listen_host() -> String {
@@ -172,6 +176,46 @@ fn default_encryption_bytes() -> [u8; 8] {
     [0; 8]
 }
 
+fn default_sso_ca_bundle() -> String {
+    "True".to_string()
+}
+
+/// CA trust mode for SSO WebSocket TLS (Python ``_resolve_ca_mode``).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SsoCaBundleMode {
+    /// Bundled Mozilla/webpki roots (Python ``certifi`` default).
+    WebpkiRoots,
+    /// Platform trust store (Python ``system`` / ``False``).
+    System,
+    /// User-supplied PEM bundle path.
+    Custom(PathBuf),
+}
+
+impl SsoCaBundleMode {
+    pub fn custom_path(&self) -> Option<&Path> {
+        match self {
+            Self::Custom(path) => Some(path),
+            _ => None,
+        }
+    }
+}
+
+/// Resolve ``sso_ca_bundle`` from portable INI into a TLS trust mode.
+pub fn resolve_sso_ca_bundle(raw: &str) -> Result<SsoCaBundleMode, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("true") {
+        return Ok(SsoCaBundleMode::WebpkiRoots);
+    }
+    if trimmed.eq_ignore_ascii_case("false") || trimmed.eq_ignore_ascii_case("system") {
+        return Ok(SsoCaBundleMode::System);
+    }
+    let path = PathBuf::from(trimmed);
+    if !path.is_file() {
+        return Err(format!("SSO CA bundle not found: {}", path.display()));
+    }
+    Ok(SsoCaBundleMode::Custom(path))
+}
+
 impl Default for ConfigFileV1 {
     fn default() -> Self {
         Self {
@@ -204,6 +248,8 @@ impl Default for ConfigFileV1 {
             theme_mode: default_theme_mode(),
             prerelease_updates: false,
             api_tokens: HashMap::new(),
+            sso_backends: HashMap::new(),
+            sso_ca_bundle: default_sso_ca_bundle(),
         }
     }
 }
@@ -231,6 +277,7 @@ pub struct ValidatedConfig {
     pub skip_sso_accounts: Vec<String>,
     pub sso_backend: String,
     pub sso_verify_tls: bool,
+    pub sso_ca_bundle: SsoCaBundleMode,
     pub eq_directory: Option<PathBuf>,
     pub eq_directory_secondary: Option<PathBuf>,
     pub encryption_key: [u8; 8],
@@ -256,6 +303,8 @@ impl ValidatedConfig {
         }
         let (upstream_host, upstream_port) =
             crate::net_util::split_host_port(&file.upstream_host, file.upstream_port);
+        let sso_ca_bundle =
+            resolve_sso_ca_bundle(&file.sso_ca_bundle).map_err(ConfigError::Validation)?;
         Ok(Self {
             listen_host: file.listen_host.clone(),
             listen_port: file.listen_port,
@@ -270,6 +319,7 @@ impl ValidatedConfig {
             skip_sso_accounts: parse_skip_sso_accounts(&file.skip_sso_accounts),
             sso_backend: file.sso_backend.clone(),
             sso_verify_tls: file.sso_verify_tls,
+            sso_ca_bundle,
             eq_directory: file.eq_directory.as_ref().map(PathBuf::from),
             eq_directory_secondary: file.eq_directory_secondary.as_ref().map(PathBuf::from),
             encryption_key: file.encryption_key,
@@ -299,12 +349,48 @@ pub fn resolve_sso_api_url(file: &ConfigFileV1) -> String {
             return url.trim().to_string();
         }
     }
+    if let Some(url) = file.sso_backends.get(&file.sso_backend) {
+        if !url.trim().is_empty() {
+            return url.trim().to_string();
+        }
+    }
     match file.sso_backend.as_str() {
         "Good Guys" | "Marginal Threat" => "https://proxy.p99loginproxy.net".to_string(),
         "Kingdom" => "https://bot.kingdomdkp.com".to_string(),
         "Localhost" => "http://localhost:5998".to_string(),
         _ => String::new(),
     }
+}
+
+/// Built-in SSO backends merged with legacy ``[sso_backends]`` entries.
+pub fn list_sso_backend_options(file: &ConfigFileV1) -> Vec<(String, String)> {
+    let mut options: Vec<(String, String)> = SSO_BACKENDS
+        .iter()
+        .map(|(name, url)| ((*name).to_string(), (*url).to_string()))
+        .collect();
+
+    for (name, url) in &file.sso_backends {
+        if url.trim().is_empty() {
+            continue;
+        }
+        if let Some(existing) = options
+            .iter_mut()
+            .find(|(existing_name, _)| existing_name == name)
+        {
+            existing.1 = url.trim().to_string();
+        } else {
+            options.push((name.clone(), url.trim().to_string()));
+        }
+    }
+
+    if !file.sso_backend.trim().is_empty() {
+        let resolved = resolve_sso_api_url(file);
+        if !resolved.is_empty() && !options.iter().any(|(name, _)| name == &file.sso_backend) {
+            options.push((file.sso_backend.clone(), resolved));
+        }
+    }
+
+    options
 }
 
 pub fn load_config() -> Result<ConfigFileV1, ConfigError> {

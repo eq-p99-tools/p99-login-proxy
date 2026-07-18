@@ -91,6 +91,8 @@ function mockRuntime(
       heartbeat_character: null,
       proxy_mode: mode,
       eq_config_enabled: running,
+      eqhost_proxy_enabled: running,
+      eqclient_log_enabled: running,
       listen_address: bootstrap.listen_address,
       listen_port: bootstrap.listen_port,
       client_connected: false,

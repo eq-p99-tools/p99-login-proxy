@@ -1,10 +1,12 @@
 import type { ProxyLifecycle } from "../../ipc/schemas";
+import { tooltipProps } from "../../components/tooltip";
+import { eqConfigTooltip, proxyLifecycleTooltip } from "./proxyStatusTooltips";
 
 const LABELS: Record<ProxyLifecycle, string> = {
   stopped: "Stopped",
-  starting: "Starting…",
+  starting: "Starting",
   running: "Running",
-  stopping: "Stopping…",
+  stopping: "Stopping",
 };
 
 interface ProxyStatusBadgeProps {
@@ -17,7 +19,10 @@ export function ProxyStatusBadge({ lifecycle, compact = false }: ProxyStatusBadg
   const label = LABELS[state];
 
   return (
-    <span className={`status-badge status-${state}${compact ? " status-badge-compact" : ""}`}>
+    <span
+      className={`status-badge status-${state}${compact ? " status-badge-compact" : ""}`}
+      {...tooltipProps(proxyLifecycleTooltip(state))}
+    >
       <span className="status-dot" aria-hidden />
       {label}
     </span>
@@ -26,11 +31,20 @@ export function ProxyStatusBadge({ lifecycle, compact = false }: ProxyStatusBadg
 
 interface EqConfigBadgeProps {
   enabled: boolean;
+  eqhostProxyEnabled?: boolean;
+  eqclientLogEnabled?: boolean;
 }
 
-export function EqConfigBadge({ enabled }: EqConfigBadgeProps) {
+export function EqConfigBadge({
+  enabled,
+  eqhostProxyEnabled = enabled,
+  eqclientLogEnabled = enabled,
+}: EqConfigBadgeProps) {
   return (
-    <span className={`status-badge status-${enabled ? "enabled" : "disabled"}`}>
+    <span
+      className={`status-badge status-${enabled ? "enabled" : "disabled"}`}
+      {...tooltipProps(eqConfigTooltip(enabled, eqhostProxyEnabled, eqclientLogEnabled))}
+    >
       <span className="status-dot" aria-hidden />
       {enabled ? "Enabled" : "Disabled"}
     </span>

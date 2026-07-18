@@ -1,12 +1,13 @@
 /** Pure helpers for the SSO Characters table — mirrors Python count_display / readiness_by_class / ui.py. */
 
 import { zoneKeyToDisplay } from "./zoneTranslate";
+import { TOOLTIP_AFFIRMATIVE, TOOLTIP_NEGATIVE } from "../../components/tooltip";
+
+export { TOOLTIP_AFFIRMATIVE, TOOLTIP_NEGATIVE };
 
 export const TIER_EMOJI_LOTS = "\u{1F7E2}"; // 🟢
 export const TIER_EMOJI_SOME = "\u{1F7E1}"; // 🟡
 export const TIER_EMOJI_FEW = "\u{1F534}"; // 🔴
-export const TOOLTIP_AFFIRMATIVE = "\u2705"; // ✅
-export const TOOLTIP_NEGATIVE = "\u274C"; // ❌
 export const READINESS_UNKNOWN_MARK = "?";
 export const KEY_COLUMN_YES = TIER_EMOJI_LOTS;
 export const KEY_COLUMN_UNKNOWN = READINESS_UNKNOWN_MARK;

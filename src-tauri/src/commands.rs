@@ -1,7 +1,8 @@
 use proxy_core::model::BootstrapState;
 use proxy_core::{
-    config_file_path, load_config_file, load_local_data, save_config_file, save_local_accounts,
-    save_local_characters, ConfigFileV1, EqHostWriter, ProxyMode, SSO_BACKENDS,
+    config_file_path, list_sso_backend_options, load_config_file, load_local_data,
+    save_config_file, save_local_accounts, save_local_characters, ConfigFileV1, EqHostWriter,
+    ProxyMode,
 };
 use runtime::{LogLine, RuntimeStateView};
 use secrecy::ExposeSecret;
@@ -128,14 +129,12 @@ pub struct EqSettingsView {
 }
 
 #[tauri::command]
-pub fn get_sso_backends() -> Vec<SsoBackendOption> {
-    SSO_BACKENDS
-        .iter()
-        .map(|(name, url)| SsoBackendOption {
-            name: (*name).to_string(),
-            api_url: (*url).to_string(),
-        })
-        .collect()
+pub fn get_sso_backends() -> Result<Vec<SsoBackendOption>, String> {
+    let file = proxy_core::load_config().map_err(|e| e.to_string())?;
+    Ok(list_sso_backend_options(&file)
+        .into_iter()
+        .map(|(name, api_url)| SsoBackendOption { name, api_url })
+        .collect())
 }
 
 #[tauri::command]

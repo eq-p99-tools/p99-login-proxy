@@ -16,18 +16,22 @@ pub mod model;
 pub mod net_util;
 pub mod proxy_mode;
 pub mod proxyconfig_ini;
+pub mod release;
 pub mod zone_translate;
 
 pub use accounts_cache::AccountCache;
 pub use app_version::{version, version_string, window_title, APP_NAME};
 pub use class_translate::resolve_class;
 pub use config::{
-    config_file_path, load_config, load_config_file, parse_skip_sso_accounts, resolve_sso_api_url,
-    save_config_file, ConfigFileV1, ValidatedConfig, SSO_BACKENDS,
+    config_file_path, list_sso_backend_options, load_config, load_config_file,
+    parse_skip_sso_accounts, resolve_sso_api_url, resolve_sso_ca_bundle, save_config_file,
+    ConfigFileV1, SsoCaBundleMode, ValidatedConfig, SSO_BACKENDS,
 };
 pub use decision::{CredentialDecision, CredentialRouter};
 pub use eq_config::{
-    detect_rustle_ui, ensure_eqclient_log_enabled, get_client_settings, read_eqclient_log_enabled,
+    detect_rustle_ui, discover_and_persist_eq_directory, ensure_eqclient_log_enabled,
+    find_eq_directory, get_client_settings, is_valid_eq_directory, read_eqclient_log_enabled,
+    EqConfigStatus,
 };
 pub use eqhost::EqHostWriter;
 pub use inventory_parser::{
@@ -43,4 +47,9 @@ pub use model::*;
 pub use net_util::split_host_port;
 pub use proxy_mode::ProxyMode;
 pub use proxyconfig_ini::{parse_proxyconfig_ini, scrub_proxyconfig_tokens, write_proxyconfig_ini};
+pub use release::{
+    expected_linux_appimage_asset_name, expected_portable_exe_name,
+    expected_windows_zip_asset_name, parse_v2_release_tag, release_tag_is_prerelease,
+    validate_update_zip, ReleaseTagError,
+};
 pub use zone_translate::zone_to_zonekey;

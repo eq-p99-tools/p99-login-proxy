@@ -22,7 +22,8 @@ struct ProxyStatsInner {
     last_heartbeat_at_ms: Option<u64>,
     heartbeat_character: Option<String>,
     mode: ProxyMode,
-    eq_config_enabled: bool,
+    eqhost_proxy_enabled: bool,
+    eqclient_log_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -39,6 +40,8 @@ pub struct ProxyStatsView {
     pub heartbeat_character: Option<String>,
     pub proxy_mode: ProxyMode,
     pub eq_config_enabled: bool,
+    pub eqhost_proxy_enabled: bool,
+    pub eqclient_log_enabled: bool,
     pub listen_address: String,
     pub listen_port: u16,
     pub client_connected: bool,
@@ -58,7 +61,8 @@ impl Default for ProxyStatsTracker {
                 last_heartbeat_at_ms: None,
                 heartbeat_character: None,
                 mode: ProxyMode::Disabled,
-                eq_config_enabled: false,
+                eqhost_proxy_enabled: false,
+                eqclient_log_enabled: false,
             }),
         }
     }
@@ -77,8 +81,15 @@ impl ProxyStatsTracker {
         self.inner.lock().unwrap().start_time = None;
     }
 
+    pub fn set_eq_config_status(&self, eqhost_proxy_enabled: bool, eqclient_log_enabled: bool) {
+        let mut g = self.inner.lock().unwrap();
+        g.eqhost_proxy_enabled = eqhost_proxy_enabled;
+        g.eqclient_log_enabled = eqclient_log_enabled;
+    }
+
+    #[allow(dead_code)]
     pub fn set_eq_config_enabled(&self, enabled: bool) {
-        self.inner.lock().unwrap().eq_config_enabled = enabled;
+        self.set_eq_config_status(enabled, enabled);
     }
 
     pub fn connection_started(&self) {
@@ -136,7 +147,9 @@ impl ProxyStatsTracker {
             last_heartbeat_at_ms: g.last_heartbeat_at_ms,
             heartbeat_character: g.heartbeat_character.clone(),
             proxy_mode: g.mode,
-            eq_config_enabled: g.eq_config_enabled,
+            eq_config_enabled: g.eqhost_proxy_enabled && g.eqclient_log_enabled,
+            eqhost_proxy_enabled: g.eqhost_proxy_enabled,
+            eqclient_log_enabled: g.eqclient_log_enabled,
             listen_address: listen_address.to_string(),
             listen_port,
             client_connected,
@@ -197,5 +210,19 @@ mod tests {
         tracker.clear_uptime();
         let snap = tracker.snapshot("127.0.0.1", 5998, false);
         assert_eq!(snap.uptime_secs, 0);
+    }
+
+    #[test]
+    fn eq_config_enabled_requires_both_checks() {
+        let tracker = ProxyStatsTracker::default();
+        tracker.set_eq_config_status(true, false);
+        let snap = tracker.snapshot("127.0.0.1", 5998, false);
+        assert!(snap.eqhost_proxy_enabled);
+        assert!(!snap.eqclient_log_enabled);
+        assert!(!snap.eq_config_enabled);
+
+        tracker.set_eq_config_status(true, true);
+        let snap = tracker.snapshot("127.0.0.1", 5998, false);
+        assert!(snap.eq_config_enabled);
     }
 }

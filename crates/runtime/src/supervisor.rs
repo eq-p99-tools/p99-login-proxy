@@ -7,9 +7,10 @@ use std::time::Duration;
 use proxy_core::model::{ProxyLifecycle, WsConnectionState};
 use proxy_core::ProxyMode;
 use proxy_core::{
-    config_file_path, detect_rustle_ui, ensure_eqclient_log_enabled, get_client_settings,
-    load_config, load_local_data, resolve_sso_api_url, save_config_file, ConfigFileV1,
-    EqHostWriter, ValidatedConfig,
+    config_file_path, detect_rustle_ui, discover_and_persist_eq_directory,
+    ensure_eqclient_log_enabled, get_client_settings, load_config, load_local_data,
+    resolve_sso_api_url, resolve_sso_ca_bundle, save_config_file, ConfigFileV1, EqConfigStatus,
+    EqHostWriter, SsoCaBundleMode, ValidatedConfig,
 };
 
 use secrecy::ExposeSecret;
@@ -92,7 +93,7 @@ impl AppSupervisor {
 
         let config_path = config_file_path();
 
-        let file = match load_config() {
+        let mut file = match load_config() {
             Ok(f) => f,
             Err(e) => {
                 warn!("failed to load config ({e}); secrets/bootstrap may be incomplete");
@@ -100,9 +101,18 @@ impl AppSupervisor {
             }
         };
 
+        if let Some(ref path) = config_path {
+            let _ = discover_and_persist_eq_directory(&mut file, path);
+        }
+
         let persistent = PersistentSecretStore::new(config_path.clone());
         persistent.bootstrap_from_config(&file.api_tokens);
         let mut token_backends: Vec<String> = file.api_tokens.keys().cloned().collect();
+        for backend in file.sso_backends.keys() {
+            if !token_backends.iter().any(|name| name == backend) {
+                token_backends.push(backend.clone());
+            }
+        }
         if !token_backends.iter().any(|b| b == &file.sso_backend) {
             token_backends.push(file.sso_backend.clone());
         }
@@ -121,10 +131,13 @@ impl AppSupervisor {
                 }
                 Err(e) => {
                     warn!("config validation failed ({e}); using defaults for listen/upstream");
+                    let sso_ca_bundle = resolve_sso_ca_bundle(&file.sso_ca_bundle)
+                        .unwrap_or(SsoCaBundleMode::WebpkiRoots);
                     let cfg = ProxyRuntimeConfig {
                         sso_backend: sso_backend.clone(),
                         sso_api_url: sso_api,
                         sso_verify_tls: file.sso_verify_tls,
+                        sso_ca_bundle,
                         sso_timeout_secs: file.login_timeout_secs.max(1),
                         proxy_only: file.proxy_only,
                         skip_sso_accounts: proxy_core::parse_skip_sso_accounts(
@@ -255,10 +268,8 @@ impl AppSupervisor {
             .clone()
             .filter(|u| !u.trim().is_empty())
             .unwrap_or_else(|| {
-                let stub = ConfigFileV1 {
-                    sso_backend: backend.clone(),
-                    ..ConfigFileV1::default()
-                };
+                let mut stub = load_config().unwrap_or_default();
+                stub.sso_backend = backend.clone();
                 resolve_sso_api_url(&stub)
             });
         self.persist_config(|file| {
@@ -456,6 +467,8 @@ impl AppSupervisor {
 
             verify_tls: self.proxy_config.sso_verify_tls,
 
+            ca_bundle: self.proxy_config.sso_ca_bundle.clone(),
+
             timeout_secs: self.proxy_config.sso_timeout_secs,
 
             client_settings: self.client_settings_json(),
@@ -534,11 +547,14 @@ impl AppSupervisor {
         self.publish_runtime_state(None, None);
     }
 
-    fn eqhost_proxy_active(&self) -> bool {
+    fn eq_config_status(&self) -> EqConfigStatus {
         let Some(ref eq_dir) = self.eq_directory else {
-            return false;
+            return EqConfigStatus {
+                eqhost_proxy_enabled: false,
+                eqclient_log_enabled: false,
+            };
         };
-        EqHostWriter::is_proxy_enabled_in_directory(
+        EqConfigStatus::evaluate(
             eq_dir,
             &self.proxy_config.listen_host,
             self.proxy_config.listen_port,
@@ -550,7 +566,11 @@ impl AppSupervisor {
         lifecycle: Option<ProxyLifecycle>,
         listen_addr: Option<SocketAddr>,
     ) {
-        self.stats.set_eq_config_enabled(self.eqhost_proxy_active());
+        let eq_status = self.eq_config_status();
+        self.stats.set_eq_config_status(
+            eq_status.eqhost_proxy_enabled,
+            eq_status.eqclient_log_enabled,
+        );
         let mut snap = self.snapshot_tx.borrow().clone();
         if let Some(state) = lifecycle {
             set_lifecycle(&mut snap, state);

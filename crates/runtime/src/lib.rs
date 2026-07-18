@@ -8,6 +8,7 @@ pub mod log_watcher;
 pub mod proxy;
 pub mod proxy_stats;
 pub mod secrets;
+pub mod sso_tls;
 pub mod status;
 pub mod supervisor;
 pub mod udp;

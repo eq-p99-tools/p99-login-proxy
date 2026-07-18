@@ -5,7 +5,10 @@ use std::time::Duration;
 
 use chrono::{Local, NaiveTime, TimeZone};
 use futures_util::StreamExt;
-use proxy_core::{load_config, version, version_string};
+use proxy_core::{
+    expected_linux_appimage_asset_name, expected_windows_zip_asset_name, load_config, version,
+    version_string,
+};
 use pulldown_cmark::{html, Options, Parser};
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -60,6 +63,7 @@ struct GitHubRelease {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 struct GitHubAsset {
     name: String,
     content_type: String,
@@ -315,34 +319,27 @@ pub(crate) fn emit_update_check_info(app: &AppHandle, result: &UpdateCheckResult
     );
 }
 
-const ZIP_CONTENT_TYPES: &[&str] = &[
-    "application/x-zip-compressed",
-    "application/zip",
-    "application/octet-stream",
-];
 const STABLE_EXE_NAME: &str = "P99LoginProxy.exe";
 
-fn select_zip_asset(release: &ParsedRelease) -> Option<&GitHubAsset> {
-    release.assets.iter().find(|asset| {
-        ZIP_CONTENT_TYPES.contains(&asset.content_type.as_str())
-            || asset.name.to_ascii_lowercase().ends_with(".zip")
-    })
+fn expected_update_asset_name(version: &Version) -> String {
+    if cfg!(windows) {
+        expected_windows_zip_asset_name(version)
+    } else if cfg!(target_os = "linux") {
+        expected_linux_appimage_asset_name(version)
+    } else {
+        String::new()
+    }
 }
 
-/// Download the selected release and replace the portable executable.
-///
-/// Returns the path to launch after the caller has shut down the proxy.
-#[cfg(windows)]
-pub async fn install_update(app: &AppHandle, version: &str) -> Result<PathBuf, String> {
-    let target = parse_version(version)?;
-    let releases = fetch_releases().await?;
-    let release = releases
-        .iter()
-        .find(|release| release.version == target)
-        .ok_or_else(|| format!("GitHub release v{target} was not found"))?;
-    let asset =
-        select_zip_asset(release).ok_or_else(|| format!("Release v{target} has no zip asset"))?;
+fn select_update_asset(release: &ParsedRelease) -> Option<&GitHubAsset> {
+    let expected = expected_update_asset_name(&release.version);
+    if expected.is_empty() {
+        return None;
+    }
+    release.assets.iter().find(|asset| asset.name == expected)
+}
 
+async fn download_release_asset(app: &AppHandle, asset: &GitHubAsset) -> Result<Vec<u8>, String> {
     let client = github_client()?;
     let mut request = client.get(&asset.browser_download_url);
     if let Some(auth) = github_auth() {
@@ -366,13 +363,38 @@ pub async fn install_update(app: &AppHandle, version: &str) -> Result<PathBuf, S
             serde_json::json!({"downloaded": bytes.len(), "total": total}),
         );
     }
-
-    replace_portable_executable(&bytes)
+    Ok(bytes)
 }
 
-#[cfg(not(windows))]
-pub async fn install_update(_app: &AppHandle, _version: &str) -> Result<PathBuf, String> {
-    Err("Automatic updates are only supported by the portable Windows build.".to_string())
+/// Download the selected release and replace the portable executable.
+///
+/// Returns the path to launch after the caller has shut down the proxy.
+pub async fn install_update(app: &AppHandle, version: &str) -> Result<PathBuf, String> {
+    let target = parse_version(version)?;
+    let releases = fetch_releases().await?;
+    let release = releases
+        .iter()
+        .find(|release| release.version == target)
+        .ok_or_else(|| format!("GitHub release v{target} was not found"))?;
+    let expected = expected_update_asset_name(&target);
+    let asset = select_update_asset(release)
+        .ok_or_else(|| format!("Release v{target} is missing asset '{expected}'"))?;
+
+    let bytes = download_release_asset(app, asset).await?;
+
+    #[cfg(windows)]
+    {
+        replace_portable_executable(&bytes)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        replace_appimage(&bytes)
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        let _ = bytes;
+        Err("Automatic updates are not supported on this platform.".into())
+    }
 }
 
 #[cfg(windows)]
@@ -401,6 +423,81 @@ fn replace_portable_executable(zip_bytes: &[u8]) -> Result<PathBuf, String> {
         return Err(error);
     }
     Ok(current_exe)
+}
+
+#[cfg(target_os = "linux")]
+fn replace_appimage(bytes: &[u8]) -> Result<PathBuf, String> {
+    let appimage_path = std::env::var("APPIMAGE").map_err(|_| {
+        "Automatic updates require launching the AppImage. Download the latest AppImage from GitHub instead.".to_string()
+    })?;
+    let target = PathBuf::from(&appimage_path);
+    let parent = target
+        .parent()
+        .ok_or_else(|| "AppImage path has no parent directory".to_string())?;
+    if !is_directory_writable(parent)? {
+        return Err(format!(
+            "Cannot update AppImage in {} because the directory is not writable.",
+            parent.display()
+        ));
+    }
+
+    let partial = parent.join(format!(
+        ".P99LoginProxy-{}-x86_64.AppImage.partial",
+        version_string()
+    ));
+    let backup = parent.join(format!(
+        "P99LoginProxy-{}-x86_64.AppImage.bak",
+        version_string()
+    ));
+    if partial.exists() {
+        std::fs::remove_file(&partial).map_err(|error| error.to_string())?;
+    }
+    std::fs::write(&partial, bytes)
+        .map_err(|error| format!("Could not write downloaded AppImage: {error}"))?;
+    set_executable(&partial)?;
+
+    if backup.exists() {
+        std::fs::remove_file(&backup).map_err(|error| error.to_string())?;
+    }
+    if target.exists() {
+        std::fs::rename(&target, &backup)
+            .map_err(|error| format!("Failed to back up current AppImage: {error}"))?;
+    }
+
+    if let Err(error) = std::fs::rename(&partial, &target) {
+        if backup.exists() && !target.exists() {
+            let _ = std::fs::rename(&backup, &target);
+        }
+        return Err(format!("Could not install downloaded AppImage: {error}"));
+    }
+    Ok(target)
+}
+
+#[cfg(target_os = "linux")]
+fn set_executable(path: &Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut perms = std::fs::metadata(path)
+        .map_err(|error| error.to_string())?
+        .permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(path, perms).map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn is_directory_writable(path: &Path) -> Result<bool, String> {
+    let probe = path.join(format!(".p99-write-test-{}", std::process::id()));
+    match std::fs::File::create(&probe) {
+        Ok(_) => {
+            let _ = std::fs::remove_file(probe);
+            Ok(true)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => Ok(false),
+        Err(error) => Err(format!(
+            "Could not verify write access to {}: {error}",
+            path.display()
+        )),
+    }
 }
 
 fn extract_first_zip_member(zip_bytes: &[u8], destination: &Path) -> Result<PathBuf, String> {
@@ -466,33 +563,70 @@ mod tests {
     use super::*;
 
     #[test]
-    fn selects_first_zip_like_asset() {
+    fn selects_exact_windows_zip_asset() {
         let release = ParsedRelease {
-            version: Version::new(2, 0, 1),
+            version: Version::parse("2.0.1").unwrap(),
             body: String::new(),
             prerelease: false,
             assets: vec![
                 GitHubAsset {
-                    name: "notes.txt".to_string(),
-                    content_type: "text/plain".to_string(),
-                    browser_download_url: "notes".to_string(),
+                    name: "P99LoginProxy-2.0.1-x86_64.AppImage".to_string(),
+                    content_type: "application/vnd.appimage".to_string(),
+                    browser_download_url: "appimage".to_string(),
                 },
                 GitHubAsset {
                     name: "P99LoginProxy-2.0.1.zip".to_string(),
                     content_type: "application/octet-stream".to_string(),
-                    browser_download_url: "first".to_string(),
+                    browser_download_url: "zip".to_string(),
+                },
+            ],
+        };
+        #[cfg(windows)]
+        assert_eq!(
+            select_update_asset(&release).map(|asset| asset.browser_download_url.as_str()),
+            Some("zip")
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn selects_exact_linux_appimage_asset() {
+        let release = ParsedRelease {
+            version: Version::parse("2.0.1").unwrap(),
+            body: String::new(),
+            prerelease: false,
+            assets: vec![
+                GitHubAsset {
+                    name: "P99LoginProxy-2.0.1.zip".to_string(),
+                    content_type: "application/zip".to_string(),
+                    browser_download_url: "zip".to_string(),
                 },
                 GitHubAsset {
-                    name: "other.zip".to_string(),
-                    content_type: "application/zip".to_string(),
-                    browser_download_url: "second".to_string(),
+                    name: "P99LoginProxy-2.0.1-x86_64.AppImage".to_string(),
+                    content_type: "application/vnd.appimage".to_string(),
+                    browser_download_url: "appimage".to_string(),
                 },
             ],
         };
         assert_eq!(
-            select_zip_asset(&release).map(|asset| asset.browser_download_url.as_str()),
-            Some("first")
+            select_update_asset(&release).map(|asset| asset.browser_download_url.as_str()),
+            Some("appimage")
         );
+    }
+
+    #[test]
+    fn ignores_misleading_zip_like_assets_without_exact_name() {
+        let release = ParsedRelease {
+            version: Version::parse("2.0.1").unwrap(),
+            body: String::new(),
+            prerelease: false,
+            assets: vec![GitHubAsset {
+                name: "other.zip".to_string(),
+                content_type: "application/zip".to_string(),
+                browser_download_url: "wrong".to_string(),
+            }],
+        };
+        assert!(select_update_asset(&release).is_none());
     }
 
     #[test]
@@ -521,5 +655,25 @@ mod tests {
         let archive = zip.finish().unwrap().into_inner();
         let dir = tempfile::tempdir().unwrap();
         assert!(extract_first_zip_member(&archive, dir.path()).is_err());
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn replaces_appimage_with_backup_and_executable_mode() {
+        let dir = tempfile::tempdir().unwrap();
+        let appimage = dir.path().join("P99LoginProxy.AppImage");
+        std::fs::write(&appimage, b"old").unwrap();
+        std::env::set_var("APPIMAGE", &appimage);
+
+        let launch = replace_appimage(b"new").unwrap();
+        assert_eq!(launch, appimage);
+        assert_eq!(std::fs::read(&appimage).unwrap(), b"new");
+        let mode = std::fs::metadata(&appimage).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o755);
+        let backup = dir.path().join(format!(
+            "P99LoginProxy-{}-x86_64.AppImage.bak",
+            version_string()
+        ));
+        assert_eq!(std::fs::read(backup).unwrap(), b"old");
     }
 }

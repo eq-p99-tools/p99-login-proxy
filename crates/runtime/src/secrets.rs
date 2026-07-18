@@ -223,26 +223,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bootstrap_from_config_marks_backend_as_having_token() {
-        let mut api_tokens = HashMap::new();
-        api_tokens.insert(
-            "Marginal Threat".to_string(),
-            "SealNonchalantSide".to_string(),
-        );
-        api_tokens.insert(
-            "Localhost".to_string(),
-            "ReportFrailTrailSticky".to_string(),
-        );
-
-        let store = PersistentSecretStore::new(None);
-        let migration_store = SessionSecretStore::default();
-        store.migrate_from_config_with(&api_tokens, &migration_store);
-
-        assert!(store.has_token("Marginal Threat"));
-        assert!(store.has_token("Localhost"));
-    }
-
-    #[test]
     fn scrubs_tokens_from_ini_after_bootstrap() {
         let raw = r#"[DEFAULT]
 sso_api_name = Marginal Threat
@@ -267,5 +247,78 @@ Localhost = ReportFrailTrailSticky
         assert!(!written.contains("user_api_token"));
         assert!(!written.contains("SealNonchalantSide"));
         assert!(!written.contains("ReportFrailTrailSticky"));
+    }
+
+    struct PartialFailStore {
+        fail_backend: String,
+        inner: SessionSecretStore,
+    }
+
+    impl SecretStore for PartialFailStore {
+        fn store_token(&self, backend: &str, token: &str) -> Result<(), SecretError> {
+            if backend == self.fail_backend {
+                return Err(SecretError::Unavailable);
+            }
+            self.inner.store_token(backend, token)
+        }
+
+        fn load_token(&self, backend: &str) -> Result<Option<SecretString>, SecretError> {
+            self.inner.load_token(backend)
+        }
+
+        fn clear_token(&self, backend: &str) -> Result<(), SecretError> {
+            self.inner.clear_token(backend)
+        }
+
+        fn has_token(&self, backend: &str) -> bool {
+            self.inner.has_token(backend)
+        }
+    }
+
+    #[test]
+    fn bootstrap_from_config_marks_backend_as_having_token() {
+        let mut api_tokens = HashMap::new();
+        api_tokens.insert(
+            "Marginal Threat".to_string(),
+            "SealNonchalantSide".to_string(),
+        );
+        api_tokens.insert(
+            "Localhost".to_string(),
+            "ReportFrailTrailSticky".to_string(),
+        );
+
+        let store = PersistentSecretStore::new(None);
+        let migration_store = SessionSecretStore::default();
+        store.migrate_from_config_with(&api_tokens, &migration_store);
+
+        assert!(store.has_token("Marginal Threat"));
+        assert!(store.has_token("Localhost"));
+    }
+
+    #[test]
+    fn does_not_scrub_ini_when_keyring_migration_partially_fails() {
+        let raw = r#"[DEFAULT]
+sso_api_name = Marginal Threat
+
+[api_tokens]
+Marginal Threat = SealNonchalantSide
+Localhost = ReportFrailTrailSticky
+"#;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("proxyconfig.ini");
+        std::fs::write(&path, raw).unwrap();
+
+        let file = proxy_core::load_config_file(&path).unwrap();
+        let store = PersistentSecretStore::new(Some(path.clone()));
+        let migration_store = PartialFailStore {
+            fail_backend: "Localhost".to_string(),
+            inner: SessionSecretStore::default(),
+        };
+        store.migrate_from_config_with(&file.api_tokens, &migration_store);
+
+        assert!(store.has_token("Marginal Threat"));
+        let written = std::fs::read_to_string(path).unwrap();
+        assert!(written.contains("SealNonchalantSide"));
+        assert!(written.contains("ReportFrailTrailSticky"));
     }
 }

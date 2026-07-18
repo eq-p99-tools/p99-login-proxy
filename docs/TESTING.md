@@ -30,7 +30,12 @@ Run `npm run tauri dev` and verify:
 9. **Persistence** — restart app: proxy mode, token, dark mode, always-on-top, launch settings restored
 10. **Exit** — tray Exit restores eqhost.txt from backup when proxy was enabled
 11. **Portable files** — settings update exe-adjacent `proxyconfig.ini`; token values migrate to the keyring and disappear from the INI; CSVs and `proxy.log` use the configured/exe-adjacent paths
-12. **Updater** — a staging zip containing `P99LoginProxy-{version}.exe` replaces `P99LoginProxy.exe`, keeps a versioned backup, and relaunches
+12. **Updater** — Windows: `P99LoginProxy-{version}.zip` replaces `P99LoginProxy.exe`, keeps a versioned backup, and relaunches. Linux AppImage: `P99LoginProxy-{version}-x86_64.AppImage` replaces the current `$APPIMAGE` path and relaunches.
+
+Automated migration coverage lives in `tests/fixtures/v1_portable/` and Rust tests for INI,
+CSV, token migration, EQ discovery, custom SSO backends, and CA bundle parsing. **Full
+v1→v2 migration is not verified for production until the RC matrix in
+[`docs/RELEASE.md`](RELEASE.md) passes.**
 
 ## Manual test with real EverQuest (proxy-only / passthrough)
 

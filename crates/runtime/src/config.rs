@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use protocol::crypto::DesKeyIv;
 use proxy_core::accounts::LocalAccountStore;
 use proxy_core::characters::LocalCharacterStore;
+use proxy_core::SsoCaBundleMode;
 use secrecy::SecretString;
 
 /// Runtime configuration for the live UDP login proxy.
@@ -22,6 +23,7 @@ pub struct ProxyRuntimeConfig {
     pub sso_api_url: String,
     pub sso_timeout_secs: u64,
     pub sso_verify_tls: bool,
+    pub sso_ca_bundle: SsoCaBundleMode,
     pub client_version: String,
 }
 
@@ -43,6 +45,7 @@ impl ProxyRuntimeConfig {
             sso_api_url,
             sso_timeout_secs: validated.login_timeout_secs,
             sso_verify_tls: validated.sso_verify_tls,
+            sso_ca_bundle: validated.sso_ca_bundle.clone(),
             client_version: proxy_core::version_string().to_string(),
         }
     }
@@ -86,6 +89,7 @@ impl Default for ProxyRuntimeConfig {
             sso_api_url: "https://proxy.p99loginproxy.net".to_string(),
             sso_timeout_secs: 15,
             sso_verify_tls: true,
+            sso_ca_bundle: SsoCaBundleMode::WebpkiRoots,
             client_version: proxy_core::version_string().to_string(),
         }
     }

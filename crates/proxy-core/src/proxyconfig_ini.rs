@@ -43,6 +43,16 @@ pub fn parse_proxyconfig_ini(path: &Path) -> Result<ConfigFileV1, ConfigError> {
     }
     seed_p99_proxy_legacy_tokens(&mut api_tokens, path, default);
 
+    let mut sso_backends = HashMap::new();
+    if let Some(section) = ini.section(Some("sso_backends")) {
+        for (key, value) in section.iter() {
+            let name = normalize_backend_name(key);
+            if !value.trim().is_empty() {
+                sso_backends.insert(name, value.trim().to_string());
+            }
+        }
+    }
+
     // rust-ini treats backslashes as escapes; read path fields from the raw file.
     let eq_directory = read_raw_default_value(path, "eq_directory")
         .or_else(|| optional_str(default, "eq_directory"));
@@ -97,6 +107,8 @@ pub fn parse_proxyconfig_ini(path: &Path) -> Result<ConfigFileV1, ConfigError> {
         theme_mode,
         prerelease_updates: get_bool(default, "opt_into_prereleases", false),
         api_tokens,
+        sso_backends,
+        sso_ca_bundle: get_str(default, "sso_ca_bundle", "True"),
     })
 }
 
@@ -213,6 +225,7 @@ fn managed_default_values(file: &ConfigFileV1) -> Vec<(&'static str, Option<Stri
         ("sso_api_name", Some(file.sso_backend.clone())),
         ("sso_api", file.sso_api_url.clone()),
         ("sso_verify_tls", Some(python_bool(file.sso_verify_tls))),
+        ("sso_ca_bundle", Some(file.sso_ca_bundle.clone())),
         ("sso_timeout", Some(file.login_timeout_secs.to_string())),
         ("eq_directory", file.eq_directory.clone()),
         (
