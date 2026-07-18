@@ -65,10 +65,7 @@ where
 
 /// ``proxy.log`` keeps durable INFO+ lines; DEBUG stays in memory only (Python parity).
 fn should_persist_to_file(level: &Level) -> bool {
-    matches!(
-        level,
-        &Level::ERROR | &Level::WARN | &Level::INFO
-    )
+    matches!(level, &Level::ERROR | &Level::WARN | &Level::INFO)
 }
 
 #[derive(Default)]

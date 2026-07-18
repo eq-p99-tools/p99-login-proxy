@@ -1,4 +1,4 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 
 use std::collections::HashSet;
 
@@ -49,9 +49,7 @@ impl ProxyRuntimeConfig {
 }
 
 /// True when the configured listen host is loopback-only (`127.0.0.1` / `localhost`).
-pub fn is_loopback_host(host: &str) -> bool {
-    host == "localhost" || host.parse::<Ipv4Addr>().is_ok_and(|a| a.is_loopback())
-}
+pub use proxy_core::config::is_loopback as is_loopback_host;
 
 /// Pick a bind address that can reach *upstream*.
 ///

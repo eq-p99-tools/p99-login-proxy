@@ -18,13 +18,12 @@ pub mod proxy_mode;
 pub mod proxyconfig_ini;
 pub mod zone_translate;
 
-pub use app_version::{version, version_string, window_title, APP_NAME};
 pub use accounts_cache::AccountCache;
+pub use app_version::{version, version_string, window_title, APP_NAME};
 pub use class_translate::resolve_class;
 pub use config::{
-    config_file_path, load_config, load_config_file,
-    parse_skip_sso_accounts, resolve_sso_api_url, save_config_file, ConfigFileV1, ValidatedConfig,
-    SSO_BACKENDS,
+    config_file_path, load_config, load_config_file, parse_skip_sso_accounts, resolve_sso_api_url,
+    save_config_file, ConfigFileV1, ValidatedConfig, SSO_BACKENDS,
 };
 pub use decision::{CredentialDecision, CredentialRouter};
 pub use eq_config::{
@@ -43,7 +42,5 @@ pub use logs::{character_from_log_path, is_raid_target, LogEvent, LogEventKind, 
 pub use model::*;
 pub use net_util::split_host_port;
 pub use proxy_mode::ProxyMode;
-pub use proxyconfig_ini::{
-    parse_proxyconfig_ini, scrub_proxyconfig_tokens, write_proxyconfig_ini,
-};
+pub use proxyconfig_ini::{parse_proxyconfig_ini, scrub_proxyconfig_tokens, write_proxyconfig_ini};
 pub use zone_translate::zone_to_zonekey;

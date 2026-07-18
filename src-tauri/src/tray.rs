@@ -115,12 +115,12 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<bool> {
         .tooltip(APP_NAME)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "toggle" => {
-                if is_main_window_visible(&app) {
+                if is_main_window_visible(app) {
                     let _ = hide_window(app.clone());
                 } else {
                     let _ = show_window(app.clone());
                 }
-                update_toggle_menu_label(&app);
+                update_toggle_menu_label(app);
             }
             "launch_eq" => {
                 let app = app.clone();
@@ -157,21 +157,21 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<bool> {
                     ..
                 } => {
                     let _ = show_window(app.clone());
-                    update_toggle_menu_label(&app);
+                    update_toggle_menu_label(app);
                 }
                 TrayIconEvent::DoubleClick {
                     button: MouseButton::Left,
                     ..
                 } => {
-                    if is_main_window_visible(&app) {
+                    if is_main_window_visible(app) {
                         let _ = hide_window(app.clone());
                     } else {
                         let _ = show_window(app.clone());
                     }
-                    update_toggle_menu_label(&app);
+                    update_toggle_menu_label(app);
                 }
                 TrayIconEvent::Enter { .. } | TrayIconEvent::Move { .. } => {
-                    update_toggle_menu_label(&app);
+                    update_toggle_menu_label(app);
                 }
                 _ => {}
             }

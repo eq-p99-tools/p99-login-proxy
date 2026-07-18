@@ -15,12 +15,12 @@ regex.workspace = true
 csv.workspace = true
 directories.workspace = true
 secrecy.workspace = true
-zeroize.workspace = true
-url.workspace = true
 toml.workspace = true
 rust-ini.workspace = true
-uuid.workspace = true
 semver.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+
+[lints]
+workspace = true

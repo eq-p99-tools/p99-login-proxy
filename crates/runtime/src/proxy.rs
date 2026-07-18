@@ -295,7 +295,7 @@ impl LoginProxyEngine {
                     &mut self.session,
                     self.config.des_key_iv,
                 ) {
-                    if apply_sso_retry_outcome(&outcome, &mut actions) {
+                    if apply_sso_retry_outcome(outcome, &mut actions) {
                         return actions;
                     }
                 }
@@ -312,17 +312,13 @@ impl LoginProxyEngine {
                     &mut self.session,
                     self.config.des_key_iv,
                 ) {
-                    if apply_sso_retry_outcome(&outcome, &mut actions) {
+                    if apply_sso_retry_outcome(outcome, &mut actions) {
                         return actions;
                     }
                 }
                 let mut buf = data.to_vec();
                 self.session.recv_packet(&mut buf, start, None);
-                if start == 0 && len == buf.len() {
-                    actions.send_client.push(buf);
-                } else {
-                    actions.send_client.push(buf[start..start + len].to_vec());
-                }
+                actions.send_client.push(slice_forward(buf, start, len));
             }
             x if x == TransportOp::Fragment as u16 => {
                 if let Some(filtered) = self.session.recv_fragment(data, start, Some(len)) {
@@ -332,21 +328,26 @@ impl LoginProxyEngine {
             x if x == TransportOp::Ack as u16 => {
                 let mut buf = data.to_vec();
                 self.session.adjust_server_ack(&mut buf, start);
-                if start == 0 && len == buf.len() {
-                    actions.send_client.push(buf);
-                } else {
-                    actions.send_client.push(buf[start..start + len].to_vec());
-                }
+                actions.send_client.push(slice_forward(buf, start, len));
             }
             _ => {
-                if start == 0 && len == data.len() {
-                    actions.send_client.push(data.to_vec());
-                } else {
-                    actions.send_client.push(data[start..start + len].to_vec());
-                }
+                actions
+                    .send_client
+                    .push(slice_forward(data.to_vec(), start, len));
             }
         }
         actions
+    }
+}
+
+/// Forward `buf` to the client, slicing to the sub-range `[start, start + len)`
+/// only when it is not already the whole buffer (avoids a copy for standalone
+/// datagrams that were extracted from a Combined container).
+fn slice_forward(buf: Vec<u8>, start: usize, len: usize) -> Vec<u8> {
+    if start == 0 && len == buf.len() {
+        buf
+    } else {
+        buf[start..start + len].to_vec()
     }
 }
 
@@ -357,32 +358,33 @@ fn opcode_name(op: u16) -> &'static str {
 }
 
 /// Apply SSO bad-password intercept. Returns ``true`` when the caller should stop processing.
-fn apply_sso_retry_outcome(outcome: &RetryOutcome, actions: &mut ProxyActions) -> bool {
-    match outcome.notice {
-        Some(SsoRetryNotice::MissingOriginalLogin { server_seq }) => {
-            error!(
-                server_seq,
-                "SSO bad-password detected but no original Login captured; cannot retry, forwarding instead"
-            );
-            false
-        }
-        Some(SsoRetryNotice::Retried { server_seq }) => {
-            warn!(
-                server_seq,
-                "SSO password rejected by server; retrying with original client credentials"
-            );
-            actions.send_client.extend(outcome.forward_subs.clone());
-            actions.send_upstream.extend(outcome.server_messages.clone());
-            actions.sso_retry_fired = true;
-            true
-        }
-        None => {
-            actions.send_client.extend(outcome.forward_subs.clone());
-            actions.send_upstream.extend(outcome.server_messages.clone());
-            actions.sso_retry_fired = true;
-            true
-        }
+fn apply_sso_retry_outcome(outcome: RetryOutcome, actions: &mut ProxyActions) -> bool {
+    let RetryOutcome {
+        forward_subs,
+        server_messages,
+        notice,
+        ..
+    } = outcome;
+
+    if let Some(SsoRetryNotice::MissingOriginalLogin { server_seq }) = notice {
+        error!(
+            server_seq,
+            "SSO bad-password detected but no original Login captured; cannot retry, forwarding instead"
+        );
+        return false;
     }
+
+    if let Some(SsoRetryNotice::Retried { server_seq }) = notice {
+        warn!(
+            server_seq,
+            "SSO password rejected by server; retrying with original client credentials"
+        );
+    }
+
+    actions.send_client.extend(forward_subs);
+    actions.send_upstream.extend(server_messages);
+    actions.sso_retry_fired = true;
+    true
 }
 
 /// Pending async SSO credential resolution.
@@ -412,7 +414,9 @@ pub struct ProxyActions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use protocol::soe::{build_disconnect, build_keepalive, build_session_request, build_session_response};
+    use protocol::soe::{
+        build_disconnect, build_keepalive, build_session_request, build_session_response,
+    };
 
     #[test]
     fn client_keepalive_forwards_upstream() {
@@ -463,10 +467,28 @@ mod tests {
         let client: SocketAddr = "127.0.0.1:50000".parse().unwrap();
         let mut engine =
             LoginProxyEngine::new(ProxyRuntimeConfig::default(), ProxyLocalData::default());
-        engine.on_datagram(&build_keepalive().to_vec(), client, upstream);
-        let actions = engine.on_datagram(&build_disconnect().to_vec(), client, upstream);
+        engine.on_datagram(build_keepalive().as_ref(), client, upstream);
+        let actions = engine.on_datagram(build_disconnect().as_ref(), client, upstream);
         assert!(actions.connection_completed);
         assert_eq!(actions.send_upstream.len(), 1);
+    }
+
+    #[test]
+    fn short_seq_bearing_datagrams_do_not_panic() {
+        let upstream: SocketAddr = "127.0.0.1:5998".parse().unwrap();
+        let client: SocketAddr = "127.0.0.1:50000".parse().unwrap();
+        let mut engine =
+            LoginProxyEngine::new(ProxyRuntimeConfig::default(), ProxyLocalData::default());
+
+        // 2-byte Ack, Packet, and Fragment opcodes are too short to carry a
+        // sequence field; they must not panic the seq rewrite helpers.
+        for opcode in [TransportOp::Ack, TransportOp::Packet, TransportOp::Fragment] {
+            let short = (opcode as u16).to_be_bytes().to_vec();
+            let client_actions = engine.on_datagram(&short, client, upstream);
+            assert!(client_actions.send_client.is_empty());
+            let server_actions = engine.on_datagram(&short, upstream, upstream);
+            assert!(server_actions.send_upstream.is_empty());
+        }
     }
 
     #[test]

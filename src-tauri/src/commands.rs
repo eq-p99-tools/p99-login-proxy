@@ -451,11 +451,7 @@ pub async fn reset_eqhost_backup(state: State<'_, AppState>) -> Result<EqSetting
             .cloned()
             .ok_or("EverQuest directory not configured")?;
         let cfg = sup.proxy_config();
-        (
-            eq_dir,
-            cfg.upstream_host.clone(),
-            cfg.upstream_port,
-        )
+        (eq_dir, cfg.upstream_host.clone(), cfg.upstream_port)
     };
     EqHostWriter::reset_eqhost_backup(&eq_dir, &upstream_host, upstream_port)
         .map_err(|e| e.to_string())?;
@@ -482,7 +478,8 @@ pub async fn restore_eqhost_backup(state: State<'_, AppState>) -> Result<EqSetti
         // stop_proxy (via Disabled) restores eqhost.txt from the backup file.
         sup.set_proxy_mode_selection(ProxyMode::Disabled).await?;
     } else {
-        EqHostWriter::disable_proxy(&eq_dir, "127.0.0.1", listen_port).map_err(|e| e.to_string())?;
+        EqHostWriter::disable_proxy(&eq_dir, "127.0.0.1", listen_port)
+            .map_err(|e| e.to_string())?;
         sup.set_proxy_mode_selection(ProxyMode::Disabled).await?;
     }
     sup.touch_snapshot();
@@ -618,7 +615,9 @@ fn spawn_eqgame_detached(exe: &std::path::Path, dir: &std::path::Path) -> Result
     Ok(())
 }
 
+// The single FFI call in the app: elevate/launch the EQ client via ShellExecuteW.
 #[cfg(windows)]
+#[allow(unsafe_code)]
 fn shell_execute_eq(
     exe: &std::path::Path,
     dir: &std::path::Path,
@@ -649,7 +648,7 @@ fn shell_execute_eq(
             file.as_ptr(),
             params.as_ptr(),
             cwd.as_ptr(),
-            SW_SHOWDEFAULT as i32,
+            SW_SHOWDEFAULT,
         )
     };
     if result as isize <= 32 {

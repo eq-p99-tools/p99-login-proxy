@@ -191,7 +191,10 @@ mod tests {
 
         let info_up = store.recent_at_level("INFO", 10);
         assert_eq!(
-            info_up.iter().map(|l| l.message.as_str()).collect::<Vec<_>>(),
+            info_up
+                .iter()
+                .map(|l| l.message.as_str())
+                .collect::<Vec<_>>(),
             vec!["first", "third"]
         );
     }

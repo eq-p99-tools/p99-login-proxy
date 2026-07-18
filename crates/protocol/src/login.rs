@@ -65,16 +65,20 @@ pub fn encrypt_login_credentials(username: &str, password: &str, key_iv: DesKeyI
 
 fn decrypt_credentials(encrypted: &[u8], key_iv: DesKeyIv) -> Option<(String, String)> {
     let decrypted = des_decrypt(encrypted, key_iv).ok()?;
-    let trimmed: Vec<u8> = decrypted.iter().copied().take_while(|&b| b != 0).collect();
-    let parts: Vec<&[u8]> = decrypted
-        .split(|&b| b == 0)
-        .filter(|p| !p.is_empty())
-        .collect();
-    let username = String::from_utf8_lossy(parts.first().copied().unwrap_or(&trimmed)).to_string();
-    let password = parts
-        .get(1)
-        .map(|p| String::from_utf8_lossy(p).to_string())
-        .unwrap_or_default();
+    // Wire format is `username\0password\0`. Split positionally on the first two
+    // NULs so an empty username is preserved rather than promoting the password
+    // into the username slot.
+    let first_nul = decrypted.iter().position(|&b| b == 0);
+    let (username_bytes, rest) = match first_nul {
+        Some(idx) => (&decrypted[..idx], &decrypted[idx + 1..]),
+        None => (&decrypted[..], &decrypted[decrypted.len()..]),
+    };
+    let password_bytes = match rest.iter().position(|&b| b == 0) {
+        Some(idx) => &rest[..idx],
+        None => rest,
+    };
+    let username = String::from_utf8_lossy(username_bytes).to_string();
+    let password = String::from_utf8_lossy(password_bytes).to_string();
     Some((username, password))
 }
 
@@ -185,6 +189,23 @@ pub fn is_bad_password_login_result(app_payload: &[u8], key_iv: DesKeyIv) -> boo
     decrypted[12..].iter().all(|&b| b == 0)
 }
 
+/// Build an Ack transport sub-packet (`opcode || seq`).
+fn ack_sub(seq: u16) -> Vec<u8> {
+    let mut sub = Vec::with_capacity(4);
+    sub.extend_from_slice(&(TransportOp::Ack as u16).to_be_bytes());
+    sub.extend_from_slice(&seq.to_be_bytes());
+    sub
+}
+
+/// Build a Packet transport sub-packet (`opcode || seq || payload`).
+fn packet_sub(seq: u16, payload: &[u8]) -> Vec<u8> {
+    let mut sub = Vec::with_capacity(4 + payload.len());
+    sub.extend_from_slice(&(TransportOp::Packet as u16).to_be_bytes());
+    sub.extend_from_slice(&seq.to_be_bytes());
+    sub.extend_from_slice(payload);
+    sub
+}
+
 pub fn build_login_combined(username: &str, password: &str, key_iv: DesKeyIv) -> Vec<u8> {
     let encrypted = encrypt_login_credentials(username, password, key_iv);
     let mut base_flat = Vec::new();
@@ -196,14 +217,7 @@ pub fn build_login_combined(username: &str, password: &str, key_iv: DesKeyIv) ->
     app_payload.extend_from_slice(&(AppOp::Login as u16).to_le_bytes());
     app_payload.extend_from_slice(&base_flat);
     app_payload.extend_from_slice(&encrypted);
-    let mut packet_sub = Vec::new();
-    packet_sub.extend_from_slice(&(TransportOp::Packet as u16).to_be_bytes());
-    packet_sub.extend_from_slice(&1u16.to_be_bytes());
-    packet_sub.extend_from_slice(&app_payload);
-    let mut ack_sub = Vec::new();
-    ack_sub.extend_from_slice(&(TransportOp::Ack as u16).to_be_bytes());
-    ack_sub.extend_from_slice(&0u16.to_be_bytes());
-    build_combined(&[&ack_sub, &packet_sub])
+    build_combined(&[&ack_sub(0), &packet_sub(1, &app_payload)])
 }
 
 pub fn build_login_accepted_combined(
@@ -227,14 +241,7 @@ pub fn build_login_accepted_combined(
     app_payload.extend_from_slice(&(AppOp::LoginAccepted as u16).to_le_bytes());
     app_payload.extend_from_slice(&base_flat);
     app_payload.extend_from_slice(&encrypted);
-    let mut packet_sub = Vec::new();
-    packet_sub.extend_from_slice(&(TransportOp::Packet as u16).to_be_bytes());
-    packet_sub.extend_from_slice(&server_seq.to_be_bytes());
-    packet_sub.extend_from_slice(&app_payload);
-    let mut ack_sub = Vec::new();
-    ack_sub.extend_from_slice(&(TransportOp::Ack as u16).to_be_bytes());
-    ack_sub.extend_from_slice(&1u16.to_be_bytes());
-    build_combined(&[&ack_sub, &packet_sub])
+    build_combined(&[&ack_sub(1), &packet_sub(server_seq, &app_payload)])
 }
 
 pub fn build_combined_ack_then_packet(
@@ -242,12 +249,38 @@ pub fn build_combined_ack_then_packet(
     packet_seq: u16,
     app_payload: &[u8],
 ) -> Vec<u8> {
-    let mut ack_sub = Vec::new();
-    ack_sub.extend_from_slice(&(TransportOp::Ack as u16).to_be_bytes());
-    ack_sub.extend_from_slice(&ack_seq.to_be_bytes());
-    let mut packet_sub = Vec::new();
-    packet_sub.extend_from_slice(&(TransportOp::Packet as u16).to_be_bytes());
-    packet_sub.extend_from_slice(&packet_seq.to_be_bytes());
-    packet_sub.extend_from_slice(app_payload);
-    build_combined(&[&ack_sub, &packet_sub])
+    build_combined(&[&ack_sub(ack_seq), &packet_sub(packet_seq, app_payload)])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decrypt_round_trips_username_and_password() {
+        let key_iv = DesKeyIv::default();
+        let encrypted = encrypt_login_credentials("player", "secret", key_iv);
+        let (username, password) = decrypt_credentials(&encrypted, key_iv).unwrap();
+        assert_eq!(username, "player");
+        assert_eq!(password, "secret");
+    }
+
+    #[test]
+    fn decrypt_preserves_empty_username() {
+        let key_iv = DesKeyIv::default();
+        let encrypted = encrypt_login_credentials("", "secret", key_iv);
+        let (username, password) = decrypt_credentials(&encrypted, key_iv).unwrap();
+        assert_eq!(username, "");
+        assert_eq!(password, "secret");
+    }
+
+    #[test]
+    fn decrypt_handles_missing_password_terminator() {
+        let key_iv = DesKeyIv::default();
+        // `username\0password` with no trailing NUL still yields both fields.
+        let encrypted = des_encrypt(b"player\0secret", key_iv);
+        let (username, password) = decrypt_credentials(&encrypted, key_iv).unwrap();
+        assert_eq!(username, "player");
+        assert_eq!(password, "secret");
+    }
 }

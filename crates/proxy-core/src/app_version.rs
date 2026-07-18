@@ -3,8 +3,7 @@ use std::sync::LazyLock;
 use semver::Version;
 
 static APP_VERSION: LazyLock<Version> = LazyLock::new(|| {
-    Version::parse(env!("CARGO_PKG_VERSION"))
-        .expect("CARGO_PKG_VERSION must be valid semver")
+    Version::parse(env!("CARGO_PKG_VERSION")).expect("CARGO_PKG_VERSION must be valid semver")
 });
 
 pub const APP_NAME: &str = "P99 Login Proxy";

@@ -402,7 +402,7 @@ pub fn save_local_characters_to(
     out.push('\n');
 
     let mut chars: Vec<_> = store.list();
-    chars.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    chars.sort_by_key(|a| a.name.to_lowercase());
 
     for ch in chars {
         let items = &ch.items;

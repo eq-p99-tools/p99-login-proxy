@@ -108,7 +108,7 @@ pub struct ConfigFileV1 {
     pub upstream_host: String,
     #[serde(default = "default_upstream_port")]
     pub upstream_port: u16,
-    #[serde(default)]
+    #[serde(default = "default_login_timeout_secs")]
     pub login_timeout_secs: u64,
     #[serde(default = "default_dark_mode")]
     pub dark_mode: bool,
@@ -283,7 +283,8 @@ impl ValidatedConfig {
     }
 }
 
-fn is_loopback(host: &str) -> bool {
+/// True when `host` is loopback-only (`127.0.0.1` / `localhost`).
+pub fn is_loopback(host: &str) -> bool {
     host == "localhost" || host.parse::<Ipv4Addr>().is_ok_and(|a| a.is_loopback())
 }
 

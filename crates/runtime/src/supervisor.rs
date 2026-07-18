@@ -86,7 +86,7 @@ impl AppSupervisor {
     ) {
         let cancel = CancellationToken::new();
 
-        let (snapshot_tx, snapshot_rx) = watch::channel(RuntimeSnapshot::default());
+        let (snapshot_tx, snapshot_rx) = crate::status::snapshot_channel();
 
         let (event_tx, event_rx) = mpsc::channel(EVENT_CAPACITY);
 
@@ -121,16 +121,19 @@ impl AppSupervisor {
                 }
                 Err(e) => {
                     warn!("config validation failed ({e}); using defaults for listen/upstream");
-                    let mut cfg = ProxyRuntimeConfig::default();
-                    cfg.sso_backend = sso_backend.clone();
-                    cfg.sso_api_url = sso_api;
-                    cfg.sso_verify_tls = file.sso_verify_tls;
-                    cfg.sso_timeout_secs = file.login_timeout_secs.max(1);
-                    cfg.proxy_only = file.proxy_only;
-                    cfg.skip_sso_accounts =
-                        proxy_core::parse_skip_sso_accounts(&file.skip_sso_accounts)
-                            .into_iter()
-                            .collect();
+                    let cfg = ProxyRuntimeConfig {
+                        sso_backend: sso_backend.clone(),
+                        sso_api_url: sso_api,
+                        sso_verify_tls: file.sso_verify_tls,
+                        sso_timeout_secs: file.login_timeout_secs.max(1),
+                        proxy_only: file.proxy_only,
+                        skip_sso_accounts: proxy_core::parse_skip_sso_accounts(
+                            &file.skip_sso_accounts,
+                        )
+                        .into_iter()
+                        .collect(),
+                        ..ProxyRuntimeConfig::default()
+                    };
                     let eq_directory = file.eq_directory.as_ref().map(PathBuf::from);
                     let eq_directory_secondary =
                         file.eq_directory_secondary.as_ref().map(PathBuf::from);
@@ -268,7 +271,7 @@ impl AppSupervisor {
         self.proxy_config.sso_backend = backend;
         self.proxy_config.sso_api_url = resolved_url;
         let _ = self.secrets.load_token(&self.sso_backend);
-        self.refresh_bootstrap_token_flag();
+        self.sync_bootstrap_token_flag();
         self.restart_ws().await;
         if was_running {
             if let Some(udp) = self.udp.take() {
@@ -305,12 +308,13 @@ impl AppSupervisor {
     fn eq_install_roots(&self) -> Vec<PathBuf> {
         let mut roots = Vec::new();
         let mut seen = std::collections::HashSet::new();
-        for dir in [&self.eq_directory, &self.eq_directory_secondary] {
-            if let Some(path) = dir {
-                let key = path.display().to_string().to_lowercase();
-                if seen.insert(key) && path.is_dir() {
-                    roots.push(path.clone());
-                }
+        for path in [&self.eq_directory, &self.eq_directory_secondary]
+            .into_iter()
+            .flatten()
+        {
+            let key = path.display().to_string().to_lowercase();
+            if seen.insert(key) && path.is_dir() {
+                roots.push(path.clone());
             }
         }
         roots
@@ -354,7 +358,7 @@ impl AppSupervisor {
             .store_token(&self.sso_backend, token)
             .map_err(|e| e.to_string())?;
 
-        self.refresh_bootstrap_token_flag();
+        self.sync_bootstrap_token_flag();
 
         self.restart_ws().await;
 
@@ -366,7 +370,7 @@ impl AppSupervisor {
             .clear_token(&self.sso_backend)
             .map_err(|e| e.to_string())?;
 
-        self.refresh_bootstrap_token_flag();
+        self.sync_bootstrap_token_flag();
 
         self.stop_ws().await;
 
@@ -375,10 +379,6 @@ impl AppSupervisor {
 
     pub fn sso_client(&self) -> Option<crate::websocket::SsoClient> {
         self.ws.as_ref().map(|w| w.client())
-    }
-
-    fn refresh_bootstrap_token_flag(&self) {
-        self.sync_bootstrap_token_flag();
     }
 
     /// Re-read the SSO token flag from secrets and push it into the runtime snapshot.
@@ -550,8 +550,7 @@ impl AppSupervisor {
         lifecycle: Option<ProxyLifecycle>,
         listen_addr: Option<SocketAddr>,
     ) {
-        self.stats
-            .set_eq_config_enabled(self.eqhost_proxy_active());
+        self.stats.set_eq_config_enabled(self.eqhost_proxy_active());
         let mut snap = self.snapshot_tx.borrow().clone();
         if let Some(state) = lifecycle {
             set_lifecycle(&mut snap, state);

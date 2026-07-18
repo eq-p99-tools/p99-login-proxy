@@ -12,6 +12,12 @@ version = "2.0.0-rc1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -21,15 +27,12 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
 tokio-util = "0.7"
 uuid = { version = "1", features = ["v4"] }
-url = "2"
 toml = "0.8"
 base64 = "0.22"
 regex = "1"
 csv = "1"
 directories = "6"
 secrecy = { version = "0.10", features = ["serde"] }
-zeroize = "1"
-socket2 = "0.5"
 futures-util = "0.3"
 des = "0.8"
 cbc = "0.1"

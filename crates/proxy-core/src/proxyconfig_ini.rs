@@ -295,61 +295,56 @@ fn parse_encryption_bytes(raw: &str) -> Option<[u8; 8]> {
     Some(bytes)
 }
 
-/// Read a ``[DEFAULT]`` key without INI escape processing (Windows paths keep ``\``).
-fn read_raw_default_value(ini_path: &Path, key: &str) -> Option<String> {
-    let content = std::fs::read_to_string(ini_path).ok()?;
-    let mut in_default = true;
+/// Visit every ``key = value`` assignment in a raw INI file without INI escape
+/// processing (so Windows paths keep their ``\``).
+///
+/// The visitor receives the current section name (empty string for the implicit
+/// top-of-file / ``[DEFAULT]`` region) plus the trimmed key and value. Blank
+/// lines and ``#``/``;`` comments are skipped. Does nothing if the file cannot
+/// be read.
+fn for_each_raw_assignment<F: FnMut(&str, &str, &str)>(ini_path: &Path, mut visit: F) {
+    let Ok(content) = std::fs::read_to_string(ini_path) else {
+        return;
+    };
+    let mut section = String::new();
     for line in content.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') {
             continue;
         }
         if trimmed.starts_with('[') && trimmed.ends_with(']') {
-            in_default = trimmed.eq_ignore_ascii_case("[default]");
+            section = trimmed[1..trimmed.len() - 1].trim().to_string();
             continue;
         }
-        if !in_default {
-            continue;
-        }
-        if let Some((k, v)) = trimmed.split_once('=') {
-            if k.trim().eq_ignore_ascii_case(key) {
-                let value = v.trim();
-                if !value.is_empty() {
-                    return Some(value.to_string());
-                }
-            }
+        if let Some((key, value)) = trimmed.split_once('=') {
+            visit(&section, key.trim(), value.trim());
         }
     }
-    None
+}
+
+/// Read a ``[DEFAULT]`` key without INI escape processing (Windows paths keep ``\``).
+fn read_raw_default_value(ini_path: &Path, key: &str) -> Option<String> {
+    let mut found = None;
+    for_each_raw_assignment(ini_path, |section, k, v| {
+        if found.is_some() {
+            return;
+        }
+        let is_default = section.is_empty() || section.eq_ignore_ascii_case("default");
+        if is_default && k.eq_ignore_ascii_case(key) && !v.is_empty() {
+            found = Some(v.to_string());
+        }
+    });
+    found
 }
 
 /// Parse ``[api_tokens]`` directly from the file (keys may contain spaces).
 fn read_raw_api_tokens_section(ini_path: &Path) -> HashMap<String, String> {
     let mut tokens = HashMap::new();
-    let Ok(content) = std::fs::read_to_string(ini_path) else {
-        return tokens;
-    };
-    let mut in_section = false;
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') {
-            continue;
+    for_each_raw_assignment(ini_path, |section, key, value| {
+        if section.eq_ignore_ascii_case("api_tokens") && !value.is_empty() {
+            tokens.insert(normalize_backend_name(key), value.to_string());
         }
-        if trimmed.starts_with('[') && trimmed.ends_with(']') {
-            in_section = trimmed.eq_ignore_ascii_case("[api_tokens]");
-            continue;
-        }
-        if !in_section {
-            continue;
-        }
-        if let Some((key, value)) = trimmed.split_once('=') {
-            let name = normalize_backend_name(key.trim());
-            let token = value.trim();
-            if !token.is_empty() {
-                tokens.insert(name, token.to_string());
-            }
-        }
-    }
+    });
     tokens
 }
 
@@ -367,32 +362,14 @@ fn seed_p99_proxy_legacy_tokens(
     default: Option<&ini::Properties>,
 ) {
     let mut legacy_token: Option<String> = None;
-    let Ok(content) = std::fs::read_to_string(ini_path) else {
-        return;
-    };
-    let mut in_section = false;
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') {
-            continue;
+    for_each_raw_assignment(ini_path, |section, key, value| {
+        if section.eq_ignore_ascii_case("api_tokens")
+            && (key == "P99 Login Proxy" || key == "P99 Login Proxy (GG)")
+            && !value.is_empty()
+        {
+            legacy_token = Some(value.to_string());
         }
-        if trimmed.starts_with('[') && trimmed.ends_with(']') {
-            in_section = trimmed.eq_ignore_ascii_case("[api_tokens]");
-            continue;
-        }
-        if in_section {
-            if let Some((key, value)) = trimmed.split_once('=') {
-                let name = key.trim();
-                if name == "P99 Login Proxy" || name == "P99 Login Proxy (GG)" {
-                    let token = value.trim();
-                    if !token.is_empty() {
-                        legacy_token = Some(token.to_string());
-                    }
-                }
-            }
-            continue;
-        }
-    }
+    });
     let backend_name = read_raw_default_value(ini_path, "sso_api_name")
         .or_else(|| default.and_then(|s| s.get("sso_api_name").map(str::to_string)))
         .unwrap_or_default();
@@ -435,7 +412,7 @@ fn optional_str(section: Option<&ini::Properties>, key: &str) -> Option<String> 
 fn get_bool(section: Option<&ini::Properties>, key: &str, default: bool) -> bool {
     section
         .and_then(|s| s.get(key))
-        .and_then(|v| parse_bool(v))
+        .and_then(parse_bool)
         .unwrap_or(default)
 }
 

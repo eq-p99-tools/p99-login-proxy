@@ -64,11 +64,25 @@ pub fn transport_opcode(data: &[u8]) -> u16 {
     u16::from_be_bytes([data[0], data[1]])
 }
 
+/// Read the 2-byte big-endian sequence at `offset + 2`.
+///
+/// Datagrams arrive from the network with arbitrary length, so a buffer too
+/// short to hold the sequence field yields 0 rather than panicking.
 pub fn get_sequence(data: &[u8], offset: usize) -> u16 {
+    if data.len() < offset + 4 {
+        return 0;
+    }
     u16::from_be_bytes([data[offset + 2], data[offset + 3]])
 }
 
+/// Write the 2-byte big-endian sequence at `offset + 2`.
+///
+/// No-op when `buf` is too short to hold the sequence field, so truncated or
+/// malformed datagrams cannot panic the proxy task.
 pub fn set_sequence(buf: &mut [u8], offset: usize, seq: u16) {
+    if buf.len() < offset + 4 {
+        return;
+    }
     let bytes = seq.to_be_bytes();
     buf[offset + 2] = bytes[0];
     buf[offset + 3] = bytes[1];

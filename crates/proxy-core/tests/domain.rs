@@ -119,9 +119,17 @@ fn eqhost_manual_write() {
 fn eqhost_directory_proxy_detection() {
     let dir = TempDir::new().unwrap();
     std::fs::write(dir.path().join("eqgame.exe"), b"").unwrap();
-    assert!(!EqHostWriter::is_proxy_enabled_in_directory(dir.path(), "127.0.0.1", 5998));
+    assert!(!EqHostWriter::is_proxy_enabled_in_directory(
+        dir.path(),
+        "127.0.0.1",
+        5998
+    ));
     EqHostWriter::enable_proxy(dir.path(), "127.0.0.1", 5998).unwrap();
-    assert!(EqHostWriter::is_proxy_enabled_in_directory(dir.path(), "127.0.0.1", 5998));
+    assert!(EqHostWriter::is_proxy_enabled_in_directory(
+        dir.path(),
+        "127.0.0.1",
+        5998
+    ));
 }
 
 #[test]
@@ -129,7 +137,11 @@ fn eqhost_proxy_detection_maps_bind_all_to_loopback() {
     let dir = TempDir::new().unwrap();
     std::fs::write(dir.path().join("eqgame.exe"), b"").unwrap();
     EqHostWriter::enable_proxy(dir.path(), "127.0.0.1", 6790).unwrap();
-    assert!(EqHostWriter::is_proxy_enabled_in_directory(dir.path(), "0.0.0.0", 6790));
+    assert!(EqHostWriter::is_proxy_enabled_in_directory(
+        dir.path(),
+        "0.0.0.0",
+        6790
+    ));
 }
 
 #[test]
@@ -138,10 +150,7 @@ fn eqhost_reset_backup_writes_default_login_server() {
     std::fs::write(dir.path().join("eqgame.exe"), b"").unwrap();
     EqHostWriter::reset_eqhost_backup(dir.path(), "login.eqemulator.net", 5998).unwrap();
     let backup = std::fs::read_to_string(dir.path().join("eqhost.txt.bak")).unwrap();
-    assert_eq!(
-        backup,
-        "[LoginServer]\nHost=login.eqemulator.net:5998\n"
-    );
+    assert_eq!(backup, "[LoginServer]\nHost=login.eqemulator.net:5998\n");
 }
 
 #[test]
@@ -155,20 +164,17 @@ fn eqhost_reset_backup_overwrites_existing() {
     .unwrap();
     EqHostWriter::reset_eqhost_backup(dir.path(), "login.eqemulator.net", 5998).unwrap();
     let backup = std::fs::read_to_string(dir.path().join("eqhost.txt.bak")).unwrap();
-    assert_eq!(
-        backup,
-        "[LoginServer]\nHost=login.eqemulator.net:5998\n"
-    );
+    assert_eq!(backup, "[LoginServer]\nHost=login.eqemulator.net:5998\n");
 }
 
 #[test]
 fn eqhost_proxy_detection_accepts_localhost_line() {
     let dir = TempDir::new().unwrap();
     std::fs::write(dir.path().join("eqgame.exe"), b"").unwrap();
-    EqHostWriter::write_eqhost(
+    EqHostWriter::write_eqhost(dir.path(), "[LoginServer]\nHost=localhost:6790\n").unwrap();
+    assert!(EqHostWriter::is_proxy_enabled_in_directory(
         dir.path(),
-        "[LoginServer]\nHost=localhost:6790\n",
-    )
-    .unwrap();
-    assert!(EqHostWriter::is_proxy_enabled_in_directory(dir.path(), "0.0.0.0", 6790));
+        "0.0.0.0",
+        6790
+    ));
 }

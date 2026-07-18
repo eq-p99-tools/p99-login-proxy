@@ -72,9 +72,7 @@ impl EqHostWriter {
     }
 
     pub fn default_login_server_file_content(login_host: &str, login_port: u16) -> String {
-        format!(
-            "[LoginServer]\nHost={login_host}:{login_port}\n"
-        )
+        format!("[LoginServer]\nHost={login_host}:{login_port}\n")
     }
 
     pub fn reset_eqhost_backup(
@@ -105,11 +103,7 @@ impl EqHostWriter {
         })
     }
 
-    pub fn is_proxy_enabled_in_directory(
-        dir: &Path,
-        listen_host: &str,
-        listen_port: u16,
-    ) -> bool {
+    pub fn is_proxy_enabled_in_directory(dir: &Path, listen_host: &str, listen_port: u16) -> bool {
         Self::read_eqhost(dir)
             .map(|text| Self::has_active_proxy_line(&text, listen_host, listen_port))
             .unwrap_or(false)

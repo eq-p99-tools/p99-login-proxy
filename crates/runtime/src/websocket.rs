@@ -7,7 +7,6 @@ use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
 use proxy_core::AccountCache;
 use secrecy::{ExposeSecret, SecretString};
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::{oneshot, Mutex, RwLock};
 use tokio_tungstenite::tungstenite::Message;
@@ -95,13 +94,11 @@ impl SsoClient {
             return Err("not connected to send channel".into());
         };
         let text = serde_json::to_string(value).map_err(|e| e.to_string())?;
-        let result = write
-            .lock()
-            .await
+        let mut guard = write.lock().await;
+        guard
             .send(Message::Text(text.into()))
             .await
-            .map_err(|e| e.to_string());
-        result
+            .map_err(|e| e.to_string())
     }
 
     pub async fn request_login_auth(&self, username: &str) -> LoginAuthResult {
@@ -127,12 +124,7 @@ impl SsoClient {
             "username": username,
         });
         if let Err(e) = self.send_json(&outbound).await {
-            let rid = outbound
-                .get("request_id")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
-            self.inner.pending.lock().await.remove(&rid);
+            self.inner.pending.lock().await.remove(&request_id);
             return LoginAuthResult {
                 real_user: None,
                 encrypted_credentials: None,
@@ -150,13 +142,7 @@ impl SsoClient {
             },
             Err(_) => {
                 warn!(username = %username, "login_auth request timed out");
-                self.inner.pending.lock().await.remove(
-                    &outbound
-                        .get("request_id")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_string(),
-                );
+                self.inner.pending.lock().await.remove(&request_id);
                 LoginAuthResult {
                     real_user: None,
                     encrypted_credentials: None,
@@ -318,11 +304,9 @@ async fn run_ws_loop(
 
         if config.api_url.is_empty() || token.expose_secret().is_empty() {
             notify_state(&on_state, WsStateEvent::Parked);
-            loop {
-                tokio::select! {
-                    _ = cancel.cancelled() => return,
-                    _ = tokio::time::sleep(Duration::from_secs(30)) => break,
-                }
+            tokio::select! {
+                _ = cancel.cancelled() => return,
+                _ = tokio::time::sleep(Duration::from_secs(30)) => {}
             }
             continue;
         }
@@ -479,25 +463,13 @@ fn format_delta_summary(msg: &Value) -> String {
     changes
         .iter()
         .map(|change| {
-            let action = change
-                .get("action")
-                .and_then(Value::as_str)
-                .unwrap_or("?");
-            let account = change
-                .get("account")
-                .and_then(Value::as_str)
-                .unwrap_or("?");
+            let action = change.get("action").and_then(Value::as_str).unwrap_or("?");
+            let account = change.get("account").and_then(Value::as_str).unwrap_or("?");
             if action == "update" {
                 let fields = change
                     .get("fields")
                     .and_then(Value::as_object)
-                    .map(|fields| {
-                        fields
-                            .keys()
-                            .cloned()
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    })
+                    .map(|fields| fields.keys().cloned().collect::<Vec<_>>().join(", "))
                     .unwrap_or_default();
                 format!("update {account} ({fields})")
             } else {
@@ -673,47 +645,6 @@ impl rustls::client::danger::ServerCertVerifier for NoVerifier {
             rustls::SignatureScheme::ED25519,
         ]
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum WsOutbound {
-    Auth {
-        access_key: String,
-        client_version: String,
-        #[serde(default)]
-        client_settings: Value,
-    },
-    LoginAuth {
-        request_id: String,
-        username: String,
-    },
-    Pong,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum WsInbound {
-    FullState {
-        account_tree: Value,
-        #[serde(default)]
-        dynamic_tag_zones: Vec<String>,
-        #[serde(default)]
-        dynamic_tag_classes: Vec<String>,
-    },
-    LoginAuthResponse {
-        request_id: String,
-        #[serde(default)]
-        real_user: Option<String>,
-        #[serde(default)]
-        encrypted_credentials: Option<String>,
-        #[serde(default)]
-        error: Option<String>,
-    },
-    Ping,
-    Error {
-        message: String,
-    },
 }
 
 #[cfg(test)]

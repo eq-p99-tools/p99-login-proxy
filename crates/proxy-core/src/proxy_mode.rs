@@ -3,16 +3,12 @@ use serde::{Deserialize, Serialize};
 /// Three-state proxy mode matching the Python UI combo box.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ProxyMode {
     EnabledSso,
     EnabledProxyOnly,
+    #[default]
     Disabled,
-}
-
-impl Default for ProxyMode {
-    fn default() -> Self {
-        Self::Disabled
-    }
 }
 
 impl ProxyMode {

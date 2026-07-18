@@ -58,7 +58,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(app_state)
         .setup(|app| {
-            apply_main_window_title(&app.handle());
+            apply_main_window_title(app.handle());
             let tray_ok = setup_tray(app.handle()).unwrap_or(false);
             if let Some(state) = app.try_state::<AppState>() {
                 state.set_tray_available(tray_ok);

@@ -109,7 +109,10 @@ pub async fn check_for_updates(notify_no_update: bool) -> UpdateCheckResult {
             false,
             None,
             if notify_no_update {
-                format!("Version: {}\n\nCould not retrieve release information.", version_string())
+                format!(
+                    "Version: {}\n\nCould not retrieve release information.",
+                    version_string()
+                )
             } else {
                 "Could not retrieve release information.".into()
             },
@@ -129,7 +132,10 @@ pub async fn check_for_updates(notify_no_update: bool) -> UpdateCheckResult {
             false,
             None,
             if notify_no_update {
-                format!("Version: {}\n\nCould not retrieve release information.", version_string())
+                format!(
+                    "Version: {}\n\nCould not retrieve release information.",
+                    version_string()
+                )
             } else {
                 "No releases found.".into()
             },
