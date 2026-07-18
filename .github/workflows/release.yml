@@ -142,6 +142,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
           path: release-assets
@@ -151,8 +153,10 @@ jobs:
           find release-assets -type f \( -name '*.zip' -o -name '*.AppImage' \) -exec cp {} upload/ \;
           ls -la upload
       - name: Create draft release
+        id: release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name }}
           name: "P99 Login Proxy ${{ github.ref_name }}"
           draft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
@@ -161,8 +165,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="${{ github.ref_name }}"
-          upload_url="$(gh api "repos/${{ github.repository }}/releases/tags/${tag}" --jq .upload_url | sed 's/{.*//')"
+          upload_url="${{ steps.release.outputs.upload_url }}"
+          upload_url="${upload_url%\{*}"
+          if [ -z "$upload_url" ]; then
+            echo "Release upload URL missing from create step" >&2
+            exit 1
+          fi
           for file in upload/*; do
             name="$(basename "$file")"
             case "$name" in
@@ -170,6 +178,7 @@ jobs:
               *.AppImage) ctype="application/vnd.appimage" ;;
               *) echo "Skipping unknown asset: $name"; continue ;;
             esac
+            echo "Uploading $name as $ctype"
             curl -sfL \
               -X POST \
               -H "Authorization: Bearer ${GH_TOKEN}" \
@@ -182,8 +191,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="${{ github.ref_name }}"
-          release_id="$(gh api "repos/${{ github.repository }}/releases/tags/${tag}" --jq .id)"
+          release_id="${{ steps.release.outputs.id }}"
+          if [ -z "$release_id" ]; then
+            echo "Release id missing from create step" >&2
+            exit 1
+          fi
           gh api "repos/${{ github.repository }}/releases/${release_id}/assets" --paginate --jq '.[] | [.id,.name,.content_type] | @tsv' | while IFS=$'\t' read -r asset_id name content_type; do
             case "$name" in
               *.zip)
