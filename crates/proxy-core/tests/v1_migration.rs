@@ -55,11 +55,12 @@ fn fixture_csvs_load_in_python_format() {
     assert!(accounts.resolve("alias1").is_some());
 
     let characters = load_local_characters(&dir.join("local_characters.csv")).unwrap();
-    let names: Vec<_> = characters
+    let mut names: Vec<_> = characters
         .list()
         .into_iter()
         .map(|character| character.name)
         .collect();
+    names.sort();
     assert_eq!(names, vec!["Alice".to_string(), "Bob".to_string()]);
 }
 
