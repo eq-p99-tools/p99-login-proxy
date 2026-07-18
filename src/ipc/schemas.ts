@@ -118,6 +118,7 @@ export const SsoAccountsSchema = z.object({
 export const LocalAccountSchema = z.object({
   alias: z.string(),
   username: z.string(),
+  password: z.string().default(""),
 });
 
 export const LocalCharacterItemValueSchema = z.union([z.boolean(), z.number(), z.null()]);

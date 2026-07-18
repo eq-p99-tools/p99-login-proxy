@@ -43,7 +43,7 @@ impl ProxyRuntimeConfig {
             sso_api_url,
             sso_timeout_secs: validated.login_timeout_secs,
             sso_verify_tls: validated.sso_verify_tls,
-            client_version: proxy_core::SSO_CLIENT_VERSION.to_string(),
+            client_version: proxy_core::version_string().to_string(),
         }
     }
 }
@@ -88,7 +88,7 @@ impl Default for ProxyRuntimeConfig {
             sso_api_url: "https://proxy.p99loginproxy.net".to_string(),
             sso_timeout_secs: 15,
             sso_verify_tls: true,
-            client_version: proxy_core::SSO_CLIENT_VERSION.to_string(),
+            client_version: proxy_core::version_string().to_string(),
         }
     }
 }
@@ -154,9 +154,9 @@ mod tests {
 
     #[test]
     fn sso_client_version_meets_v2_contract() {
-        assert_eq!(proxy_core::SSO_CLIENT_VERSION, "2.0.0-rc1");
+        assert!(proxy_core::version().major >= 2);
         let cfg = super::ProxyRuntimeConfig::default();
-        assert_eq!(cfg.client_version, "2.0.0-rc1");
+        assert_eq!(cfg.client_version, proxy_core::version_string());
     }
 
     #[test]

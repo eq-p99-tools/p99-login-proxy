@@ -27,10 +27,12 @@ import {
   normalizeAccountTree,
   searchCharacters,
   sortCharacters,
+  sortLocalAccounts,
   ssoAccountsSummary,
   type AccountTree,
   type CharacterRow,
   type CharacterSortKey,
+  type LocalAccountSortKey,
 } from "./roster";
 import {
   CHARACTER_HEADER_TOOLTIPS,
@@ -74,6 +76,8 @@ export function SsoPanel() {
   const [sortAsc, setSortAsc] = useState(true);
   const [localSortKey, setLocalSortKey] = useState<LocalCharacterSortKey>("class");
   const [localSortAsc, setLocalSortAsc] = useState(true);
+  const [localAccountSortKey, setLocalAccountSortKey] = useState<LocalAccountSortKey>("name");
+  const [localAccountSortAsc, setLocalAccountSortAsc] = useState(true);
   const [selectedLocalAccount, setSelectedLocalAccount] = useState<string | null>(null);
   const [selectedLocalChar, setSelectedLocalChar] = useState<string | null>(null);
 
@@ -155,20 +159,22 @@ export function SsoPanel() {
 
   const localAccountRows = useMemo(() => {
     if (!localData) return [];
-    const byUser = new Map<string, string[]>();
+    const byUser = new Map<string, { aliases: string[]; password: string }>();
     for (const row of localData.accounts) {
-      const aliases = byUser.get(row.username) ?? [];
+      const entry = byUser.get(row.username) ?? { aliases: [], password: row.password };
       if (row.alias !== row.username) {
-        aliases.push(row.alias);
+        entry.aliases.push(row.alias);
       }
-      byUser.set(row.username, aliases);
+      byUser.set(row.username, entry);
     }
-    const rows = [...byUser.entries()].map(([name, aliases]) => ({
+    const rows = [...byUser.entries()].map(([name, { aliases, password }]) => ({
       name,
+      password,
       aliases: aliases.join(", "),
     }));
-    return filterRows(rows, search, (r) => `${r.name} ${r.aliases}`);
-  }, [localData, search]);
+    const filtered = filterRows(rows, search, (r) => `${r.name} ${r.aliases}`);
+    return sortLocalAccounts(filtered, { key: localAccountSortKey, ascending: localAccountSortAsc });
+  }, [localData, search, localAccountSortKey, localAccountSortAsc]);
 
   const localCharRows = useMemo(() => {
     const rows = flattenLocalCharacters(localData?.characters ?? []);
@@ -176,10 +182,7 @@ export function SsoPanel() {
     return sortLocalCharacters(filtered, { key: localSortKey, ascending: localSortAsc });
   }, [localData, search, localSortKey, localSortAsc]);
 
-  const ssoSummary = useMemo(
-    () => ssoAccountsSummary(tree, status?.account_count ?? 0),
-    [tree, status?.account_count],
-  );
+  const ssoSummary = useMemo(() => ssoAccountsSummary(tree), [tree]);
 
   const localAccountNames = useMemo(
     () => localAccountRows.map((r) => r.name).sort((a, b) => a.localeCompare(b)),
@@ -209,7 +212,7 @@ export function SsoPanel() {
   const openEditAccount = (name: string) => {
     const row = localAccountRows.find((r) => r.name === name);
     setEditAccountName(name);
-    setAccountPassword("");
+    setAccountPassword(row?.password ?? "");
     setAccountAliases(row?.aliases ?? "");
     setAccountDialog("edit");
   };
@@ -221,8 +224,8 @@ export function SsoPanel() {
       setError("Account name is required");
       return;
     }
-    if (accountDialog === "add" && !accountPassword) {
-      setError("Password is required for new accounts");
+    if (!accountPassword) {
+      setError("Password is required");
       return;
     }
     const aliases = accountAliases
@@ -233,11 +236,12 @@ export function SsoPanel() {
       .filter((r) => r.name !== name)
       .map((r) => ({
         name: r.name,
+        password: r.password,
         aliases: r.aliases.split(",").map((a) => a.trim()).filter(Boolean),
       }));
     accounts.push({
       name,
-      ...(accountDialog === "add" || accountPassword ? { password: accountPassword } : {}),
+      password: accountPassword,
       aliases,
     });
     setBusy(true);
@@ -258,6 +262,7 @@ export function SsoPanel() {
       .filter((r) => r.name !== deleteAccount)
       .map((r) => ({
         name: r.name,
+        password: r.password,
         aliases: r.aliases.split(",").map((a) => a.trim()).filter(Boolean),
       }));
     setBusy(true);
@@ -328,6 +333,7 @@ export function SsoPanel() {
     try {
       const accounts = localAccountRows.map((r) => ({
         name: r.name,
+        password: r.password,
         aliases: r.aliases.split(",").map((a) => a.trim()).filter(Boolean),
       }));
       await client.saveLocalData(accounts, characters);
@@ -359,6 +365,7 @@ export function SsoPanel() {
     try {
       const accounts = localAccountRows.map((r) => ({
         name: r.name,
+        password: r.password,
         aliases: r.aliases.split(",").map((a) => a.trim()).filter(Boolean),
       }));
       await client.saveLocalData(accounts, characters);
@@ -378,6 +385,15 @@ export function SsoPanel() {
     } else {
       setLocalSortKey(key);
       setLocalSortAsc(true);
+    }
+  };
+
+  const toggleLocalAccountSort = (key: LocalAccountSortKey) => {
+    if (localAccountSortKey === key) {
+      setLocalAccountSortAsc((v) => !v);
+    } else {
+      setLocalAccountSortKey(key);
+      setLocalAccountSortAsc(true);
     }
   };
 
@@ -525,17 +541,34 @@ export function SsoPanel() {
             <DataTable
               fill
               columns={[
-                { key: "name", header: "Account Name", width: LOCAL_ACCOUNT_WIDTHS.name, render: (r) => r.name },
-                { key: "aliases", header: "Aliases", width: LOCAL_ACCOUNT_WIDTHS.aliases, render: (r) => r.aliases },
+                {
+                  key: "name",
+                  header: "Account Name",
+                  width: LOCAL_ACCOUNT_WIDTHS.name,
+                  sortable: true,
+                  render: (r) => r.name,
+                },
+                {
+                  key: "aliases",
+                  header: "Aliases",
+                  width: LOCAL_ACCOUNT_WIDTHS.aliases,
+                  sortable: true,
+                  render: (r) => r.aliases,
+                },
               ]}
               rows={localAccountRows}
               rowKey={(r) => r.name}
               selectedKey={selectedLocalAccount}
               onSelect={(key) => setSelectedLocalAccount(key)}
+              sortKey={localAccountSortKey}
+              sortAsc={localAccountSortAsc}
+              onSort={(k) => toggleLocalAccountSort(k as LocalAccountSortKey)}
               emptyMessage="No local accounts"
             />
             <div className="button-row">
-              <Button onClick={openAddAccount}>Add Account</Button>
+              <Button variant="secondary" onClick={openAddAccount}>
+                Add Account
+              </Button>
               <Button
                 variant="secondary"
                 disabled={!selectedLocalAccount}
@@ -544,7 +577,7 @@ export function SsoPanel() {
                 Edit Account
               </Button>
               <Button
-                variant="danger"
+                variant="secondary"
                 disabled={!selectedLocalAccount}
                 onClick={() => setDeleteAccount(selectedLocalAccount)}
               >
@@ -570,7 +603,9 @@ export function SsoPanel() {
               emptyMessage="No local characters"
             />
             <div className="button-row">
-              <Button onClick={openAddCharacter}>Add Character</Button>
+              <Button variant="secondary" onClick={openAddCharacter}>
+                Add Character
+              </Button>
               <Button
                 variant="secondary"
                 disabled={!selectedLocalChar}
@@ -579,7 +614,7 @@ export function SsoPanel() {
                 Edit Character
               </Button>
               <Button
-                variant="danger"
+                variant="secondary"
                 disabled={!selectedLocalChar}
                 onClick={() => setDeleteChar(selectedLocalChar)}
               >
@@ -612,7 +647,7 @@ export function SsoPanel() {
             <Button variant="secondary" onClick={() => setAccountDialog(null)}>
               Cancel
             </Button>
-            <Button busy={busy} onClick={() => void saveLocalAccount()}>
+            <Button variant="secondary" busy={busy} onClick={() => void saveLocalAccount()}>
               Save
             </Button>
           </>
@@ -631,7 +666,7 @@ export function SsoPanel() {
           />
         </label>
         <PasswordField
-          label={accountDialog === "edit" ? "Password (blank = keep existing)" : "Password"}
+          label="Password"
           value={accountPassword}
           placeholder="myPassword1"
           onChange={(e) => setAccountPassword(e.target.value)}

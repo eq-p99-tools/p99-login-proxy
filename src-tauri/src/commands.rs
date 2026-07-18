@@ -819,10 +819,15 @@ pub async fn get_proxy_settings(state: State<'_, AppState>) -> Result<ProxySetti
 }
 
 #[tauri::command]
-pub fn get_recent_logs(state: State<'_, AppState>, limit: Option<usize>) -> LogSnapshot {
-    let limit = limit.unwrap_or(200).min(500);
+pub fn get_recent_logs(
+    state: State<'_, AppState>,
+    limit: Option<usize>,
+    min_level: Option<String>,
+) -> LogSnapshot {
+    let limit = limit.unwrap_or(200).min(runtime::log_store::MAX_PER_LEVEL);
+    let min_level = min_level.as_deref().unwrap_or("DEBUG");
     LogSnapshot {
-        lines: state.log_store.recent(limit),
+        lines: state.log_store.recent_at_level(min_level, limit),
         file_path: state.log_file.as_ref().map(|p| p.display().to_string()),
     }
 }
@@ -865,6 +870,7 @@ pub async fn update_proxy_settings(
 pub fn show_window(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
         window.show().map_err(|e| e.to_string())?;
+        let _ = window.set_title(&proxy_core::window_title());
         window.set_focus().map_err(|e| e.to_string())?;
     }
     crate::tray::update_toggle_menu_label(&app);

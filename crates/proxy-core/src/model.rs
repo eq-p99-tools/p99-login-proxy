@@ -39,7 +39,7 @@ pub struct BootstrapState {
 impl Default for BootstrapState {
     fn default() -> Self {
         Self {
-            version: env!("CARGO_PKG_VERSION").to_string(),
+            version: crate::app_version::version_string().to_string(),
             platform: std::env::consts::OS.to_string(),
             has_token: false,
             proxy_lifecycle: ProxyLifecycle::Stopped,
@@ -55,6 +55,7 @@ impl Default for BootstrapState {
 pub struct LocalAccount {
     pub alias: String,
     pub username: String,
+    pub password: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

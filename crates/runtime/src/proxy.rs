@@ -6,11 +6,11 @@ use std::time::{Duration, Instant};
 use protocol::soe::transport_opcode;
 use protocol::{
     try_intercept_bad_password_combined, try_intercept_bad_password_packet, LoginPacket,
-    ProxySessionState, SsoRetryState, TransportOp,
+    ProxySessionState, RetryOutcome, SsoRetryNotice, SsoRetryState, TransportOp,
 };
 use proxy_core::decision::{CredentialDecision, CredentialRouter};
 use secrecy::ExposeSecret;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::config::{ProxyLocalData, ProxyRuntimeConfig};
 use crate::upstream::is_upstream_peer;
@@ -295,10 +295,9 @@ impl LoginProxyEngine {
                     &mut self.session,
                     self.config.des_key_iv,
                 ) {
-                    actions.send_client.extend(outcome.forward_subs);
-                    actions.send_upstream.extend(outcome.server_messages);
-                    actions.sso_retry_fired = true;
-                    return actions;
+                    if apply_sso_retry_outcome(&outcome, &mut actions) {
+                        return actions;
+                    }
                 }
                 let mut buf = data.to_vec();
                 let forward = self.session.recv_combined(&mut buf, start, Some(len));
@@ -313,9 +312,9 @@ impl LoginProxyEngine {
                     &mut self.session,
                     self.config.des_key_iv,
                 ) {
-                    actions.send_upstream.extend(outcome.server_messages);
-                    actions.sso_retry_fired = true;
-                    return actions;
+                    if apply_sso_retry_outcome(&outcome, &mut actions) {
+                        return actions;
+                    }
                 }
                 let mut buf = data.to_vec();
                 self.session.recv_packet(&mut buf, start, None);
@@ -355,6 +354,35 @@ fn opcode_name(op: u16) -> &'static str {
     TransportOp::from_u16(op)
         .map(|t| t.name())
         .unwrap_or("unknown")
+}
+
+/// Apply SSO bad-password intercept. Returns ``true`` when the caller should stop processing.
+fn apply_sso_retry_outcome(outcome: &RetryOutcome, actions: &mut ProxyActions) -> bool {
+    match outcome.notice {
+        Some(SsoRetryNotice::MissingOriginalLogin { server_seq }) => {
+            error!(
+                server_seq,
+                "SSO bad-password detected but no original Login captured; cannot retry, forwarding instead"
+            );
+            false
+        }
+        Some(SsoRetryNotice::Retried { server_seq }) => {
+            warn!(
+                server_seq,
+                "SSO password rejected by server; retrying with original client credentials"
+            );
+            actions.send_client.extend(outcome.forward_subs.clone());
+            actions.send_upstream.extend(outcome.server_messages.clone());
+            actions.sso_retry_fired = true;
+            true
+        }
+        None => {
+            actions.send_client.extend(outcome.forward_subs.clone());
+            actions.send_upstream.extend(outcome.server_messages.clone());
+            actions.sso_retry_fired = true;
+            true
+        }
+    }
 }
 
 /// Pending async SSO credential resolution.

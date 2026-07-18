@@ -15,9 +15,11 @@ import {
   formatSsoLoggedInTooltip,
   isRecentActivity,
   listSsoLoggedInCharacters,
+  localAccountsSummary,
   normalizeAccountTree,
   searchCharacters,
   sortCharacters,
+  sortLocalAccounts,
   ssoAccountsSummary,
   ssoLoggedInSummary,
   stackCountTierEmoji,
@@ -372,5 +374,61 @@ describe("ssoLoggedInSummary", () => {
     expect(formatSsoLoggedInTooltip(listSsoLoggedInCharacters(tree, nowMs))).toBe(
       "A (55 Magician) — alice\nB (60 Warrior) — bob",
     );
+  });
+});
+
+describe("ssoAccountsSummary", () => {
+  it("includes alias and tag counts in aliases/tags total", () => {
+    const tree = normalizeAccountTree({
+      main: {
+        aliases: ["alt1"],
+        tags: ["tag1", "tag2"],
+        characters: { Hero: {} },
+      },
+    });
+    expect(ssoAccountsSummary(tree)).toEqual({
+      text: "1 accounts, 1 characters, 3 aliases/tags",
+      tone: "success",
+    });
+  });
+
+  it("returns None when the cache tree is empty", () => {
+    expect(ssoAccountsSummary({})).toEqual({ text: "None", tone: "muted" });
+  });
+});
+
+describe("localAccountsSummary", () => {
+  it("includes local character count between accounts and aliases", () => {
+    expect(
+      localAccountsSummary(
+        [
+          { alias: "main", username: "main" },
+          { alias: "alt1", username: "main" },
+        ],
+        5,
+      ),
+    ).toEqual({ text: "1 accounts, 5 characters, 1 aliases", tone: "success" });
+  });
+
+  it("returns None when there are no local accounts", () => {
+    expect(localAccountsSummary([], 3)).toEqual({ text: "None", tone: "muted" });
+  });
+});
+
+describe("sortLocalAccounts", () => {
+  const rows = [
+    { name: "zebra", password: "pw1", aliases: "z1, z2" },
+    { name: "alpha", password: "pw2", aliases: "main" },
+    { name: "beta", password: "pw3", aliases: "" },
+  ];
+
+  it("sorts by account name ascending by default", () => {
+    const sorted = sortLocalAccounts(rows, { key: "name", ascending: true });
+    expect(sorted.map((r) => r.name)).toEqual(["alpha", "beta", "zebra"]);
+  });
+
+  it("sorts by aliases descending", () => {
+    const sorted = sortLocalAccounts(rows, { key: "aliases", ascending: false });
+    expect(sorted[0].name).toBe("zebra");
   });
 });

@@ -2,7 +2,7 @@
 
 export const SSO_CHARACTER_WIDTHS = {
   readiness: 26,
-  name: 98,
+  name: 106,
   class: 74,
   level: 30,
   st: 26,
@@ -75,8 +75,8 @@ export const POTS_GROUP_HEADER_TOOLTIP = [
 export const SSO_CHARACTER_GROUP_HEADER = [
   { label: "", colSpan: 4 },
   { label: "Keys", colSpan: 3, title: KEYS_GROUP_HEADER_TOOLTIP },
-  { label: "Pots", colSpan: 3, title: POTS_GROUP_HEADER_TOOLTIP },
-  { label: "", colSpan: 4 },
+  { label: "Pots", colSpan: 2, title: POTS_GROUP_HEADER_TOOLTIP },
+  { label: "", colSpan: 5 },
 ] as const;
 
 export const SSO_ACCOUNT_WIDTHS = { name: 114, aliases: 250, tags: 250 } as const;
@@ -85,7 +85,7 @@ export const SSO_TAG_WIDTHS = { tag: 100, accounts: 514 } as const;
 export const LOCAL_ACCOUNT_WIDTHS = { name: 114, aliases: 500 } as const;
 export const LOCAL_CHARACTER_WIDTHS = {
   readiness: 26,
-  name: 98,
+  name: 106,
   class: 74,
   level: 30,
   st: 26,
@@ -102,6 +102,6 @@ export const LOCAL_CHARACTER_WIDTHS = {
 export const LOCAL_CHARACTER_GROUP_HEADER = [
   { label: "", colSpan: 4 },
   { label: "Keys", colSpan: 3, title: KEYS_GROUP_HEADER_TOOLTIP },
-  { label: "Pots", colSpan: 3, title: POTS_GROUP_HEADER_TOOLTIP },
-  { label: "", colSpan: 3 },
+  { label: "Pots", colSpan: 2, title: POTS_GROUP_HEADER_TOOLTIP },
+  { label: "", colSpan: 4 },
 ] as const;

@@ -5,6 +5,7 @@ use secrecy::SecretString;
 use crate::accounts::LocalAccountStore;
 use crate::accounts_cache::AccountCache;
 use crate::characters::LocalCharacterStore;
+use tracing::warn;
 
 #[derive(Debug, Clone)]
 pub enum CredentialDecision {
@@ -60,6 +61,12 @@ impl<'a> CredentialRouter<'a> {
                     password: p,
                 };
             }
+            warn!(
+                character = %username,
+                account = %ch.account_alias,
+                "Local character references unknown account; passing through"
+            );
+            return CredentialDecision::Passthrough;
         }
 
         let in_local =

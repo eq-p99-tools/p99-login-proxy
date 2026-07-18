@@ -129,8 +129,19 @@ export function AdvancedPanel() {
     }
   };
 
-  const eqDir = settings?.eq_directory;
-  const pathTone = settings?.eq_directory_valid ? "success" : "error";
+  const eqDirTone =
+    settings == null ? "muted" : settings.eq_directory_valid ? "success" : "error";
+  const eqDirDisplay =
+    settings == null
+      ? "Checking…"
+      : settings.eq_directory_valid && settings.eq_directory
+        ? settings.eq_directory
+        : "Not Found";
+
+  const eqhostFound = settings?.eqhost_contents != null;
+  const eqhostTone = settings == null ? "muted" : eqhostFound ? "success" : "error";
+  const eqhostDisplay =
+    settings == null ? "Checking…" : eqhostFound && settings.eqhost_path ? settings.eqhost_path : "Not Found";
   const eqhostCanEdit = Boolean(settings?.eq_directory_valid);
   const eqhostDisplayValue = settings?.eqhost_contents ?? "(no file)";
 
@@ -139,9 +150,7 @@ export function AdvancedPanel() {
       <GroupBox title="EverQuest Configuration">
         <div className="advanced-path-row">
           <span className="path-label">EverQuest Path:</span>
-          <span className={`path-value tone-${eqDir ? pathTone : "muted"}`}>
-            {eqDir ?? "Checking…"}
-          </span>
+          <span className={`path-value tone-${eqDirTone}`}>{eqDirDisplay}</span>
           <Button
             variant="secondary"
             busy={busy}
@@ -154,7 +163,7 @@ export function AdvancedPanel() {
 
         <div className="advanced-path-row">
           <span className="path-label">eqhost.txt Path:</span>
-          <span className="path-value">{settings?.eqhost_path ?? "Checking…"}</span>
+          <span className={`path-value tone-${eqhostTone}`}>{eqhostDisplay}</span>
           <label
             className="checkbox-inline"
             title="Launch EverQuest automatically when the proxy starts"

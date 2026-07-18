@@ -24,7 +24,8 @@ pub use login::{
 };
 pub use retry::{
     classify_login_accepted, fire_sso_retry, try_intercept_bad_password_combined,
-    try_intercept_bad_password_packet, LoginAcceptedClass, RetryOutcome, SsoRetryState,
+    try_intercept_bad_password_packet, LoginAcceptedClass, RetryOutcome, SsoRetryNotice,
+    SsoRetryState,
 };
 pub use server_list::{
     build_server_list_response, parse_server_list, ServerEntry, P99_SERVER_PREFIXES,

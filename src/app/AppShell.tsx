@@ -118,15 +118,15 @@ export function AppShell() {
       <SystemDialogs />
       <UpdatePrompt />
       <footer className="app-footer">
-        <div className="footer-start">
+        <div className="footer-actions">
           <Button variant="secondary" className="btn-plain" busy={launchBusy} onClick={() => void handleLaunch()}>
             Launch EverQuest
           </Button>
-          {launchError ? <span className="footer-error">{launchError}</span> : null}
+          <Button variant="secondary" className="btn-plain" busy={quitting} onClick={() => void handleQuit()}>
+            {quitting ? "Exiting…" : "Exit"}
+          </Button>
         </div>
-        <Button variant="secondary" className="btn-plain" busy={quitting} onClick={() => void handleQuit()}>
-          {quitting ? "Exiting…" : "Exit"}
-        </Button>
+        {launchError ? <span className="footer-error">{launchError}</span> : null}
       </footer>
     </div>
   );

@@ -1,6 +1,6 @@
 export type NavTab = "proxy" | "sso" | "advanced" | "logs" | "changelog" | "extras";
 
-/** Top-level tabs shown in normal use (Extras is easter-egg only). */
+/** Top-level tabs shown in normal use (Debug is easter-egg only). */
 export const NAV_TABS: { id: NavTab; label: string }[] = [
   { id: "proxy", label: "Proxy" },
   { id: "sso", label: "SSO" },
@@ -9,7 +9,7 @@ export const NAV_TABS: { id: NavTab; label: string }[] = [
   { id: "changelog", label: "Changelog" },
 ];
 
-export const EXTRAS_NAV_TAB = { id: "extras" as const, label: "Extras" };
+export const EXTRAS_NAV_TAB = { id: "extras" as const, label: "Debug" };
 
 export function visibleNavTabs(easterEggMode: boolean): { id: NavTab; label: string }[] {
   return easterEggMode ? [...NAV_TABS, EXTRAS_NAV_TAB] : NAV_TABS;

@@ -59,6 +59,38 @@ fn credential_router_local_alias() {
 }
 
 #[test]
+fn credential_router_local_character_unknown_account() {
+    use proxy_core::characters::LocalCharacterStore;
+    use proxy_core::model::LocalCharacter;
+
+    let mut characters = LocalCharacterStore::default();
+    characters
+        .upsert(LocalCharacter {
+            name: "hero".into(),
+            account_alias: "missing".into(),
+            server: String::new(),
+            class: None,
+            level: None,
+            bind: None,
+            park: None,
+            items: Default::default(),
+        })
+        .unwrap();
+    let router = CredentialRouter {
+        proxy_only: false,
+        skip_sso_accounts: &HashSet::new(),
+        has_token: false,
+        accounts: &LocalAccountStore::default(),
+        characters: &characters,
+        cached_names: &AccountCache::default(),
+    };
+    assert!(matches!(
+        router.decide("hero", "pass", None),
+        CredentialDecision::Passthrough
+    ));
+}
+
+#[test]
 fn eqhost_roundtrip() {
     let dir = TempDir::new().unwrap();
     std::fs::write(dir.path().join("eqgame.exe"), b"").unwrap();

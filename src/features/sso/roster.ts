@@ -197,12 +197,9 @@ function normalizeCharactersMap(raw: unknown): Record<string, CharacterEntry> | 
 }
 
 /** SSO account cache summary — mirrors Python ``update_account_cache_display``. */
-export function ssoAccountsSummary(
-  tree: AccountTree,
-  accountCount?: number,
-): { text: string; tone: "success" | "muted" } {
+export function ssoAccountsSummary(tree: AccountTree): { text: string; tone: "success" | "muted" } {
   const normalized = normalizeAccountTree(tree);
-  const realAccounts = accountCount ?? Object.keys(normalized).length;
+  const realAccounts = Object.keys(normalized).length;
   if (realAccounts === 0) {
     return { text: "None", tone: "muted" };
   }
@@ -308,9 +305,10 @@ export function ssoLoggedInSummary(
   };
 }
 
-/** Local account summary — mirrors Python ``update_account_cache_display``. */
+/** Local account summary for Proxy Account Data (accounts + characters + aliases from CSV). */
 export function localAccountsSummary(
   accounts: ReadonlyArray<{ alias: string; username: string }>,
+  characterCount = 0,
 ): { text: string; tone: "success" | "muted" } {
   const uniqueUsernames = new Set(accounts.map((a) => a.username));
   const accountN = uniqueUsernames.size;
@@ -318,7 +316,31 @@ export function localAccountsSummary(
     return { text: "None", tone: "muted" };
   }
   const aliasN = accounts.filter((a) => a.alias !== a.username).length;
-  return { text: `${accountN} accounts, ${aliasN} aliases`, tone: "success" };
+  return {
+    text: `${accountN} accounts, ${characterCount} characters, ${aliasN} aliases`,
+    tone: "success",
+  };
+}
+
+export type LocalAccountSortKey = "name" | "aliases";
+
+export interface LocalAccountRow {
+  name: string;
+  password: string;
+  aliases: string;
+}
+
+/** Sort local account rows by account name or alias list. */
+export function sortLocalAccounts(
+  rows: LocalAccountRow[],
+  options: { key: LocalAccountSortKey; ascending: boolean },
+): LocalAccountRow[] {
+  const sorted = [...rows];
+  sorted.sort((a, b) => {
+    const cmp = a[options.key].localeCompare(b[options.key], undefined, { sensitivity: "base" });
+    return options.ascending ? cmp : -cmp;
+  });
+  return sorted;
 }
 
 /** Coerce wire account_tree JSON to a safe in-memory shape (null/missing → empty tree). */

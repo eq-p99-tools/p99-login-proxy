@@ -12,7 +12,7 @@ use serde_json::Value;
 use tokio::sync::{oneshot, Mutex, RwLock};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 const RECONNECT_MIN: Duration = Duration::from_secs(1);
@@ -149,6 +149,7 @@ impl SsoClient {
                 error: Some("login_auth channel closed".into()),
             },
             Err(_) => {
+                warn!(username = %username, "login_auth request timed out");
                 self.inner.pending.lock().await.remove(
                     &outbound
                         .get("request_id")
@@ -328,6 +329,9 @@ async fn run_ws_loop(
 
         notify_state(&on_state, WsStateEvent::Connecting);
         let url = build_ws_url(&config.api_url);
+        if url.starts_with("wss://") && !config.verify_tls {
+            warn!("SSO TLS: certificate verification DISABLED (sso_verify_tls=False)");
+        }
         info!(%url, backend = %config.backend_name, client_version = %config.client_version, "connecting SSO WebSocket");
 
         let connect = tokio::select! {
@@ -467,6 +471,43 @@ async fn cancel_pending(client: &SsoClient) {
     }
 }
 
+/// Human-readable delta summary for debug logs (Python ``ws_client`` delta loop).
+fn format_delta_summary(msg: &Value) -> String {
+    let Some(changes) = msg.get("changes").and_then(Value::as_array) else {
+        return String::new();
+    };
+    changes
+        .iter()
+        .map(|change| {
+            let action = change
+                .get("action")
+                .and_then(Value::as_str)
+                .unwrap_or("?");
+            let account = change
+                .get("account")
+                .and_then(Value::as_str)
+                .unwrap_or("?");
+            if action == "update" {
+                let fields = change
+                    .get("fields")
+                    .and_then(Value::as_object)
+                    .map(|fields| {
+                        fields
+                            .keys()
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    })
+                    .unwrap_or_default();
+                format!("update {account} ({fields})")
+            } else {
+                format!("{action} {account}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 /// Returns true when the connection should reconnect.
 async fn handle_inbound(
     client: &SsoClient,
@@ -494,19 +535,15 @@ async fn handle_inbound(
                     account_count: count,
                 },
             );
-            info!(accounts = count, "SSO account cache updated (full_state)");
+            info!(accounts = count, "Received full_state ({count} accounts)");
         }
         "delta" => {
             let cache = client.cache();
             let mut guard = cache.write().await;
-            let before = guard.account_count;
             guard.apply_delta(&msg);
             let count = guard.account_count;
             drop(guard);
-            info!(
-                accounts = count,
-                before, "SSO account cache updated (delta)"
-            );
+            debug!(summary = %format_delta_summary(&msg), "Received delta");
             notify_state(
                 on_state,
                 WsStateEvent::Connected {
@@ -530,7 +567,7 @@ async fn handle_inbound(
                 .and_then(Value::as_str)
                 .unwrap_or("unknown error")
                 .to_string();
-            warn!(%reason, raw = %text, "WS server error");
+            error!(%reason, raw = %text, "Server error");
             notify_state(
                 on_state,
                 WsStateEvent::AuthFailed {
@@ -696,6 +733,26 @@ mod tests {
         assert_eq!(
             build_ws_url("http://localhost:5998"),
             "ws://localhost:5998/ws/accounts"
+        );
+    }
+
+    #[test]
+    fn formats_delta_summary_like_python() {
+        let msg = serde_json::json!({
+            "type": "delta",
+            "changes": [
+                {"action": "add", "account": "alice"},
+                {
+                    "action": "update",
+                    "account": "bob",
+                    "fields": {"characters": {}, "tags": {}}
+                },
+                {"action": "remove", "account": "carol"}
+            ]
+        });
+        assert_eq!(
+            format_delta_summary(&msg),
+            "add alice; update bob (characters, tags); remove carol"
         );
     }
 }

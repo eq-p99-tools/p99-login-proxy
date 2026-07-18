@@ -14,10 +14,10 @@
       {
         "label": "main",
         "title": "P99 Login Proxy",
-        "width": 820,
-        "height": 640,
+        "width": 708,
+        "height": 550,
         "minWidth": 708,
-        "minHeight": 640,
+        "minHeight": 580,
         "center": true
       }
     ],

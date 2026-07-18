@@ -74,7 +74,7 @@ export interface DesktopClient {
   launchEverquest(): Promise<void>;
   getChangelog(): Promise<string>;
   fetchGithubChangelog(): Promise<string>;
-  getRecentLogs(limit?: number): Promise<LogSnapshot>;
+  getRecentLogs(limit?: number, minLevel?: string): Promise<LogSnapshot>;
   clearLogs(): Promise<void>;
   checkForUpdates(): Promise<UpdateCheckResult>;
   showWindow(): Promise<void>;

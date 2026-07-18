@@ -98,10 +98,6 @@ export function ProxyPanel() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [ssoStatus, setSsoStatus] = useState<Awaited<ReturnType<typeof client.getSsoStatus>> | null>(null);
   const [backends, setBackends] = useState<SsoBackendOption[]>([]);
-  const [ssoSummary, setSsoSummary] = useState<{ text: string; tone: "success" | "muted" }>({
-    text: "None",
-    tone: "muted",
-  });
   const [localSummary, setLocalSummary] = useState<{ text: string; tone: "success" | "muted" }>({
     text: "None",
     tone: "muted",
@@ -132,6 +128,7 @@ export function ProxyPanel() {
     () => ssoLoggedInSummary(accountTree),
     [accountTree, activityTick],
   );
+  const ssoSummary = useMemo(() => ssoAccountsSummary(accountTree), [accountTree]);
 
   useEffect(() => {
     setSelectedMode(currentMode);
@@ -158,10 +155,9 @@ export function ProxyPanel() {
       setBackends(b);
       setConfig(cfg);
       setAlwaysOnTop(cfg.always_on_top);
-      setLocalSummary(localAccountsSummary(local.accounts));
+      setLocalSummary(localAccountsSummary(local.accounts, local.characters.length));
       const tree = normalizeAccountTree(accounts.account_tree);
       setAccountTree(tree);
-      setSsoSummary(ssoAccountsSummary(tree, accounts.account_count));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -170,7 +166,7 @@ export function ProxyPanel() {
 
   useEffect(() => {
     void refreshMeta();
-    const id = window.setInterval(() => void refreshMeta(), 10000);
+    const id = window.setInterval(() => void refreshMeta(), 8000);
     return () => window.clearInterval(id);
   }, [refreshMeta]);
 
@@ -442,6 +438,9 @@ export function ProxyPanel() {
         </GroupBox>
         <GroupBox title="Statistics" className="proxy-group-stretch">
           <FormLayout spacing="stats">
+            <FormRow label="Uptime:">
+              <FormValue>{stats?.uptime_display ?? "—"}</FormValue>
+            </FormRow>
             <FormRow label="Total Connections:">
               <FormValue>{stats?.total_connections ?? 0}</FormValue>
             </FormRow>
@@ -450,9 +449,6 @@ export function ProxyPanel() {
             </FormRow>
             <FormRow label="Completed Connections:">
               <FormValue>{stats?.completed_connections ?? 0}</FormValue>
-            </FormRow>
-            <FormRow label="Uptime:">
-              <FormValue>{stats?.uptime_display ?? "—"}</FormValue>
             </FormRow>
           </FormLayout>
         </GroupBox>
@@ -523,9 +519,9 @@ export function ProxyPanel() {
                 label=""
                 aria-label="API Token"
                 placeholder="Access key"
+                visibilityMode="hold"
+                holdTip="Hold to show API token"
                 tooltip="API Token for auto-authentication. When this is set, the password entered in the EQ UI will be ignored."
-                showTip="Show API token"
-                hideTip="Hide API token"
                 value={token}
                 disabled={tokenBusy}
                 onChange={(e) => {
@@ -570,7 +566,7 @@ export function ProxyPanel() {
             <FormRow label="Local Accounts:">
               <FormValue
                 tone={localSummary.tone}
-                title="Accounts and aliases from local_accounts.csv (SSO tab → Local Accounts)"
+                title="Accounts, characters, and aliases from local_accounts.csv and local_characters.csv (SSO tab → Local Accounts / Local Characters)"
               >
                 {localSummary.text}
               </FormValue>

@@ -2,6 +2,7 @@
 
 pub mod accounts;
 pub mod accounts_cache;
+pub mod app_version;
 pub mod characters;
 pub mod class_translate;
 pub mod config;
@@ -17,12 +18,13 @@ pub mod proxy_mode;
 pub mod proxyconfig_ini;
 pub mod zone_translate;
 
+pub use app_version::{version, version_string, window_title, APP_NAME};
 pub use accounts_cache::AccountCache;
 pub use class_translate::resolve_class;
 pub use config::{
     config_file_path, load_config, load_config_file,
     parse_skip_sso_accounts, resolve_sso_api_url, save_config_file, ConfigFileV1, ValidatedConfig,
-    SSO_BACKENDS, SSO_CLIENT_VERSION,
+    SSO_BACKENDS,
 };
 pub use decision::{CredentialDecision, CredentialRouter};
 pub use eq_config::{

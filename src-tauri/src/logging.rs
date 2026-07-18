@@ -5,8 +5,10 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use chrono::Local;
 use proxy_core::config::app_config_dir;
 use runtime::log_store::{LogLine, LogStore};
+use tracing::Level;
 use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -46,17 +48,27 @@ where
 
         self.store.push(LogLine {
             timestamp,
-            level,
+            level: level.clone(),
             target,
             message: visitor.message,
         });
 
-        if let Some(file) = &self.file {
-            if let Ok(mut guard) = file.lock() {
-                let _ = writeln!(guard, "{line}");
+        if should_persist_to_file(metadata.level()) {
+            if let Some(file) = &self.file {
+                if let Ok(mut guard) = file.lock() {
+                    let _ = writeln!(guard, "{line}");
+                }
             }
         }
     }
+}
+
+/// ``proxy.log`` keeps durable INFO+ lines; DEBUG stays in memory only (Python parity).
+fn should_persist_to_file(level: &Level) -> bool {
+    matches!(
+        level,
+        &Level::ERROR | &Level::WARN | &Level::INFO
+    )
 }
 
 #[derive(Default)]
@@ -88,12 +100,7 @@ fn append_field(out: &mut String, name: &str, value: &str) {
 }
 
 fn human_timestamp() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    format!("{secs}")
+    Local::now().format("%H:%M:%S").to_string()
 }
 
 fn default_filter() -> EnvFilter {

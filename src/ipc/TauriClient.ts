@@ -147,8 +147,10 @@ export class TauriClient implements DesktopClient {
     return (await invoke("fetch_github_changelog")) as string;
   }
 
-  async getRecentLogs(limit = 200): Promise<LogSnapshot> {
-    return LogSnapshotSchema.parse(await invoke("get_recent_logs", { limit }));
+  async getRecentLogs(limit = 200, minLevel = "DEBUG"): Promise<LogSnapshot> {
+    return LogSnapshotSchema.parse(
+      await invoke("get_recent_logs", { limit, minLevel }),
+    );
   }
 
   async clearLogs(): Promise<void> {

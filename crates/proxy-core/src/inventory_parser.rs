@@ -71,6 +71,12 @@ pub fn parse_inventory_file(path: &Path) -> HashMap<String, Value> {
         return result;
     };
     let count_idx = headers.iter().position(|h| h.eq_ignore_ascii_case("Count"));
+    if count_idx.is_none() {
+        warn!(
+            path = %path.display(),
+            "inventory file missing Count column (stack totals will be 0)"
+        );
+    }
 
     for row in lines {
         let cols: Vec<&str> = row.split('\t').collect();

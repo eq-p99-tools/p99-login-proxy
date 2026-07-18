@@ -266,6 +266,7 @@ fn load_legacy_format(path: &Path) -> Result<LocalCharacterStore, LocalDataError
 /// Load ``local_characters.csv`` (Python flat schema; legacy 3-column migrated on read).
 pub fn load_local_characters(path: &Path) -> Result<LocalCharacterStore, LocalDataError> {
     if !path.is_file() {
+        warn!(path = %path.display(), "No local characters file found");
         return Ok(LocalCharacterStore::default());
     }
 
@@ -319,6 +320,7 @@ pub fn load_local_data() -> LocalDataBundle {
 pub fn load_local_accounts(path: &Path) -> Result<LocalAccountStore, LocalDataError> {
     let mut store = LocalAccountStore::default();
     if !path.is_file() {
+        warn!(path = %path.display(), "No local accounts file found");
         return Ok(store);
     }
     let mut reader = ReaderBuilder::new().has_headers(false).from_path(path)?;

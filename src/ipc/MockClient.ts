@@ -213,10 +213,16 @@ export class MockClient implements DesktopClient {
       }
       this.passwordStore.set(row.name, password);
     }
-    this.localAccounts = accounts.flatMap((a) => [
-      { alias: a.name, username: a.name },
-      ...a.aliases.map((alias) => ({ alias, username: a.name })),
-    ]);
+    this.localAccounts = accounts.flatMap((a) => {
+      const password =
+        a.password && a.password.length > 0
+          ? a.password
+          : (this.passwordStore.get(a.name) ?? "");
+      return [
+        { alias: a.name, username: a.name, password },
+        ...a.aliases.map((alias) => ({ alias, username: a.name, password })),
+      ];
+    });
     this.localCharacters = characters.map((c) => ({
       name: c.name,
       account_alias: c.account_alias,

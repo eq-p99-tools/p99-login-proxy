@@ -72,7 +72,7 @@ export function DataTable<T>({
         <th
           key={`group-${index}`}
           colSpan={cell.colSpan}
-          className="group-header-cell"
+          className={cell.label ? "group-header-cell" : "group-header-spacer"}
           {...tooltipProps(cell.title)}
         >
           {cell.label}

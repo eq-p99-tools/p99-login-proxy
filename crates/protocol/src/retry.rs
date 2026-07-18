@@ -59,6 +59,13 @@ pub struct RetryOutcome {
     pub suppress_original: bool,
     pub forward_subs: Vec<Vec<u8>>,
     pub server_messages: Vec<Vec<u8>>,
+    pub notice: Option<SsoRetryNotice>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SsoRetryNotice {
+    Retried { server_seq: u16 },
+    MissingOriginalLogin { server_seq: u16 },
 }
 
 pub fn try_intercept_bad_password_combined(
@@ -106,11 +113,23 @@ pub fn try_intercept_bad_password_combined(
         forward_subs.push(sub_buf);
     }
     let bad_seq = get_sequence(data, bad.offset);
-    let server_messages = fire_sso_retry(bad_seq, retry, session)?;
+    let Some(server_messages) = fire_sso_retry(bad_seq, retry, session) else {
+        return Some(RetryOutcome {
+            suppress_original: false,
+            forward_subs: Vec::new(),
+            server_messages: Vec::new(),
+            notice: Some(SsoRetryNotice::MissingOriginalLogin {
+                server_seq: bad_seq,
+            }),
+        });
+    };
     Some(RetryOutcome {
         suppress_original: true,
         forward_subs,
         server_messages,
+        notice: Some(SsoRetryNotice::Retried {
+            server_seq: bad_seq,
+        }),
     })
 }
 
@@ -134,11 +153,19 @@ pub fn try_intercept_bad_password_packet(
         Some(LoginAcceptedClass::Bad) => {
             retry.disarm();
             let server_seq = get_sequence(data, start);
-            let server_messages = fire_sso_retry(server_seq, retry, session)?;
+            let Some(server_messages) = fire_sso_retry(server_seq, retry, session) else {
+                return Some(RetryOutcome {
+                    suppress_original: false,
+                    forward_subs: Vec::new(),
+                    server_messages: Vec::new(),
+                    notice: Some(SsoRetryNotice::MissingOriginalLogin { server_seq }),
+                });
+            };
             Some(RetryOutcome {
                 suppress_original: true,
                 forward_subs: Vec::new(),
                 server_messages,
+                notice: Some(SsoRetryNotice::Retried { server_seq }),
             })
         }
     }

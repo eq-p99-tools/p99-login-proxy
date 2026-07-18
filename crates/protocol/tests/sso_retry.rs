@@ -75,9 +75,35 @@ fn armed_bad_password_triggers_retry() {
     assert!(outcome.suppress_original);
     assert_eq!(outcome.forward_subs.len(), 1);
     assert_eq!(outcome.server_messages.len(), 2);
+    assert_eq!(
+        outcome.notice,
+        Some(protocol::SsoRetryNotice::Retried { server_seq: 1 })
+    );
     assert!(!retry.armed);
     assert!(retry.fired);
     assert_eq!(session.cs_offset, 1);
+}
+
+#[test]
+fn bad_password_without_original_login() {
+    let mut session = ProxySessionState::default();
+    let mut retry = SsoRetryState {
+        armed: true,
+        fired: false,
+        original_login: None,
+    };
+
+    let bad = build_login_accepted_combined(27392, LOGIN_RESULT_FAILURE_STATUS, 1, KEY_IV);
+    let outcome =
+        try_intercept_bad_password_combined(&bad, 0, bad.len(), &mut retry, &mut session, KEY_IV)
+            .expect("should report missing original login");
+
+    assert!(!outcome.suppress_original);
+    assert!(outcome.server_messages.is_empty());
+    assert_eq!(
+        outcome.notice,
+        Some(protocol::SsoRetryNotice::MissingOriginalLogin { server_seq: 1 })
+    );
 }
 
 #[test]

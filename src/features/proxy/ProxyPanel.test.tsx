@@ -141,12 +141,12 @@ describe("AppShell smoke", () => {
       fireEvent.click(screen.getByRole("button", { name: label }));
       expect(screen.getByRole("navigation", { name: /main/i })).toBeTruthy();
     }
-    expect(screen.queryByRole("button", { name: "Extras" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Debug" })).toBeNull();
     expect(screen.getByRole("button", { name: /launch everquest/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /exit/i })).toBeTruthy();
   });
 
-  it("reveals Extras tab after the Advanced-tab easter egg", async () => {
+  it("reveals Debug tab after the Advanced-tab easter egg", async () => {
     render(
       <AppProviders>
         <AppShell />
@@ -156,25 +156,23 @@ describe("AppShell smoke", () => {
     for (let i = 0; i < 7; i += 1) {
       fireEvent.click(advanced);
     }
-    const extras = await screen.findByRole("button", { name: "Extras" });
-    fireEvent.click(extras);
+    const debug = await screen.findByRole("button", { name: "Debug" });
+    fireEvent.click(debug);
     expect(screen.getByRole("navigation", { name: /main/i })).toBeTruthy();
   });
 
-  it("pins footer actions to opposite sides with inset padding", () => {
+  it("spans footer Launch and Exit across the row like the Qt app", () => {
     const { container } = render(
       <AppProviders>
         <AppShell />
       </AppProviders>,
     );
-    expect(container.querySelector(".header-top")).toBeNull();
-    expect(container.querySelector("h1")).toBeNull();
-    const footer = container.querySelector(".app-footer");
-    expect(footer).toBeTruthy();
-    const footerStart = container.querySelector(".footer-start");
-    expect(footerStart).toBeTruthy();
-    expect(footerStart?.querySelector("button")?.textContent).toMatch(/Launch EverQuest/i);
-    expect(footer?.lastElementChild?.textContent).toMatch(/Exit/i);
+    const actions = container.querySelector(".footer-actions");
+    expect(actions).toBeTruthy();
+    const buttons = actions?.querySelectorAll("button");
+    expect(buttons?.length).toBe(2);
+    expect(buttons?.[0]?.textContent).toMatch(/Launch EverQuest/i);
+    expect(buttons?.[1]?.textContent).toMatch(/Exit/i);
   });
 
   it("sets document title from bootstrap version", async () => {

@@ -15,9 +15,6 @@ pub const SSO_BACKENDS: &[(&str, &str)] = &[
     ("Localhost", "http://localhost:5998"),
 ];
 
-/// Semver reported on SSO WebSocket/HTTP auth (must meet guild ``min_client_version``).
-pub const SSO_CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
-
 #[derive(Debug, Error)]
 pub enum ConfigError {
     #[error("io error: {0}")]

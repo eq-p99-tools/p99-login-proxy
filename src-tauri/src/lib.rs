@@ -9,6 +9,7 @@ mod updater;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use proxy_core::window_title;
 use runtime::{AppSupervisor, LogStore};
 use tauri::Manager;
 use tokio::sync::Mutex;
@@ -16,6 +17,12 @@ use tokio::sync::Mutex;
 use crate::logging::init as init_logging;
 use crate::state::AppState;
 use crate::tray::{on_window_close_requested, setup_tray};
+
+fn apply_main_window_title(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_title(&window_title());
+    }
+}
 
 /// Detect a system suspend/resume by watching for wall-clock jumps and bounce
 /// the UDP transport so the proxy keeps working after the machine wakes.
@@ -51,6 +58,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(app_state)
         .setup(|app| {
+            apply_main_window_title(&app.handle());
             let tray_ok = setup_tray(app.handle()).unwrap_or(false);
             if let Some(state) = app.try_state::<AppState>() {
                 state.set_tray_available(tray_ok);

@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use chrono::{Local, NaiveTime, TimeZone};
 use futures_util::StreamExt;
-use proxy_core::load_config;
+use proxy_core::{load_config, version, version_string};
 use pulldown_cmark::{html, Options, Parser};
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -14,7 +14,6 @@ use tracing::{info, warn};
 
 const GITHUB_RELEASES_URL: &str =
     "https://api.github.com/repos/eq-p99-tools/p99-login-proxy/releases?per_page=10";
-const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 static CHANGELOG_HTML: Mutex<Option<String>> = Mutex::new(None);
 
@@ -97,7 +96,7 @@ pub async fn fetch_github_changelog() -> Result<String, String> {
 
 pub async fn check_for_updates(notify_no_update: bool) -> UpdateCheckResult {
     info!(
-        version = APP_VERSION,
+        version = %version(),
         notify_no_update, "checking for updates"
     );
     let changelog_result = fetch_github_changelog().await;
@@ -110,7 +109,7 @@ pub async fn check_for_updates(notify_no_update: bool) -> UpdateCheckResult {
             false,
             None,
             if notify_no_update {
-                format!("Version: {APP_VERSION}\n\nCould not retrieve release information.")
+                format!("Version: {}\n\nCould not retrieve release information.", version_string())
             } else {
                 "Could not retrieve release information.".into()
             },
@@ -118,16 +117,7 @@ pub async fn check_for_updates(notify_no_update: bool) -> UpdateCheckResult {
     };
 
     let prerelease_ok = allows_prereleases();
-    let current = match parse_version(APP_VERSION) {
-        Ok(v) => v,
-        Err(e) => {
-            return update_check_result(
-                false,
-                None,
-                format!("Invalid app version: {e}"),
-            );
-        }
-    };
+    let current = version().clone();
 
     let visible: Vec<_> = releases
         .into_iter()
@@ -139,7 +129,7 @@ pub async fn check_for_updates(notify_no_update: bool) -> UpdateCheckResult {
             false,
             None,
             if notify_no_update {
-                format!("Version: {APP_VERSION}\n\nCould not retrieve release information.")
+                format!("Version: {}\n\nCould not retrieve release information.", version_string())
             } else {
                 "No releases found.".into()
             },
@@ -152,7 +142,8 @@ pub async fn check_for_updates(notify_no_update: bool) -> UpdateCheckResult {
             true,
             Some(latest.version.to_string()),
             format!(
-                "A new update is available.\n\nYour version: {APP_VERSION}\nNew version: {}",
+                "A new update is available.\n\nYour version: {}\nNew version: {}",
+                version_string(),
                 latest.version
             ),
         )
@@ -162,7 +153,8 @@ pub async fn check_for_updates(notify_no_update: bool) -> UpdateCheckResult {
             None,
             if notify_no_update {
                 format!(
-                    "Version: {APP_VERSION}\n\nThere is no update available, you are running the latest version."
+                    "Version: {}\n\nThere is no update available, you are running the latest version.",
+                    version_string()
                 )
             } else {
                 "You are on the latest version.".into()
@@ -231,7 +223,7 @@ fn allows_prereleases() -> bool {
     load_config()
         .map(|file| file.prerelease_updates)
         .unwrap_or(false)
-        || parse_version(APP_VERSION).is_ok_and(|version| !version.pre.is_empty())
+        || !version().pre.is_empty()
 }
 
 fn parse_version(raw: &str) -> Result<Version, String> {
@@ -390,7 +382,7 @@ fn replace_portable_executable(zip_bytes: &[u8]) -> Result<PathBuf, String> {
     let exe_dir = current_exe
         .parent()
         .ok_or_else(|| "Current executable has no parent directory".to_string())?;
-    let backup = exe_dir.join(format!("P99LoginProxy-{APP_VERSION}.exe"));
+    let backup = exe_dir.join(format!("P99LoginProxy-{}.exe", version_string()));
     if backup.exists() {
         std::fs::remove_file(&backup).map_err(|error| error.to_string())?;
     }

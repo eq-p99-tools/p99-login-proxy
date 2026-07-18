@@ -200,7 +200,7 @@ export function LocalCharacterDialog({
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button busy={busy} onClick={handleSave}>
+          <Button variant="secondary" busy={busy} onClick={handleSave}>
             Save
           </Button>
         </>

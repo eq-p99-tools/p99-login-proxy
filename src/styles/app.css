@@ -210,20 +210,21 @@ body {
 .app-footer {
   flex-shrink: 0;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: stretch;
   gap: var(--space-2);
-  padding: var(--space-2) clamp(var(--space-3), 6vw, 2.75rem);
+  /* Qt QVBoxLayout default margins (~9px). */
+  padding: var(--space-2);
   border-top: 1px solid var(--border);
   background: var(--bg-panel);
   min-width: 0;
 }
 
-.footer-start {
+.footer-actions {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
+  align-items: stretch;
+  gap: 60px;
+  width: 100%;
 }
 
 .footer-error {
@@ -253,18 +254,18 @@ body {
 }
 
 .proxy-panel {
-  gap: var(--space-3);
+  gap: 10px;
   min-width: 0;
 }
 
 .proxy-panel .proxy-top-row {
-  flex: 1 1 0;
-  min-height: 0;
+  flex: 0 0 auto;
+  min-height: auto;
   align-items: stretch;
 }
 
 .proxy-panel > .proxy-group-stretch:not(.proxy-group-grow) {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
 }
 
 .proxy-panel .proxy-group-grow {
@@ -275,34 +276,38 @@ body {
 .proxy-panel .proxy-group-stretch {
   display: flex;
   flex-direction: column;
-  min-height: 0;
-  flex-shrink: 1;
+  min-width: 0;
 }
 
 .proxy-panel .proxy-top-row .proxy-group-stretch .group-box-body,
+.proxy-panel > .proxy-group-stretch:not(.proxy-group-grow) .group-box-body {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  padding-top: var(--space-1);
+}
+
 .proxy-panel .proxy-group-grow .group-box-body {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: var(--space-2) var(--space-3) var(--space-3);
-}
-
-.proxy-panel > .proxy-group-stretch:not(.proxy-group-grow) .group-box-body {
-  padding: var(--space-2) var(--space-3) var(--space-3);
+  padding-top: var(--space-1);
 }
 
 .proxy-panel .form-layout.spacing-status,
 .proxy-panel .form-layout.spacing-stats {
-  gap: 14px;
+  gap: 13px;
 }
 
 .proxy-panel .form-layout.spacing-settings {
-  gap: 15px;
+  gap: 14px;
 }
 
 .proxy-panel .form-layout.spacing-cache {
-  gap: 18px;
+  gap: 15px;
 }
 
 .proxy-panel .proxy-group-grow .cache-controls {
@@ -311,7 +316,7 @@ body {
 }
 
 .proxy-panel .proxy-group-grow .cache-controls .form-layout {
-  justify-content: space-between;
+  justify-content: flex-start;
 }
 
 .panel h2 {
@@ -343,12 +348,14 @@ body {
   min-height: 0;
 }
 
-/* QGroupBox-style cards */
+/* QGroupBox-style cards (matches Python theme.py QGroupBox QSS). */
 .group-box {
+  position: relative;
   background: var(--bg-panel);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--group-box-border);
   border-radius: var(--radius-md);
   margin-top: 10px;
+  padding: 8px 12px 12px;
   flex-shrink: 0;
   min-width: 0;
 }
@@ -358,20 +365,21 @@ body {
 }
 
 .group-box-title {
+  position: absolute;
+  top: 0;
+  left: 10px;
+  transform: translateY(-50%);
   margin: 0;
-  padding: 0 var(--space-2);
+  padding: 0 6px;
   font-size: 0.833rem;
   font-weight: 700;
-  position: relative;
-  top: -0.55rem;
-  left: 0.35rem;
-  display: inline-block;
+  line-height: 1.2;
   background: var(--bg-panel);
+  color: var(--text);
 }
 
 .group-box-body {
-  padding: var(--space-2) var(--space-3) var(--space-3);
-  margin-top: -0.25rem;
+  padding: 0;
   min-width: 0;
 }
 
@@ -705,6 +713,11 @@ select option {
   outline-offset: 1px;
 }
 
+.password-toggle[data-visibility-mode="hold"] {
+  touch-action: none;
+  user-select: none;
+}
+
 .token-saving {
   font-size: 0.82rem;
 }
@@ -730,26 +743,48 @@ select option {
   border-color: var(--border);
 }
 
-/* Qt QPushButton-style neutral buttons (footer Launch / Exit). */
-.btn-plain {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  color: var(--text);
+/* Qt Fusion QPushButton parity (Python uses palette-drawn buttons, not accent/danger). */
+.btn-plain,
+.button-row .btn,
+.sso-footer .btn,
+.cache-controls .btn,
+.advanced-path-row .btn,
+.log-toolbar .btn,
+.modal-footer .btn {
+  background: linear-gradient(to bottom, var(--btn-face-top), var(--btn-face));
+  border: 1px solid var(--btn-border);
+  color: var(--btn-text);
   min-width: 0;
-  padding: 0.35rem 0.9rem;
+  padding: 0.125rem 0.65rem;
   white-space: nowrap;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 10%, transparent);
+  line-height: 1.25;
+}
+
+.btn-plain:hover:not(:disabled),
+.button-row .btn:hover:not(:disabled),
+.sso-footer .btn:hover:not(:disabled),
+.cache-controls .btn:hover:not(:disabled),
+.advanced-path-row .btn:hover:not(:disabled),
+.log-toolbar .btn:hover:not(:disabled),
+.modal-footer .btn:hover:not(:disabled) {
+  background: linear-gradient(to bottom, var(--btn-face-hover-top), var(--btn-face-hover));
+}
+
+.btn-plain:active:not(:disabled),
+.button-row .btn:active:not(:disabled),
+.sso-footer .btn:active:not(:disabled),
+.cache-controls .btn:active:not(:disabled),
+.advanced-path-row .btn:active:not(:disabled),
+.log-toolbar .btn:active:not(:disabled),
+.modal-footer .btn:active:not(:disabled) {
+  background: var(--btn-face-active);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, black 22%, transparent);
 }
 
 .app-footer .btn-plain {
-  flex-shrink: 0;
-}
-
-.btn-plain:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--bg-input) 55%, var(--bg-elevated));
-}
-
-.btn-plain:active:not(:disabled) {
-  background: var(--bg-tab);
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .btn-danger {
@@ -765,24 +800,48 @@ select option {
   flex-shrink: 0;
 }
 
+/* Python QHBoxLayout: CRUD / Advanced action buttons share width evenly. */
+.sso-panel .button-row,
+.advanced-panel .button-row {
+  flex-wrap: nowrap;
+  width: 100%;
+}
+
+.sso-panel .button-row .btn,
+.advanced-panel .button-row .btn {
+  flex: 1 1 0;
+  text-align: center;
+  white-space: normal;
+}
+
 .advanced-path-row {
   display: flex;
   align-items: center;
-  gap: var(--space-2) var(--space-3);
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 
 .advanced-path-row .path-label {
   font-weight: 700;
   flex-shrink: 0;
-  min-width: 7.5rem;
 }
 
 .advanced-path-row .path-value {
-  flex: 1;
-  min-width: 12rem;
-  color: var(--value-text);
+  flex: 1 1 auto;
+  min-width: 0;
   word-break: break-all;
+}
+
+.advanced-path-row .path-value.tone-success {
+  color: var(--success);
+}
+
+.advanced-path-row .path-value.tone-error {
+  color: var(--error);
+}
+
+.advanced-path-row .path-value.tone-muted {
+  color: var(--text-muted);
 }
 
 .advanced-path-row .btn {
@@ -877,7 +936,7 @@ select option {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-3) var(--space-4);
+  padding-top: var(--space-2);
 }
 
 .advanced-panel .button-row {
@@ -977,7 +1036,7 @@ select option {
 }
 
 .data-table-wrap {
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--table-gridline);
   border-radius: var(--radius-sm);
   overflow: auto;
 }
@@ -996,7 +1055,8 @@ select option {
 
 .data-table th,
 .data-table td {
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--table-gridline);
+  border-right: 1px solid var(--table-gridline);
   padding: 0 0.35rem;
   height: var(--table-row-height);
   text-align: left;
@@ -1008,16 +1068,21 @@ select option {
 .data-table thead tr.column-header-row th {
   position: sticky;
   top: 0;
-  background: var(--bg-elevated);
+  background: var(--table-header-bg);
+  color: var(--text);
   z-index: 1;
   font-weight: 600;
+  text-align: center;
 }
 
 .data-table.has-group-header thead tr.group-header-row th {
   position: sticky;
   top: 0;
-  background: var(--bg-elevated);
   z-index: 2;
+}
+
+.data-table.has-group-header thead tr.group-header-row th.group-header-spacer {
+  background: var(--table-header-bg);
 }
 
 .data-table.has-group-header thead tr.column-header-row th {
@@ -1054,13 +1119,19 @@ select option {
   cursor: pointer;
   padding: 0;
   width: 100%;
-  text-align: inherit;
+  text-align: center;
 }
 
-.group-header-cell {
+.data-table th.group-header-spacer {
+  background: var(--table-header-bg);
+  padding: 0;
+}
+
+.data-table th.group-header-cell {
   text-align: center;
   font-weight: 700;
-  border: 1px solid var(--border-subtle);
+  background: var(--table-header-bg);
+  border: 1px solid var(--table-gridline);
 }
 
 .sso-footer {

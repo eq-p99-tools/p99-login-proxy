@@ -3008,6 +3008,7 @@ dependencies = [
  "regex",
  "rust-ini",
  "secrecy",
+ "semver",
  "serde",
  "serde_json",
  "tempfile",

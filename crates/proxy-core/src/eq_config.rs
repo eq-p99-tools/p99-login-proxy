@@ -184,7 +184,7 @@ pub fn detect_rustle_ui(eq_roots: &[PathBuf]) -> bool {
                 continue;
             }
             if check_dir_for_rustle(&path) {
-                debug!(dir = %path.display(), "Rustle UI detected");
+                warn!(dir = %path.display(), "Rustle UI detected in {}", path.display());
                 return true;
             }
         }

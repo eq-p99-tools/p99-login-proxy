@@ -30,9 +30,10 @@ impl LocalAccountStore {
     pub fn list(&self) -> Vec<LocalAccount> {
         self.by_alias
             .iter()
-            .map(|(alias, (username, _))| LocalAccount {
+            .map(|(alias, (username, password))| LocalAccount {
                 alias: alias.clone(),
                 username: username.clone(),
+                password: password.expose_secret().to_string(),
             })
             .collect()
     }
