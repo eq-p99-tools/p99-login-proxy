@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/toald/roboToald/schemas/ws-protocol.schema.json",
+  "title": "P99 SSO WebSocket Protocol",
+  "description": "Canonical message contract for the WebSocket channel between the P99 login proxy (client) and the roboToald SSO server. Each message is a JSON object discriminated by its `type`. Bulk payloads (account_tree, changes) are loosely typed so the server can evolve their internals without breaking clients; unknown extra fields are permitted everywhere for the same reason.",
+  "oneOf": [
+    { "$ref": "#/$defs/full_state" },
+    { "$ref": "#/$defs/delta" },
+    { "$ref": "#/$defs/login_auth_response" },
+    { "$ref": "#/$defs/ping" },
+    { "$ref": "#/$defs/pong" },
+    { "$ref": "#/$defs/error" },
+    { "$ref": "#/$defs/auth" },
+    { "$ref": "#/$defs/login_auth" },
+    { "$ref": "#/$defs/heartbeat" },
+    { "$ref": "#/$defs/update_location" },
+    { "$ref": "#/$defs/fte" },
+    { "$ref": "#/$defs/mob_death" }
+  ],
+  "$defs": {
+    "full_state": {
+      "type": "object",
+      "description": "Server -> client. Full snapshot of the accessible account tree.",
+      "required": ["type"],
+      "properties": {
+        "type": { "const": "full_state" },
+        "account_tree": { "type": "object" },
+        "count": { "type": "integer" },
+        "dynamic_tag_zones": { "type": "array", "items": { "type": "string" } },
+        "dynamic_tag_classes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "delta": {
+      "type": "object",
+      "description": "Server -> client. Incremental account-tree changes.",
+      "required": ["type", "changes"],
+      "properties": {
+        "type": { "const": "delta" },
+        "changes": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "login_auth_response": {
+      "type": "object",
+      "description": "Server -> client. Result of a login_auth request. On success `real_user` and `encrypted_credentials` are present; on failure `error` (and `status`) are present.",
+      "required": ["type", "request_id"],
+      "properties": {
+        "type": { "const": "login_auth_response" },
+        "request_id": { "type": "string" },
+        "real_user": { "type": "string" },
+        "encrypted_credentials": { "type": "string" },
+        "error": { "type": "string" },
+        "status": { "type": "integer" }
+      }
+    },
+    "ping": {
+      "type": "object",
+      "description": "Keepalive. Server -> client.",
+      "required": ["type"],
+      "properties": { "type": { "const": "ping" } }
+    },
+    "pong": {
+      "type": "object",
+      "description": "Keepalive reply. Either direction.",
+      "required": ["type"],
+      "properties": { "type": { "const": "pong" } }
+    },
+    "error": {
+      "type": "object",
+      "description": "Server -> client. Terminal error / auth rejection. The human-readable reason may arrive under `detail`, `message`, or `reason`.",
+      "required": ["type"],
+      "properties": {
+        "type": { "const": "error" },
+        "detail": { "type": "string" },
+        "message": { "type": "string" },
+        "reason": { "type": "string" }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "description": "Client -> server. First message after connect; authenticates the session.",
+      "required": ["type", "access_key", "client_version"],
+      "properties": {
+        "type": { "const": "auth" },
+        "access_key": { "type": "string" },
+        "client_version": { "type": "string" },
+        "client_settings": { "type": "object" }
+      }
+    },
+    "login_auth": {
+      "type": "object",
+      "description": "Client -> server. Request real credentials for an alias/tag.",
+      "required": ["type", "request_id", "username"],
+      "properties": {
+        "type": { "const": "login_auth" },
+        "request_id": { "type": "string" },
+        "username": { "type": "string" }
+      }
+    },
+    "heartbeat": {
+      "type": "object",
+      "description": "Client -> server. Periodic liveness for a logged-in character.",
+      "required": ["type", "character_name"],
+      "properties": {
+        "type": { "const": "heartbeat" },
+        "character_name": { "type": "string" }
+      }
+    },
+    "update_location": {
+      "type": "object",
+      "description": "Client -> server. Character park/bind/level/item updates. All fields besides character_name are optional.",
+      "required": ["type", "character_name"],
+      "properties": {
+        "type": { "const": "update_location" },
+        "character_name": { "type": "string" },
+        "park_location": { "type": "string" },
+        "bind_location": { "type": "string" },
+        "level": { "type": "integer" },
+        "items": { "type": "object" }
+      }
+    },
+    "fte": {
+      "type": "object",
+      "description": "Client -> server. First-to-engage report for a raid mob.",
+      "required": ["type", "mob", "player", "character_name", "eq_log_time"],
+      "properties": {
+        "type": { "const": "fte" },
+        "mob": { "type": "string" },
+        "player": { "type": "string" },
+        "character_name": { "type": "string" },
+        "eq_log_time": { "type": "string" }
+      }
+    },
+    "mob_death": {
+      "type": "object",
+      "description": "Client -> server. Raid mob death report.",
+      "required": ["type", "mob", "eq_log_time", "character_name"],
+      "properties": {
+        "type": { "const": "mob_death" },
+        "mob": { "type": "string" },
+        "eq_log_time": { "type": "string" },
+        "character_name": { "type": "string" }
+      }
+    }
+  }
+}

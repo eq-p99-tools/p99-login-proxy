@@ -1,0 +1,8 @@
+{
+  "type": "update_location",
+  "character_name": "Zzzz",
+  "park_location": "Plane of Knowledge",
+  "bind_location": "Toxxulia Forest",
+  "level": 60,
+  "items": { "seb": true, "vp": false }
+}

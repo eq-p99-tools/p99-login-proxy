@@ -7,6 +7,7 @@ use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
 use proxy_core::AccountCache;
 use secrecy::{ExposeSecret, SecretString};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::{oneshot, Mutex, RwLock};
 use tokio_tungstenite::tungstenite::Message;
@@ -85,7 +86,7 @@ impl SsoClient {
         *self.inner.write.lock().await = write;
     }
 
-    async fn send_json(&self, value: &Value) -> Result<(), String> {
+    async fn send_json<T: Serialize>(&self, value: &T) -> Result<(), String> {
         let write = {
             let guard = self.inner.write.lock().await;
             guard.as_ref().cloned()
@@ -118,11 +119,10 @@ impl SsoClient {
             .await
             .insert(request_id.clone(), tx);
 
-        let outbound = serde_json::json!({
-            "type": "login_auth",
-            "request_id": request_id,
-            "username": username,
-        });
+        let outbound = WsOutbound::LoginAuth {
+            request_id: &request_id,
+            username,
+        };
         if let Err(e) = self.send_json(&outbound).await {
             self.inner.pending.lock().await.remove(&request_id);
             return LoginAuthResult {
@@ -156,10 +156,7 @@ impl SsoClient {
         if !self.is_connected() {
             return;
         }
-        let msg = serde_json::json!({
-            "type": "heartbeat",
-            "character_name": character_name,
-        });
+        let msg = WsOutbound::Heartbeat { character_name };
         let _ = self.send_json(&msg).await;
     }
 
@@ -174,22 +171,13 @@ impl SsoClient {
         if !self.is_connected() {
             return;
         }
-        let mut msg = serde_json::json!({
-            "type": "update_location",
-            "character_name": character_name,
-        });
-        if let Some(park) = park_location {
-            msg["park_location"] = serde_json::Value::String(park.to_string());
-        }
-        if let Some(bind) = bind_location {
-            msg["bind_location"] = serde_json::Value::String(bind.to_string());
-        }
-        if let Some(level) = level {
-            msg["level"] = serde_json::Value::Number(level.into());
-        }
-        if let Some(items) = items {
-            msg["items"] = Value::Object(items);
-        }
+        let msg = WsOutbound::UpdateLocation {
+            character_name,
+            park_location,
+            bind_location,
+            level,
+            items: items.as_ref(),
+        };
         let _ = self.send_json(&msg).await;
     }
 
@@ -197,13 +185,12 @@ impl SsoClient {
         if !self.is_connected() {
             return;
         }
-        let msg = serde_json::json!({
-            "type": "fte",
-            "mob": mob,
-            "player": player,
-            "character_name": character_name,
-            "eq_log_time": eq_log_time,
-        });
+        let msg = WsOutbound::Fte {
+            mob,
+            player,
+            character_name,
+            eq_log_time,
+        };
         let _ = self.send_json(&msg).await;
     }
 
@@ -211,14 +198,106 @@ impl SsoClient {
         if !self.is_connected() {
             return;
         }
-        let msg = serde_json::json!({
-            "type": "mob_death",
-            "mob": mob,
-            "eq_log_time": eq_log_time,
-            "character_name": character_name,
-        });
+        let msg = WsOutbound::MobDeath {
+            mob,
+            eq_log_time,
+            character_name,
+        };
         let _ = self.send_json(&msg).await;
     }
+}
+
+/// Messages the client sends to the SSO WebSocket server.
+///
+/// `#[serde(tag = "type", rename_all = "snake_case")]` produces the exact
+/// `{"type": "...", ...}` envelope the server dispatches on. Borrowed fields keep
+/// sends allocation-free. This is the client-owned half of the contract; the
+/// canonical schema lives in `roboToald/schemas/ws-protocol.schema.json`.
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum WsOutbound<'a> {
+    Auth {
+        access_key: &'a str,
+        client_version: &'a str,
+        client_settings: &'a Value,
+    },
+    LoginAuth {
+        request_id: &'a str,
+        username: &'a str,
+    },
+    Heartbeat {
+        character_name: &'a str,
+    },
+    UpdateLocation {
+        character_name: &'a str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        park_location: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        bind_location: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        level: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        items: Option<&'a serde_json::Map<String, Value>>,
+    },
+    Fte {
+        mob: &'a str,
+        player: &'a str,
+        character_name: &'a str,
+        eq_log_time: &'a str,
+    },
+    MobDeath {
+        mob: &'a str,
+        eq_log_time: &'a str,
+        character_name: &'a str,
+    },
+    Pong,
+}
+
+/// Messages the client receives from the SSO WebSocket server.
+///
+/// Tolerant by design so the client survives an evolving server contract:
+/// `#[serde(other)] Unknown` absorbs message types this build does not know
+/// (e.g. server-only additions), every optional field has `#[serde(default)]`,
+/// and unknown extra fields are ignored. The bulk `account_tree` / `changes`
+/// payloads stay as `Value` and flow into `AccountCache`; only the control-plane
+/// fields the client acts on are strongly typed. Canonical schema:
+/// `roboToald/schemas/ws-protocol.schema.json`.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum WsInbound {
+    FullState {
+        #[serde(default)]
+        account_tree: Value,
+        #[serde(default)]
+        dynamic_tag_zones: Vec<String>,
+        #[serde(default)]
+        dynamic_tag_classes: Vec<String>,
+    },
+    Delta {
+        #[serde(default)]
+        changes: Value,
+    },
+    LoginAuthResponse {
+        request_id: String,
+        #[serde(default)]
+        real_user: Option<String>,
+        #[serde(default)]
+        encrypted_credentials: Option<String>,
+        #[serde(default)]
+        error: Option<String>,
+    },
+    Ping,
+    Pong,
+    // Server sends `{"type": "error", "detail": ...}`; older/other builds may use
+    // `message`/`reason` or the `auth_failed`/`close` tags. Treat them all as a
+    // terminal auth error.
+    #[serde(alias = "auth_failed", alias = "close")]
+    Error {
+        #[serde(default, alias = "message", alias = "reason", alias = "error")]
+        detail: Option<String>,
+    },
+    #[serde(other)]
+    Unknown,
 }
 
 pub struct WsHandle {
@@ -343,12 +422,11 @@ async fn run_ws_loop(
                 let write = Arc::new(Mutex::new(write));
                 client.set_write(Some(write.clone())).await;
 
-                let auth = serde_json::json!({
-                    "type": "auth",
-                    "access_key": token.expose_secret(),
-                    "client_version": config.client_version,
-                    "client_settings": config.client_settings,
-                });
+                let auth = WsOutbound::Auth {
+                    access_key: token.expose_secret(),
+                    client_version: &config.client_version,
+                    client_settings: &config.client_settings,
+                };
                 if let Err(e) = client.send_json(&auth).await {
                     warn!("WS auth send failed: {e}");
                     client.set_write(None).await;
@@ -456,8 +534,8 @@ async fn cancel_pending(client: &SsoClient) {
 }
 
 /// Human-readable delta summary for debug logs (Python ``ws_client`` delta loop).
-fn format_delta_summary(msg: &Value) -> String {
-    let Some(changes) = msg.get("changes").and_then(Value::as_array) else {
+fn format_delta_summary(changes: &Value) -> String {
+    let Some(changes) = changes.as_array() else {
         return String::new();
     };
     changes
@@ -487,18 +565,22 @@ async fn handle_inbound(
     text: &str,
     on_state: &Option<tokio::sync::mpsc::Sender<WsStateEvent>>,
 ) -> bool {
-    let msg: Value = match serde_json::from_str(text) {
+    let inbound: WsInbound = match serde_json::from_str(text) {
         Ok(v) => v,
         Err(e) => {
-            debug!("WS invalid JSON: {e}");
+            debug!(raw = %text, "WS undecodable message: {e}");
             return false;
         }
     };
-    let msg_type = msg.get("type").and_then(Value::as_str).unwrap_or("");
 
-    match msg_type {
-        "full_state" => {
-            let cache = AccountCache::from_full_state(&msg);
+    match inbound {
+        WsInbound::FullState {
+            account_tree,
+            dynamic_tag_zones,
+            dynamic_tag_classes,
+        } => {
+            let cache =
+                AccountCache::from_parts(&account_tree, &dynamic_tag_zones, &dynamic_tag_classes);
             let count = cache.account_count;
             *client.cache().write().await = cache;
             notify_state(
@@ -509,13 +591,13 @@ async fn handle_inbound(
             );
             info!(accounts = count, "Received full_state ({count} accounts)");
         }
-        "delta" => {
+        WsInbound::Delta { changes } => {
             let cache = client.cache();
             let mut guard = cache.write().await;
-            guard.apply_delta(&msg);
+            guard.apply_delta_changes(&changes);
             let count = guard.account_count;
             drop(guard);
-            debug!(summary = %format_delta_summary(&msg), "Received delta");
+            debug!(summary = %format_delta_summary(&changes), "Received delta");
             notify_state(
                 on_state,
                 WsStateEvent::Connected {
@@ -523,81 +605,62 @@ async fn handle_inbound(
                 },
             );
         }
-        "login_auth_response" => resolve_login_auth_response(client, &msg).await,
-        "ping" => {
-            let _ = write
-                .lock()
-                .await
-                .send(Message::Text(r#"{"type":"pong"}"#.into()))
-                .await;
+        WsInbound::LoginAuthResponse {
+            request_id,
+            real_user,
+            encrypted_credentials,
+            error,
+        } => {
+            resolve_login_auth_response(
+                client,
+                request_id,
+                real_user,
+                encrypted_credentials,
+                error,
+            )
+            .await;
         }
-        "error" => {
-            let reason = msg
-                .get("detail")
-                .or_else(|| msg.get("message"))
-                .or_else(|| msg.get("error"))
-                .and_then(Value::as_str)
-                .unwrap_or("unknown error")
-                .to_string();
-            error!(%reason, raw = %text, "Server error");
-            notify_state(
-                on_state,
-                WsStateEvent::AuthFailed {
-                    reason: reason.clone(),
-                },
-            );
-            return true;
+        WsInbound::Ping => {
+            if let Ok(text) = serde_json::to_string(&WsOutbound::Pong) {
+                let _ = write.lock().await.send(Message::Text(text.into())).await;
+            }
         }
-        "auth_failed" | "close" => {
-            let reason = msg
-                .get("detail")
-                .or_else(|| msg.get("message"))
-                .or_else(|| msg.get("reason"))
-                .and_then(Value::as_str)
-                .unwrap_or("authentication failed")
-                .to_string();
-            warn!(%reason, raw = %text, "WS auth rejected");
+        WsInbound::Pong => debug!("WS pong received"),
+        WsInbound::Error { detail } => {
+            let reason = detail.unwrap_or_else(|| "authentication failed".to_string());
+            error!(%reason, raw = %text, "WS server error / auth rejected");
             notify_state(on_state, WsStateEvent::AuthFailed { reason });
             return true;
         }
-        _ => debug!(msg_type, "WS unhandled message"),
+        WsInbound::Unknown => debug!(raw = %text, "WS unhandled message"),
     }
     false
 }
 
-async fn resolve_login_auth_response(client: &SsoClient, msg: &Value) {
-    let request_id = match msg.get("request_id").and_then(Value::as_str) {
-        Some(id) => id.to_string(),
-        None => return,
-    };
+async fn resolve_login_auth_response(
+    client: &SsoClient,
+    request_id: String,
+    real_user: Option<String>,
+    encrypted_credentials: Option<String>,
+    error: Option<String>,
+) {
     let tx = client.inner.pending.lock().await.remove(&request_id);
     let Some(tx) = tx else {
         return;
     };
 
-    let result = if let Some(error) = msg.get("error").and_then(Value::as_str) {
+    let result = if let Some(error) = error {
         LoginAuthResult {
             real_user: None,
             encrypted_credentials: None,
-            error: Some(error.to_string()),
+            error: Some(error),
         }
     } else {
-        let enc_b64 = msg
-            .get("encrypted_credentials")
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        let encrypted = if enc_b64.is_empty() {
-            None
-        } else {
-            base64::engine::general_purpose::STANDARD
-                .decode(enc_b64)
-                .ok()
-        };
+        let encrypted = encrypted_credentials
+            .filter(|b64| !b64.is_empty())
+            .and_then(|b64| base64::engine::general_purpose::STANDARD.decode(b64).ok());
         LoginAuthResult {
-            real_user: msg
-                .get("real_user")
-                .and_then(Value::as_str)
-                .map(str::to_string),
+            real_user,
             encrypted_credentials: encrypted,
             error: None,
         }
@@ -669,20 +732,17 @@ mod tests {
 
     #[test]
     fn formats_delta_summary_like_python() {
-        let msg = serde_json::json!({
-            "type": "delta",
-            "changes": [
-                {"action": "add", "account": "alice"},
-                {
-                    "action": "update",
-                    "account": "bob",
-                    "fields": {"characters": {}, "tags": {}}
-                },
-                {"action": "remove", "account": "carol"}
-            ]
-        });
+        let changes = serde_json::json!([
+            {"action": "add", "account": "alice"},
+            {
+                "action": "update",
+                "account": "bob",
+                "fields": {"characters": {}, "tags": {}}
+            },
+            {"action": "remove", "account": "carol"}
+        ]);
         assert_eq!(
-            format_delta_summary(&msg),
+            format_delta_summary(&changes),
             "add alice; update bob (characters, tags); remove carol"
         );
     }

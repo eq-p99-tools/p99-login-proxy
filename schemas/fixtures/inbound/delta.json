@@ -1,0 +1,34 @@
+{
+  "type": "delta",
+  "changes": [
+    {
+      "action": "add",
+      "entity": "account",
+      "account": "newacct",
+      "data": {
+        "aliases": [],
+        "tags": [],
+        "characters": {},
+        "last_login": null,
+        "last_login_by": null,
+        "active_character": null,
+        "owned": false,
+        "shared": true
+      }
+    },
+    {
+      "action": "update",
+      "entity": "account",
+      "account": "myaccount",
+      "fields": {
+        "tags": { "add": ["vp"], "remove": [] },
+        "active_character": "Zzzz"
+      }
+    },
+    {
+      "action": "remove",
+      "entity": "account",
+      "account": "oldacct"
+    }
+  ]
+}

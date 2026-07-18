@@ -20,8 +20,17 @@ impl AccountCache {
             .unwrap_or(Value::Object(Map::new()));
         let zones = string_array(msg.get("dynamic_tag_zones"));
         let classes = string_array(msg.get("dynamic_tag_classes"));
-        let dynamic_tags = build_dynamic_tag_names(&zones, &classes);
-        Self::rebuild_from_tree(&tree, &dynamic_tags)
+        Self::from_parts(&tree, &zones, &classes)
+    }
+
+    /// Build the cache from already-parsed ``full_state`` components.
+    pub fn from_parts(
+        account_tree: &Value,
+        dynamic_tag_zones: &[String],
+        dynamic_tag_classes: &[String],
+    ) -> Self {
+        let dynamic_tags = build_dynamic_tag_names(dynamic_tag_zones, dynamic_tag_classes);
+        Self::rebuild_from_tree(account_tree, &dynamic_tags)
     }
 
     pub fn rebuild_from_tree(account_tree: &Value, dynamic_tag_names: &[String]) -> Self {
@@ -70,8 +79,15 @@ impl AccountCache {
     }
 
     pub fn apply_delta(&mut self, delta: &Value) {
+        if let Some(changes) = delta.get("changes") {
+            self.apply_delta_changes(changes);
+        }
+    }
+
+    /// Apply the ``changes`` array from a WS ``delta`` message.
+    pub fn apply_delta_changes(&mut self, changes: &Value) {
         let mut tree = self.account_tree.clone();
-        apply_delta_to_tree(&mut tree, delta);
+        apply_changes_to_tree(&mut tree, changes);
         *self = Self::rebuild_from_tree(&tree, &self.dynamic_tag_names);
     }
 
@@ -82,10 +98,17 @@ impl AccountCache {
 
 /// Apply incremental WS ``delta`` changes (Python ``_apply_delta``).
 pub fn apply_delta_to_tree(tree: &mut Value, delta: &Value) {
+    if let Some(changes) = delta.get("changes") {
+        apply_changes_to_tree(tree, changes);
+    }
+}
+
+/// Apply a WS ``changes`` array (from a ``delta`` message) to an account tree.
+pub fn apply_changes_to_tree(tree: &mut Value, changes: &Value) {
     let Some(obj) = tree.as_object_mut() else {
         return;
     };
-    let Some(changes) = delta.get("changes").and_then(Value::as_array) else {
+    let Some(changes) = changes.as_array() else {
         return;
     };
 

@@ -1,0 +1,42 @@
+{
+  "type": "full_state",
+  "account_tree": {
+    "myaccount": {
+      "aliases": ["myalias"],
+      "tags": ["clr"],
+      "characters": {
+        "Zzzz": {
+          "class": "Cleric",
+          "bind": "Toxxulia Forest",
+          "park": "Plane of Knowledge",
+          "level": 60,
+          "items": {
+            "seb": true,
+            "vp": false,
+            "st": null,
+            "void": null,
+            "neck": null,
+            "lizard": null,
+            "thurg": null,
+            "reaper": null,
+            "brass_idol": null,
+            "pearl": null,
+            "peridot": null,
+            "mb3": null,
+            "mb4": null,
+            "mb5": null
+          },
+          "keys": { "seb": true, "vp": false, "st": null }
+        }
+      },
+      "last_login": null,
+      "last_login_by": null,
+      "active_character": null,
+      "owned": true,
+      "shared": false
+    }
+  },
+  "count": 1,
+  "dynamic_tag_zones": ["seb", "vp", "st"],
+  "dynamic_tag_classes": ["clr", "enc", "wiz"]
+}

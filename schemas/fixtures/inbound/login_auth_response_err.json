@@ -1,0 +1,6 @@
+{
+  "type": "login_auth_response",
+  "request_id": "6f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f",
+  "error": "No access to that account",
+  "status": 403
+}
