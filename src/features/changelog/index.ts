@@ -1,0 +1,1 @@
+export { ChangelogPanel } from "./ChangelogPanel";

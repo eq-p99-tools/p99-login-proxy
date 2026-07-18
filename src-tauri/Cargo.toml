@@ -1,0 +1,44 @@
+[package]
+name = "p99-login-proxy-native"
+description = "P99 SSO Login Proxy (native)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "p99_login_proxy_native_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "P99LoginProxy"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-single-instance = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-opener = "2"
+runtime.workspace = true
+proxy-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+secrecy.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+chrono.workspace = true
+pulldown-cmark = "0.13"
+semver = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+futures-util.workspace = true
+zip = { version = "4", default-features = false, features = ["deflate"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+
+[dev-dependencies]
+tempfile.workspace = true

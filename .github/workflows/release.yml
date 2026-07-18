@@ -1,0 +1,47 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Stamp release version
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          npm version $version --no-git-tag-version
+          $env:RELEASE_VERSION = $version
+          node -e "const fs=require('fs'); const v=process.env.RELEASE_VERSION; const p='Cargo.toml'; let s=fs.readFileSync(p,'utf8'); s=s.replace(/(\[workspace\.package\][\s\S]*?version\s*=\s*\")[^\"]+/, '`$1'+v); fs.writeFileSync(p,s); const t='src-tauri/tauri.conf.json'; const j=JSON.parse(fs.readFileSync(t,'utf8')); j.version=v; fs.writeFileSync(t,JSON.stringify(j,null,2)+'\n');"
+      - run: npm ci
+      - name: Build portable executable
+        run: npm run tauri build -- --target x86_64-pc-windows-msvc --no-bundle
+      - name: Package legacy-compatible update zip
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          $exe = "P99LoginProxy-$version.exe"
+          Copy-Item "target/x86_64-pc-windows-msvc/release/P99LoginProxy.exe" $exe
+          Compress-Archive -Path $exe -DestinationPath "P99LoginProxy-$version.zip"
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "P99 Login Proxy ${{ github.ref_name }}"
+          draft: true
+          generate_release_notes: true
+          files: P99LoginProxy-*.zip

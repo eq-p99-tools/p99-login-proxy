@@ -1,0 +1,17 @@
+[package]
+name = "protocol"
+description = "SOE/EQ login wire protocol (pure, no I/O)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+des.workspace = true
+cbc.workspace = true
+cipher.workspace = true
+thiserror.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+
+[dev-dependencies]
+hex = "0.4"
