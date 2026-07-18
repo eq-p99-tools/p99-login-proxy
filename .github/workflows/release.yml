@@ -40,9 +40,7 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ github.ref_name }}".TrimStart("v")
-          npm version $version --no-git-tag-version
-          $env:RELEASE_VERSION = $version
-          node -e "const fs=require('fs'); const v=process.env.RELEASE_VERSION; const p='Cargo.toml'; let s=fs.readFileSync(p,'utf8'); s=s.replace(/(\[workspace\.package\][\s\S]*?version\s*=\s*\")[^\"]+/, '`$1'+v); fs.writeFileSync(p,s); const t='src-tauri/tauri.conf.json'; const j=JSON.parse(fs.readFileSync(t,'utf8')); j.version=v; fs.writeFileSync(t,JSON.stringify(j,null,2)+'\n');"
+          node scripts/stamp-release-version.mjs $version
       - name: Download WebView2 bootstrapper
         shell: pwsh
         run: |
@@ -103,9 +101,7 @@ jobs:
       - name: Stamp release version
         run: |
           version="${GITHUB_REF_NAME#v}"
-          npm version "$version" --no-git-tag-version
-          export RELEASE_VERSION="$version"
-          node -e "const fs=require('fs'); const v=process.env.RELEASE_VERSION; const p='Cargo.toml'; let s=fs.readFileSync(p,'utf8'); s=s.replace(/(\[workspace\.package\][\s\S]*?version\s*=\s*\")[^\"]+/, '\$1'+v); fs.writeFileSync(p,s); const t='src-tauri/tauri.conf.json'; const j=JSON.parse(fs.readFileSync(t,'utf8')); j.version=v; fs.writeFileSync(t,JSON.stringify(j,null,2)+'\n');"
+          node scripts/stamp-release-version.mjs "$version"
       - name: Linux WebKit deps
         run: |
           sudo apt-get update
