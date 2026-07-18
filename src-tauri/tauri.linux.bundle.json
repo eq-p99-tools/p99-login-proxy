@@ -1,4 +1,5 @@
 {
+  "productName": "P99LoginProxy",
   "bundle": {
     "active": true,
     "targets": ["appimage"]

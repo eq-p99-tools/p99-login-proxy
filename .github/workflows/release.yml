@@ -115,11 +115,19 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           canonical="P99LoginProxy-${version}-x86_64.AppImage"
-          appimage="$(find src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage -name '*.AppImage' -print -quit)"
-          if [ -z "$appimage" ]; then
-            echo "AppImage bundle not found" >&2
+          appimage_dir="target/x86_64-unknown-linux-gnu/release/bundle/appimage"
+          if [ ! -d "$appimage_dir" ]; then
+            echo "AppImage bundle dir not found: $appimage_dir" >&2
+            find target -name '*.AppImage' 2>/dev/null || true
             exit 1
           fi
+          appimage="$(find "$appimage_dir" -maxdepth 1 -name '*.AppImage' -print -quit)"
+          if [ -z "$appimage" ]; then
+            echo "AppImage bundle not found under $appimage_dir" >&2
+            ls -la "$appimage_dir"
+            exit 1
+          fi
+          echo "Renaming '$appimage' -> '$canonical'"
           cp "$appimage" "$canonical"
           chmod +x "$canonical"
       - uses: actions/upload-artifact@v4

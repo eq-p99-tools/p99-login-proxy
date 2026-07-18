@@ -13,7 +13,9 @@ Build the AppImage with:
 npm run tauri build -- --target x86_64-unknown-linux-gnu --config src-tauri/tauri.linux.bundle.json
 ```
 
-The bundle lands under `src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/`.
+The bundle lands under `target/x86_64-unknown-linux-gnu/release/bundle/appimage/`
+as `P99LoginProxy_{version}_amd64.AppImage` before CI renames it to the canonical
+release filename.
 
 ## Constraints
 
