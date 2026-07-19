@@ -554,7 +554,10 @@ listen_port = 6790
 
         let gnomish = dir.path().join("gnomish.ini");
         std::fs::write(&gnomish, "[DEFAULT]\ntheme_mode = gnomish\n").unwrap();
-        assert_eq!(parse_proxyconfig_ini(&gnomish).unwrap().theme_mode, "gnomish");
+        assert_eq!(
+            parse_proxyconfig_ini(&gnomish).unwrap().theme_mode,
+            "gnomish"
+        );
 
         let legacy_akanon = dir.path().join("legacy_akanon.ini");
         std::fs::write(&legacy_akanon, "[DEFAULT]\ntheme_mode = akanon\n").unwrap();
@@ -565,27 +568,35 @@ listen_port = 6790
 
         let iceclad = dir.path().join("iceclad.ini");
         std::fs::write(&iceclad, "[DEFAULT]\ntheme_mode = Iceclad\n").unwrap();
-        assert_eq!(parse_proxyconfig_ini(&iceclad).unwrap().theme_mode, "iceclad");
+        assert_eq!(
+            parse_proxyconfig_ini(&iceclad).unwrap().theme_mode,
+            "iceclad"
+        );
 
         let kelethin = dir.path().join("kelethin.ini");
         std::fs::write(&kelethin, "[DEFAULT]\ntheme_mode = kelethin\n").unwrap();
-        assert_eq!(parse_proxyconfig_ini(&kelethin).unwrap().theme_mode, "kelethin");
+        assert_eq!(
+            parse_proxyconfig_ini(&kelethin).unwrap().theme_mode,
+            "kelethin"
+        );
 
         let lavastorm = dir.path().join("lavastorm.ini");
         std::fs::write(&lavastorm, "[DEFAULT]\ntheme_mode = lavastorm\n").unwrap();
-        assert_eq!(parse_proxyconfig_ini(&lavastorm).unwrap().theme_mode, "lavastorm");
+        assert_eq!(
+            parse_proxyconfig_ini(&lavastorm).unwrap().theme_mode,
+            "lavastorm"
+        );
 
         let sky = dir.path().join("sky.ini");
         std::fs::write(&sky, "[DEFAULT]\ntheme_mode = sky\n").unwrap();
         assert_eq!(parse_proxyconfig_ini(&sky).unwrap().theme_mode, "erudin");
 
         let legacy_sky = dir.path().join("legacy_sky.ini");
-        std::fs::write(
-            &legacy_sky,
-            "[DEFAULT]\ntheme_mode = plane_of_sky\n",
-        )
-        .unwrap();
-        assert_eq!(parse_proxyconfig_ini(&legacy_sky).unwrap().theme_mode, "erudin");
+        std::fs::write(&legacy_sky, "[DEFAULT]\ntheme_mode = plane_of_sky\n").unwrap();
+        assert_eq!(
+            parse_proxyconfig_ini(&legacy_sky).unwrap().theme_mode,
+            "erudin"
+        );
 
         let erudin = dir.path().join("erudin.ini");
         std::fs::write(&erudin, "[DEFAULT]\ntheme_mode = erudin\n").unwrap();
@@ -593,7 +604,10 @@ listen_port = 6790
 
         let paineel = dir.path().join("paineel.ini");
         std::fs::write(&paineel, "[DEFAULT]\ntheme_mode = paineel\n").unwrap();
-        assert_eq!(parse_proxyconfig_ini(&paineel).unwrap().theme_mode, "paineel");
+        assert_eq!(
+            parse_proxyconfig_ini(&paineel).unwrap().theme_mode,
+            "paineel"
+        );
     }
 
     #[test]

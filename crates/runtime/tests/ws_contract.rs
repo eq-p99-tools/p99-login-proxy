@@ -182,7 +182,7 @@ fn outbound_values_match_fixtures() {
     assert_outbound_matches(
         &WsOutbound::Auth {
             access_key: "AccessKeyExample1234",
-            client_version: "2.0.0-rc1",
+            client_version: "2.0.0",
             client_settings: &settings,
         },
         "outbound/auth.json",
@@ -277,7 +277,7 @@ fn serialized_outbound_validates_against_schema() {
     let messages = [
         serde_json::to_value(WsOutbound::Auth {
             access_key: "AccessKeyExample1234",
-            client_version: "2.0.0-rc1",
+            client_version: "2.0.0",
             client_settings: &settings,
         })
         .unwrap(),

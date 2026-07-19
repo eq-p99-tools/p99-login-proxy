@@ -21,6 +21,18 @@ export const ProxyModeSchema = z.enum([
   "disabled",
 ]);
 
+export const ThemeModeSchema = z.enum([
+  "dark",
+  "light",
+  "system",
+  "gnomish",
+  "iceclad",
+  "kelethin",
+  "lavastorm",
+  "erudin",
+  "paineel",
+]);
+
 export const BootstrapStateSchema = z.object({
   version: z.string(),
   platform: z.string(),
@@ -81,20 +93,7 @@ export const AppConfigSchema = z.object({
   skip_sso_accounts: z.string(),
   sso_backend: z.string(),
   dark_mode: z.boolean(),
-  theme_mode: z
-    .enum([
-      "dark",
-      "light",
-      "system",
-      "gnomish",
-      "iceclad",
-      "kelethin",
-      "lavastorm",
-      "erudin",
-      "paineel",
-    ])
-    .optional()
-    .default("system"),
+  theme_mode: ThemeModeSchema.optional().default("system"),
   prerelease_updates: z.boolean(),
   eq_directory: z.string().nullable().optional().transform((v) => v ?? null),
   eq_directory_secondary: z.string().nullable().optional().transform((v) => v ?? null),
@@ -197,6 +196,7 @@ export type BootstrapState = z.infer<typeof BootstrapStateSchema>;
 export type ProxyLifecycle = z.infer<typeof ProxyLifecycleSchema>;
 export type WsConnectionState = z.infer<typeof WsConnectionStateSchema>;
 export type ProxyMode = z.infer<typeof ProxyModeSchema>;
+export type ThemeMode = z.infer<typeof ThemeModeSchema>;
 export type ProxyStats = z.infer<typeof ProxyStatsSchema>;
 export type RuntimeState = z.infer<typeof RuntimeStateSchema>;
 export type ProxySettings = z.infer<typeof ProxySettingsSchema>;

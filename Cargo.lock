@@ -2912,7 +2912,7 @@ checksum = "1a80800c0488c3a21695ea981a54918fbb37abf04f4d0720c453632255e2ff0e"
 
 [[package]]
 name = "p99-login-proxy-native"
-version = "2.0.0-rc1"
+version = "2.0.0"
 dependencies = [
  "chrono",
  "futures-util",
@@ -3222,7 +3222,7 @@ dependencies = [
 
 [[package]]
 name = "protocol"
-version = "2.0.0-rc1"
+version = "2.0.0"
 dependencies = [
  "cbc",
  "cipher",
@@ -3235,7 +3235,7 @@ dependencies = [
 
 [[package]]
 name = "proxy-core"
-version = "2.0.0-rc1"
+version = "2.0.0"
 dependencies = [
  "csv",
  "directories",
@@ -3631,7 +3631,7 @@ dependencies = [
 
 [[package]]
 name = "runtime"
-version = "2.0.0-rc1"
+version = "2.0.0"
 dependencies = [
  "base64 0.22.1",
  "futures-util",
