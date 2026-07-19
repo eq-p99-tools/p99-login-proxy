@@ -592,6 +592,21 @@ impl AppSupervisor {
         self.publish_snapshot_inner();
     }
 
+    /// Parity with Python `eq_config.enable_proxy()` on startup / mode change.
+    fn ensure_eqhost_proxy_enabled(&self) {
+        let Some(ref eq_dir) = self.eq_directory else {
+            return;
+        };
+        if let Err(e) =
+            EqHostWriter::enable_proxy(eq_dir, "127.0.0.1", self.proxy_config.listen_port)
+        {
+            warn!(dir = %eq_dir.display(), error = %e, "failed to enable eqhost proxy line");
+        } else {
+            info!(dir = %eq_dir.display(), "eqhost.txt updated for proxy");
+            self.touch_snapshot();
+        }
+    }
+
     pub async fn bootstrap_startup(&mut self) {
         let file = match load_config() {
             Ok(f) => f,
@@ -611,6 +626,11 @@ impl AppSupervisor {
 
         // Python starts ws_client.start() at app launch, independent of the UDP proxy.
         self.ensure_ws_started().await;
+
+        // Python fixes eqhost.txt as soon as proxy mode is enabled, before UDP starts.
+        if file.proxy_enabled {
+            self.ensure_eqhost_proxy_enabled();
+        }
 
         if file.proxy_enabled && self.eq_directory.is_some() {
             if let Err(e) = self.set_proxy_mode_selection(mode).await {
@@ -655,6 +675,7 @@ impl AppSupervisor {
                 self.stop_proxy().await;
             }
             ProxyMode::EnabledSso | ProxyMode::EnabledProxyOnly => {
+                self.ensure_eqhost_proxy_enabled();
                 if self.udp.is_some() {
                     self.stop_proxy().await;
                 }
