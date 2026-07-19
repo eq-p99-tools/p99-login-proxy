@@ -46,7 +46,7 @@ impl Default for BootstrapState {
             ws_state: WsConnectionState::Disconnected,
             ws_error: None,
             listen_address: "127.0.0.1".to_string(),
-            listen_port: 5998,
+            listen_port: 6998,
         }
     }
 }

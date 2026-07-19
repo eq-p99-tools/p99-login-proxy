@@ -72,7 +72,7 @@ pub fn parse_proxyconfig_ini(path: &Path) -> Result<ConfigFileV1, ConfigError> {
     Ok(ConfigFileV1 {
         version: 1,
         listen_host,
-        listen_port: get_u16(default, "listen_port", 5998),
+        listen_port: get_u16(default, "listen_port", 6998),
         allow_non_loopback,
         proxy_enabled: get_bool(default, "proxy_enabled", true),
         proxy_only: get_bool(default, "proxy_only", false),

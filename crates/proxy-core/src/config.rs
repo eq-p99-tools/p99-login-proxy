@@ -129,7 +129,7 @@ fn default_listen_host() -> String {
 }
 
 fn default_listen_port() -> u16 {
-    5998
+    6998
 }
 
 fn default_upstream_port() -> u16 {

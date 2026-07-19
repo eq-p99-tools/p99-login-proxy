@@ -75,7 +75,7 @@ impl Default for ProxyRuntimeConfig {
     fn default() -> Self {
         Self {
             listen_host: "0.0.0.0".to_string(),
-            listen_port: 5998,
+            listen_port: 6998,
             upstream_host: "login.eqemulator.net".to_string(),
             upstream_port: 5998,
             proxy_only: false,

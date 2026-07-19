@@ -16,7 +16,7 @@ describe("ProxyPanel", () => {
         <ProxyPanel />
       </AppProviders>,
     );
-    expect(await screen.findByText("127.0.0.1:5998")).toBeTruthy();
+    expect(await screen.findByText("127.0.0.1:6998")).toBeTruthy();
   });
 
   it("allows editing the listen port on double-click", async () => {
@@ -26,10 +26,10 @@ describe("ProxyPanel", () => {
         <ProxyPanel />
       </AppProviders>,
     );
-    await screen.findByText("127.0.0.1:5998");
-    fireEvent.doubleClick(screen.getByText("127.0.0.1:5998"));
+    await screen.findByText("127.0.0.1:6998");
+    fireEvent.doubleClick(screen.getByText("127.0.0.1:6998"));
     const input = screen.getByLabelText("Listen port") as HTMLInputElement;
-    expect(input.value).toBe("5998");
+    expect(input.value).toBe("6998");
     fireEvent.change(input, { target: { value: "6790" } });
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => {
@@ -44,7 +44,7 @@ describe("ProxyPanel", () => {
         <ProxyPanel />
       </AppProviders>,
     );
-    await screen.findByText("127.0.0.1:5998");
+    await screen.findByText("127.0.0.1:6998");
     const select = screen.getByLabelText("Proxy Mode");
     fireEvent.change(select, { target: { value: "enabled_sso" } });
     await waitFor(() => {
@@ -59,7 +59,7 @@ describe("ProxyPanel", () => {
         <ProxyPanel />
       </AppProviders>,
     );
-    await screen.findByText("127.0.0.1:5998");
+    await screen.findByText("127.0.0.1:6998");
     const select = screen.getByLabelText("Theme") as HTMLSelectElement;
     expect(Array.from(select.options).map((option) => option.text)).toEqual([
       "System Default",
@@ -78,7 +78,7 @@ describe("ProxyPanel", () => {
         <ProxyPanel />
       </AppProviders>,
     );
-    await screen.findByText("127.0.0.1:5998");
+    await screen.findByText("127.0.0.1:6998");
     expect(screen.getByText("Total Connections:")).toBeTruthy();
     expect(screen.getByText("SSO API:")).toBeTruthy();
     expect(screen.getByText("API Token:")).toBeTruthy();

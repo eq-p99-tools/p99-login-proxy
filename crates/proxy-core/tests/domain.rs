@@ -13,7 +13,7 @@ fn validated_config_defaults_loopback() {
     let file = ConfigFileV1::default();
     let cfg = ValidatedConfig::from_file(&file).unwrap();
     assert_eq!(cfg.listen_host, "127.0.0.1");
-    assert_eq!(cfg.listen_port, 5998);
+    assert_eq!(cfg.listen_port, 6998);
 }
 
 #[test]

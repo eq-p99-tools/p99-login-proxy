@@ -818,32 +818,48 @@ impl AppSupervisor {
         self.start_proxy().await
     }
 
-    pub async fn stop_proxy(&mut self) {
-        if self.udp.is_none() {
-            self.publish_runtime_state(Some(ProxyLifecycle::Stopped), None);
+    /// Parity with Python `eq_config.disable_proxy()` when eqhost points at the proxy.
+    fn restore_eqhost_if_using_proxy(&self) {
+        let Some(ref eq_dir) = self.eq_directory else {
+            return;
+        };
+        if !EqHostWriter::is_proxy_enabled_in_directory(
+            eq_dir,
+            "127.0.0.1",
+            self.proxy_config.listen_port,
+        ) {
             return;
         }
-
-        self.publish_runtime_state(Some(ProxyLifecycle::Stopping), None);
-
-        info!("stopping UDP login proxy");
-
-        if let Some(udp) = self.udp.take() {
-            udp.stop().await;
+        if let Err(e) =
+            EqHostWriter::disable_proxy(eq_dir, "127.0.0.1", self.proxy_config.listen_port)
+        {
+            warn!(dir = %eq_dir.display(), error = %e, "failed to restore eqhost.txt");
+        } else {
+            info!(dir = %eq_dir.display(), "eqhost.txt restored from backup");
+            self.touch_snapshot();
         }
+    }
 
-        if let Some(ref eq_dir) = self.eq_directory {
-            if let Err(e) =
-                EqHostWriter::disable_proxy(eq_dir, "127.0.0.1", self.proxy_config.listen_port)
-            {
-                warn!(dir = %eq_dir.display(), error = %e, "failed to restore eqhost.txt");
+    pub async fn stop_proxy(&mut self) {
+        let was_running = self.udp.is_some();
+        if was_running {
+            self.publish_runtime_state(Some(ProxyLifecycle::Stopping), None);
+
+            info!("stopping UDP login proxy");
+
+            if let Some(udp) = self.udp.take() {
+                udp.stop().await;
             }
+
+            self.stats.clear_uptime();
         }
 
-        self.stats.clear_uptime();
+        self.restore_eqhost_if_using_proxy();
         self.publish_runtime_state(Some(ProxyLifecycle::Stopped), None);
 
-        info!("UDP login proxy stopped");
+        if was_running {
+            info!("UDP login proxy stopped");
+        }
     }
 
     pub async fn shutdown_in_place(&mut self) {

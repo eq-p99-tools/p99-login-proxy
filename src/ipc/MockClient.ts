@@ -26,12 +26,12 @@ const MOCK_BOOTSTRAP: BootstrapState = {
   ws_state: "disconnected",
   ws_error: null,
   listen_address: "127.0.0.1",
-  listen_port: 5998,
+  listen_port: 6998,
 };
 
 const MOCK_SETTINGS: ProxySettings = {
   listen_host: "127.0.0.1",
-  listen_port: 5998,
+  listen_port: 6998,
   upstream_host: "login.eqemulator.net",
   upstream_port: 5998,
   proxy_only: false,

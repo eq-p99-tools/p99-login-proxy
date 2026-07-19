@@ -52,7 +52,7 @@ In the **Proxy** tab:
 
 | Setting | Notes |
 |---------|-------|
-| Listen | `127.0.0.1:5998` |
+| Listen | `127.0.0.1:6998` |
 | Upstream | `login.eqemulator.net:5998` |
 | Proxy Mode | **Enabled (Proxy Only)** |
 
@@ -61,7 +61,7 @@ In the **Proxy** tab:
 Set `eqhost.txt` in your EQ directory:
 
 ```text
-Host=127.0.0.1:5998
+Host=127.0.0.1:6998
 ```
 
 Or use **Advanced → Browse** to select `eqgame.exe` and enable proxy mode.
