@@ -7,6 +7,37 @@ mod tray;
 mod updater;
 pub mod webview2_preflight;
 
+/// Shared autostart registration name — version-independent so enabling one copy
+/// replaces any previously registered copy instead of creating parallel entries.
+pub const AUTOSTART_APP_NAME: &str = "P99LoginProxy";
+const BACKGROUND_LAUNCH_ARG: &str = "--background";
+
+pub fn launched_in_background() -> bool {
+    std::env::args().any(|arg| arg == BACKGROUND_LAUNCH_ARG)
+}
+
+pub fn normalize_release_working_directory() {
+    #[cfg(not(debug_assertions))]
+    if let Some(dir) = portable_app_directory() {
+        let _ = std::env::set_current_dir(dir);
+    }
+}
+
+pub fn portable_app_directory() -> Option<std::path::PathBuf> {
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(appimage) = std::env::var("APPIMAGE") {
+            return std::path::PathBuf::from(appimage)
+                .parent()
+                .map(std::path::Path::to_path_buf);
+        }
+    }
+
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf))
+}
+
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -57,9 +88,18 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .app_name(AUTOSTART_APP_NAME)
+                .args([BACKGROUND_LAUNCH_ARG])
+                .build(),
+        )
         .manage(app_state)
         .setup(|app| {
             apply_main_window_title(app.handle());
+            if !launched_in_background() {
+                let _ = commands::show_window(app.handle().clone());
+            }
             let tray_ok = setup_tray(app.handle()).unwrap_or(false);
             if let Some(state) = app.try_state::<AppState>() {
                 state.set_tray_available(tray_ok);
@@ -153,4 +193,16 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::portable_app_directory;
+
+    #[test]
+    fn portable_app_directory_prefers_current_exe_parent() {
+        let exe = std::env::current_exe().expect("current_exe");
+        let expected = exe.parent().expect("exe parent");
+        assert_eq!(portable_app_directory().as_deref(), Some(expected));
+    }
 }

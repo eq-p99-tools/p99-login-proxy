@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 
 import type {
   DesktopClient,
@@ -171,6 +172,19 @@ export class TauriClient implements DesktopClient {
 
   async requestShutdown(): Promise<void> {
     await invoke("request_shutdown");
+  }
+
+  async getLaunchAtLogin(): Promise<boolean> {
+    return isEnabled();
+  }
+
+  async setLaunchAtLogin(enabled: boolean): Promise<boolean> {
+    if (enabled) {
+      await enable();
+    } else if (await isEnabled()) {
+      await disable();
+    }
+    return isEnabled();
   }
 }
 

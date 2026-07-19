@@ -139,7 +139,7 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
               style={
                 coords
                   ? { left: coords.left, top: coords.top }
-                  : { left: tip.anchor.left + tip.anchor.width / 2, top: tip.anchor.bottom + 6 }
+                  : { left: 0, top: 0 }
               }
             >
               {tip.text}

@@ -52,7 +52,7 @@ describe("ProxyPanel", () => {
     });
   });
 
-  it("offers dark, light, and system theme modes", async () => {
+  it("offers dark, light, system, and EverQuest theme modes", async () => {
     const client = new MockClient();
     render(
       <AppProviders client={client}>
@@ -63,12 +63,18 @@ describe("ProxyPanel", () => {
     const select = screen.getByLabelText("Theme") as HTMLSelectElement;
     expect(Array.from(select.options).map((option) => option.text)).toEqual([
       "System Default",
-      "Dark Mode",
-      "Light Mode",
+      "Qeynos Harbor",
+      "Nektulos Forest",
+      "Gnomish Terminal",
+      "Iceclad Ocean",
+      "Kelethin Treetops",
+      "Lavastorm Mountains",
+      "Paineel Undercity",
+      "Erudin Library",
     ]);
     expect(select.value).toBe("system");
-    fireEvent.change(select, { target: { value: "light" } });
-    await waitFor(() => expect(select.value).toBe("light"));
+    fireEvent.change(select, { target: { value: "iceclad" } });
+    await waitFor(() => expect(select.value).toBe("iceclad"));
   });
 
   it("uses Python-style form labels", async () => {
@@ -82,6 +88,25 @@ describe("ProxyPanel", () => {
     expect(screen.getByText("Total Connections:")).toBeTruthy();
     expect(screen.getByText("SSO API:")).toBeTruthy();
     expect(screen.getByText("API Token:")).toBeTruthy();
+    expect(screen.getByLabelText("Launch on system login")).toBeTruthy();
+  });
+
+  it("toggles launch on system login through the desktop client", async () => {
+    const client = new MockClient();
+    render(
+      <AppProviders client={client}>
+        <ProxyPanel />
+      </AppProviders>,
+    );
+    await screen.findByText("127.0.0.1:6998");
+    const checkbox = screen.getByLabelText("Launch on system login") as HTMLInputElement;
+    expect(checkbox.checked).toBe(false);
+    fireEvent.click(checkbox);
+    await waitFor(() => expect(checkbox.checked).toBe(true));
+    expect(await client.getLaunchAtLogin()).toBe(true);
+    fireEvent.click(checkbox);
+    await waitFor(() => expect(checkbox.checked).toBe(false));
+    expect(await client.getLaunchAtLogin()).toBe(false);
   });
 
   it("shows SSO accounts summary from account tree", async () => {

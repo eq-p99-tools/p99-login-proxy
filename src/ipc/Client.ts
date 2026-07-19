@@ -80,4 +80,6 @@ export interface DesktopClient {
   showWindow(): Promise<void>;
   hideWindow(): Promise<void>;
   requestShutdown(): Promise<void>;
+  getLaunchAtLogin(): Promise<boolean>;
+  setLaunchAtLogin(enabled: boolean): Promise<boolean>;
 }

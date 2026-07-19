@@ -111,6 +111,7 @@ export class MockClient implements DesktopClient {
   private localCharacters: LocalDataView["characters"] = [];
   private eqDir: string | null = null;
   private passwordStore = new Map<string, string>();
+  private launchAtLogin = false;
 
   async getBootstrapState(): Promise<BootstrapState> {
     return { ...this.bootstrap };
@@ -322,6 +323,15 @@ export class MockClient implements DesktopClient {
   async showWindow(): Promise<void> {}
   async hideWindow(): Promise<void> {}
   async requestShutdown(): Promise<void> {}
+
+  async getLaunchAtLogin(): Promise<boolean> {
+    return this.launchAtLogin;
+  }
+
+  async setLaunchAtLogin(enabled: boolean): Promise<boolean> {
+    this.launchAtLogin = enabled;
+    return enabled;
+  }
 
   /** Test helper: inject malformed SSO data */
   setMockAccounts(view: SsoAccountsView) {

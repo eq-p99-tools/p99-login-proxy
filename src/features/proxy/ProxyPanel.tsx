@@ -11,7 +11,7 @@ import {
 } from "../../components";
 import { tooltipProps } from "../../components/tooltip";
 import { useDesktopClient } from "../../app/AppProviders";
-import { applyAppTheme } from "../../app/theme";
+import { applyAppTheme, themeUsesDarkPalette, THEME_OPTIONS } from "../../app/theme";
 import type { DesktopClient } from "../../ipc/Client";
 import type { AppConfig, ProxyMode, SsoBackendOption } from "../../ipc/schemas";
 import type { AccountTree } from "../sso/roster";
@@ -107,6 +107,7 @@ export function ProxyPanel() {
   const [modeBusy, setModeBusy] = useState(false);
   const [tokenBusy, setTokenBusy] = useState(false);
   const [alwaysOnTop, setAlwaysOnTop] = useState(false);
+  const [launchAtLogin, setLaunchAtLogin] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState("");
   const [portEditing, setPortEditing] = useState(false);
@@ -144,17 +145,19 @@ export function ProxyPanel() {
 
   const refreshMeta = useCallback(async () => {
     try {
-      const [s, b, cfg, local, accounts] = await Promise.all([
+      const [s, b, cfg, local, accounts, loginAtStart] = await Promise.all([
         client.getSsoStatus(),
         client.getSsoBackends(),
         client.getAppConfig(),
         client.getLocalData(),
         client.getSsoAccounts(),
+        client.getLaunchAtLogin(),
       ]);
       applySsoStatus(s);
       setBackends(b);
       setConfig(cfg);
       setAlwaysOnTop(cfg.always_on_top);
+      setLaunchAtLogin(loginAtStart);
       setLocalSummary(localAccountsSummary(local.accounts, local.characters.length));
       const tree = normalizeAccountTree(accounts.account_tree);
       setAccountTree(tree);
@@ -284,7 +287,7 @@ export function ProxyPanel() {
     const next = {
       ...config,
       theme_mode: themeMode,
-      dark_mode: themeMode === "dark" || (themeMode === "system" && systemDark),
+      dark_mode: themeUsesDarkPalette(themeMode, systemDark),
     };
     setConfig(next);
     applyAppTheme(themeMode);
@@ -304,6 +307,19 @@ export function ProxyPanel() {
       await client.saveAppConfig(next);
     } catch (e) {
       setAlwaysOnTop(!checked);
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const toggleLaunchAtLogin = async (checked: boolean) => {
+    const previous = launchAtLogin;
+    setLaunchAtLogin(checked);
+    try {
+      const enabled = await client.setLaunchAtLogin(checked);
+      setLaunchAtLogin(enabled);
+      setError(null);
+    } catch (e) {
+      setLaunchAtLogin(previous);
       setError(e instanceof Error ? e.message : String(e));
     }
   };
@@ -477,16 +493,20 @@ export function ProxyPanel() {
                 ))}
               </select>
               <span className="mode-spacer" />
-              <select
-                aria-label="Theme"
-                value={config?.theme_mode ?? "system"}
-                onChange={(e) => void changeTheme(e.target.value as AppConfig["theme_mode"])}
-                {...tooltipProps("Choose dark, light, or the Windows system theme")}
+              <label
+                className="checkbox-inline"
+                {...tooltipProps(
+                  "Start P99 Login Proxy automatically when you sign in to this computer",
+                )}
               >
-                <option value="system">System Default</option>
-                <option value="dark">Dark Mode</option>
-                <option value="light">Light Mode</option>
-              </select>
+                <input
+                  type="checkbox"
+                  aria-label="Launch on system login"
+                  checked={launchAtLogin}
+                  onChange={(e) => void toggleLaunchAtLogin(e.target.checked)}
+                />
+                Launch on system login
+              </label>
               <label
                 className="checkbox-inline"
                 {...tooltipProps("Keep the application window on top of other windows")}
@@ -501,21 +521,42 @@ export function ProxyPanel() {
             </div>
           </FormRow>
           <FormRow label="SSO API:" bold>
-            <select
-              aria-label="SSO API"
-              className="field-select"
-              {...tooltipProps("Select the SSO API server endpoint")}
-              value={ssoStatus?.backend ?? ""}
-              disabled={tokenBusy}
-              onChange={(e) => void changeBackend(e.target.value)}
-            >
-              <option value="">Select SSO Server…</option>
-              {backends.map((b) => (
-                <option key={b.name} value={b.name}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
+            <div className="proxy-mode-row">
+              <select
+                aria-label="SSO API"
+                className="field-select"
+                {...tooltipProps("Select the SSO API server endpoint")}
+                value={ssoStatus?.backend ?? ""}
+                disabled={tokenBusy}
+                onChange={(e) => void changeBackend(e.target.value)}
+              >
+                <option value="">Select SSO Server…</option>
+                {backends.map((b) => (
+                  <option key={b.name} value={b.name}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+              <span className="mode-spacer" />
+              <div className="proxy-theme-control">
+                <span className="form-row-label-bold">Theme:</span>
+                <select
+                  aria-label="Theme"
+                  className="field-select"
+                  value={config?.theme_mode ?? "system"}
+                  onChange={(e) => void changeTheme(e.target.value as AppConfig["theme_mode"])}
+                  {...tooltipProps(
+                    "System Default follows your OS (Qeynos Harbor light, Nektulos Forest dark). Other themes are EverQuest zone inspired palettes.",
+                  )}
+                >
+                  {THEME_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
           </FormRow>
           <FormRow label="API Token:" bold>
             <div>

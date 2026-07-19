@@ -81,7 +81,20 @@ export const AppConfigSchema = z.object({
   skip_sso_accounts: z.string(),
   sso_backend: z.string(),
   dark_mode: z.boolean(),
-  theme_mode: z.enum(["dark", "light", "system"]).optional().default("system"),
+  theme_mode: z
+    .enum([
+      "dark",
+      "light",
+      "system",
+      "gnomish",
+      "iceclad",
+      "kelethin",
+      "lavastorm",
+      "erudin",
+      "paineel",
+    ])
+    .optional()
+    .default("system"),
   prerelease_updates: z.boolean(),
   eq_directory: z.string().nullable().optional().transform((v) => v ?? null),
   eq_directory_secondary: z.string().nullable().optional().transform((v) => v ?? null),

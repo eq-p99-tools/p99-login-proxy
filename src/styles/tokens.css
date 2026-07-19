@@ -19,6 +19,7 @@
 }
 
 [data-theme="light"] {
+  /* Qeynos Harbor — bright Antonican port stone (System Default light palette). */
   color-scheme: light;
   --bg-app: #f0f0f0;
   --bg-panel: #fafafa;
@@ -60,6 +61,7 @@
 }
 
 [data-theme="dark"] {
+  /* Nektulos Forest — overcast woodland dusk (System Default dark palette). */
   color-scheme: dark;
   --bg-app: #26262c;
   --bg-panel: #2f2f36;
@@ -98,4 +100,256 @@
   --btn-face-active: #353538;
   --btn-border: #555555;
   --btn-text: #ebebeb;
+}
+
+/* Gnomish Terminal — clockwork workshop CRT: muted phosphor green with brass trim. */
+[data-theme="gnomish"] {
+  color-scheme: dark;
+  --bg-app: #0c100e;
+  --bg-panel: #121a15;
+  --bg-elevated: #151f18;
+  --bg-input: #101812;
+  --bg-tab: #0e1410;
+  --border: #2f4532;
+  --border-subtle: #243528;
+  --group-box-border: #4a5c3a;
+  --text: #a3c9a3;
+  --text-muted: #6b8f6b;
+  --value-text: #b8d4b8;
+  --accent: #b8956a;
+  --accent-border: #7ec87e;
+  --success: #7ec87e;
+  --success-bg: #142818;
+  --warning: #d4a04a;
+  --warning-bg: #2a2210;
+  --error: #d47868;
+  --error-bg: #2a1814;
+  --dark-red: #e08878;
+  --alt-row: #161f18;
+  --active-login: #2a3820;
+  --blocked: #243828;
+  --changelog-bg: #0a0e0c;
+  --changelog-fg: #a3c9a3;
+  --scrollbar-track: #121a15;
+  --scrollbar-thumb: #3a5a3a;
+  --scrollbar-thumb-hover: #4a704a;
+  --table-gridline: #2a4030;
+  --table-header-bg: #141c16;
+  --btn-face-top: #222e22;
+  --btn-face: #1a241a;
+  --btn-face-hover-top: #283628;
+  --btn-face-hover: #202c20;
+  --btn-face-active: #161e16;
+  --btn-border: #4a5c3a;
+  --btn-text: #b8d4b8;
+}
+
+/* Iceclad Ocean — frozen Norrath sea: glacier blues, pack ice, aurora cyan. */
+[data-theme="iceclad"] {
+  color-scheme: dark;
+  --bg-app: #071018;
+  --bg-panel: #0c1a28;
+  --bg-elevated: #0f2030;
+  --bg-input: #0a1824;
+  --bg-tab: #081420;
+  --border: #2a4560;
+  --border-subtle: #1a3048;
+  --group-box-border: #3a5878;
+  --text: #dceefb;
+  --text-muted: #7a9bb8;
+  --value-text: #a8cce8;
+  --accent: #5ec8e8;
+  --accent-border: #8ed4f0;
+  --success: #4ecdc4;
+  --success-bg: #0a2828;
+  --warning: #e8c872;
+  --warning-bg: #2a2810;
+  --error: #e87888;
+  --error-bg: #2a1420;
+  --dark-red: #f08898;
+  --alt-row: #102030;
+  --active-login: #1a3858;
+  --blocked: #1e4468;
+  --changelog-bg: #050c14;
+  --changelog-fg: #dceefb;
+  --scrollbar-track: #0c1a28;
+  --scrollbar-thumb: #3a5878;
+  --scrollbar-thumb-hover: #4a7098;
+  --table-gridline: #1e3850;
+  --table-header-bg: #122838;
+  --btn-face-top: #1a3048;
+  --btn-face: #142838;
+  --btn-face-hover-top: #203850;
+  --btn-face-hover: #183040;
+  --btn-face-active: #0e2030;
+  --btn-border: #3a5878;
+  --btn-text: #c8e4f8;
+}
+
+/* Kelethin Treetops — Faydark platform city: warm cedar, moss green, sunlit amber. */
+[data-theme="kelethin"] {
+  color-scheme: dark;
+  --bg-app: #1a1410;
+  --bg-panel: #2a2218;
+  --bg-elevated: #322818;
+  --bg-input: #241c14;
+  --bg-tab: #181410;
+  --border: #4a3c2e;
+  --border-subtle: #3a3024;
+  --group-box-border: #5c4a38;
+  --text: #e8dcc8;
+  --text-muted: #a89878;
+  --value-text: #d4c4a8;
+  --accent: #7a9c58;
+  --accent-border: #c4a574;
+  --success: #6a9c5a;
+  --success-bg: #1a2818;
+  --warning: #d4a04a;
+  --warning-bg: #2a2010;
+  --error: #c46858;
+  --error-bg: #2a1814;
+  --dark-red: #d87868;
+  --alt-row: #2e261c;
+  --active-login: #4a3820;
+  --blocked: #3a4828;
+  --changelog-bg: #14100c;
+  --changelog-fg: #e8dcc8;
+  --scrollbar-track: #2a2218;
+  --scrollbar-thumb: #5c4a38;
+  --scrollbar-thumb-hover: #6e5a44;
+  --table-gridline: #4a3c30;
+  --table-header-bg: #2e261c;
+  --btn-face-top: #3a3024;
+  --btn-face: #2e261c;
+  --btn-face-hover-top: #443828;
+  --btn-face-hover: #362c22;
+  --btn-face-active: #282018;
+  --btn-border: #5c4a38;
+  --btn-text: #d4c4a8;
+}
+
+/* Lavastorm Mountains — volcanic wasteland: ember orange, charred stone, ash sky. */
+[data-theme="lavastorm"] {
+  color-scheme: dark;
+  --bg-app: #1a0e0c;
+  --bg-panel: #2a1814;
+  --bg-elevated: #321c18;
+  --bg-input: #241410;
+  --bg-tab: #160c0a;
+  --border: #4a2820;
+  --border-subtle: #3a2018;
+  --group-box-border: #6a3828;
+  --text: #e8d4c8;
+  --text-muted: #a88878;
+  --value-text: #d4b8a8;
+  --accent: #e87840;
+  --accent-border: #f09858;
+  --success: #d4a040;
+  --success-bg: #2a2010;
+  --warning: #f0a030;
+  --warning-bg: #3a2810;
+  --error: #e85040;
+  --error-bg: #3a1410;
+  --dark-red: #f06050;
+  --alt-row: #2e1c18;
+  --active-login: #5a3018;
+  --blocked: #4a3820;
+  --changelog-bg: #120a08;
+  --changelog-fg: #e8d4c8;
+  --scrollbar-track: #2a1814;
+  --scrollbar-thumb: #6a3828;
+  --scrollbar-thumb-hover: #804838;
+  --table-gridline: #4a3028;
+  --table-header-bg: #2a1814;
+  --btn-face-top: #3a2018;
+  --btn-face: #2e1814;
+  --btn-face-hover-top: #482820;
+  --btn-face-hover: #3a2018;
+  --btn-face-active: #281410;
+  --btn-border: #6a3828;
+  --btn-text: #d4b8a8;
+}
+
+/* Erudin Library — Erudite halls: ivory & lilac surfaces, regal gold trim. */
+[data-theme="erudin"] {
+  color-scheme: light;
+  --bg-app: #f4f2f8;
+  --bg-panel: #fffcfa;
+  --bg-elevated: #f8f4fc;
+  --bg-input: #fffefd;
+  --bg-tab: #ebe4f4;
+  --border: #d4bc78;
+  --border-subtle: #e8e0f0;
+  --group-box-border: #b89030;
+  --text: #2c2838;
+  --text-muted: #646078;
+  --value-text: #444058;
+  --accent: #6a5888;
+  --accent-border: #c9a030;
+  --success: #3a8878;
+  --success-bg: #e0f0ec;
+  --warning: #b89038;
+  --warning-bg: #faf0dc;
+  --error: #b04868;
+  --error-bg: #f8e8ec;
+  --dark-red: #c05878;
+  --alt-row: #f0ecf6;
+  --active-login: #ece0c8;
+  --blocked: #dce8f4;
+  --changelog-bg: #fffefd;
+  --changelog-fg: #2c2838;
+  --scrollbar-track: #ebe4f4;
+  --scrollbar-thumb: #c9a840;
+  --scrollbar-thumb-hover: #b89030;
+  --table-gridline: #d4bc78;
+  --table-header-bg: #f0e8f4;
+  --btn-face-top: #faf6fc;
+  --btn-face: #ece6f2;
+  --btn-face-hover-top: #fffcfa;
+  --btn-face-hover: #f4eef8;
+  --btn-face-active: #e4dce8;
+  --btn-border: #b89030;
+  --btn-text: #2c2838;
+}
+
+/* Paineel Undercity — Heretic depths: purple-gray stone, sickly green undertones. */
+[data-theme="paineel"] {
+  color-scheme: dark;
+  --bg-app: #100e14;
+  --bg-panel: #1a1420;
+  --bg-elevated: #201828;
+  --bg-input: #16101c;
+  --bg-tab: #0e0c12;
+  --border: #3a3048;
+  --border-subtle: #2a2434;
+  --group-box-border: #4a3c58;
+  --text: #c8c0d8;
+  --text-muted: #787088;
+  --value-text: #a8a0b8;
+  --accent: #8a6aad;
+  --accent-border: #a888c8;
+  --success: #6a9a68;
+  --success-bg: #142018;
+  --warning: #b89848;
+  --warning-bg: #282010;
+  --error: #c06070;
+  --error-bg: #281418;
+  --dark-red: #d07080;
+  --alt-row: #1e1828;
+  --active-login: #3a3048;
+  --blocked: #283838;
+  --changelog-bg: #0c0a10;
+  --changelog-fg: #c8c0d8;
+  --scrollbar-track: #1a1420;
+  --scrollbar-thumb: #4a3c58;
+  --scrollbar-thumb-hover: #5a4c68;
+  --table-gridline: #3a3048;
+  --table-header-bg: #1e1828;
+  --btn-face-top: #2a2434;
+  --btn-face: #221c28;
+  --btn-face-hover-top: #322c3c;
+  --btn-face-hover: #2a2430;
+  --btn-face-active: #1a1420;
+  --btn-border: #4a3c58;
+  --btn-text: #a8a0b8;
 }
