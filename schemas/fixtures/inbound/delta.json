@@ -13,7 +13,8 @@
         "last_login_by": null,
         "active_character": null,
         "owned": false,
-        "shared": true
+        "shared": true,
+        "group_roles": []
       }
     },
     {
@@ -22,7 +23,8 @@
       "account": "myaccount",
       "fields": {
         "tags": { "add": ["vp"], "remove": [] },
-        "active_character": "Zzzz"
+        "active_character": "Zzzz",
+        "group_roles": { "add": ["Officer"], "remove": [] }
       }
     },
     {

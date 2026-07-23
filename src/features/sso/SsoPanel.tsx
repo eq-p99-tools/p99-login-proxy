@@ -124,8 +124,9 @@ export function SsoPanel() {
       name,
       aliases: (entry.aliases ?? []).join(", "),
       tags: (entry.tags ?? []).join(", "),
+      roles: (entry.group_roles ?? []).join(", "),
     }));
-    return filterRows(rows, search, (r) => `${r.name} ${r.aliases} ${r.tags}`);
+    return filterRows(rows, search, (r) => `${r.name} ${r.aliases} ${r.tags} ${r.roles}`);
   }, [tree, search]);
 
   const aliasRows = useMemo(() => {
@@ -437,6 +438,7 @@ export function SsoPanel() {
     { key: "bind", header: "Bind Location", headerTitle: SSO_CHARACTER_HEADER_TOOLTIPS[11], width: SSO_CHARACTER_WIDTHS.bind, sortable: true, render: (r: CharacterRow) => r.bind },
     { key: "loggedInBy", header: "Logged In By", headerTitle: SSO_CHARACTER_HEADER_TOOLTIPS[12], width: SSO_CHARACTER_WIDTHS.loggedInBy, sortable: true, render: (r: CharacterRow) => r.loggedInBy },
     { key: "account", header: "Account Name", headerTitle: SSO_CHARACTER_HEADER_TOOLTIPS[13], width: SSO_CHARACTER_WIDTHS.account, sortable: true, render: (r: CharacterRow) => r.account },
+    { key: "roles", header: "Access Roles", headerTitle: SSO_CHARACTER_HEADER_TOOLTIPS[14], width: SSO_CHARACTER_WIDTHS.roles, sortable: true, render: (r: CharacterRow) => r.roles },
   ];
 
   const needsSearch =
@@ -503,6 +505,13 @@ export function SsoPanel() {
               { key: "name", header: "Account Name", width: SSO_ACCOUNT_WIDTHS.name, render: (r) => r.name },
               { key: "aliases", header: "Aliases", width: SSO_ACCOUNT_WIDTHS.aliases, render: (r) => r.aliases },
               { key: "tags", header: "Tags", width: SSO_ACCOUNT_WIDTHS.tags, render: (r) => r.tags },
+              {
+                key: "roles",
+                header: "Access Roles",
+                headerTitle: "Discord roles whose SSO groups grant access to this account.",
+                width: SSO_ACCOUNT_WIDTHS.roles,
+                render: (r) => r.roles,
+              },
             ]}
             rows={accountRows}
             rowKey={(r) => r.name}

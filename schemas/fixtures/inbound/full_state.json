@@ -33,7 +33,8 @@
       "last_login_by": null,
       "active_character": null,
       "owned": true,
-      "shared": false
+      "shared": false,
+      "group_roles": ["Member", "Officer"]
     }
   },
   "count": 1,

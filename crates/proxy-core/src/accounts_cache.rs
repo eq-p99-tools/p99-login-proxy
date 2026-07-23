@@ -136,7 +136,7 @@ pub fn apply_changes_to_tree(tree: &mut Value, changes: &Value) {
                     .unwrap_or_else(|| Value::Object(Map::new()));
                 if let Some(fields) = change.get("fields").and_then(Value::as_object) {
                     if let Some(entry_obj) = entry.as_object_mut() {
-                        for list_field in ["aliases", "tags"] {
+                        for list_field in ["aliases", "tags", "group_roles"] {
                             if let Some(diff) = fields.get(list_field).and_then(Value::as_object) {
                                 let mut current: HashSet<String> = entry_obj
                                     .get(list_field)
@@ -257,6 +257,46 @@ mod tests {
             &json!({ "changes": [{ "action": "remove", "account": "acct1" }] }),
         );
         assert!(tree.get("acct1").is_none());
+    }
+
+    #[test]
+    fn delta_group_roles_add_and_remove() {
+        let mut tree = json!({
+            "main": {
+                "aliases": [],
+                "tags": [],
+                "characters": {},
+                "group_roles": ["Member"]
+            }
+        });
+        apply_delta_to_tree(
+            &mut tree,
+            &json!({
+                "changes": [{
+                    "action": "update",
+                    "entity": "account",
+                    "account": "main",
+                    "fields": {
+                        "group_roles": { "add": ["Officer"], "remove": [] }
+                    }
+                }]
+            }),
+        );
+        assert_eq!(tree["main"]["group_roles"], json!(["Member", "Officer"]));
+        apply_delta_to_tree(
+            &mut tree,
+            &json!({
+                "changes": [{
+                    "action": "update",
+                    "entity": "account",
+                    "account": "main",
+                    "fields": {
+                        "group_roles": { "add": [], "remove": ["Member"] }
+                    }
+                }]
+            }),
+        );
+        assert_eq!(tree["main"]["group_roles"], json!(["Officer"]));
     }
 
     #[test]

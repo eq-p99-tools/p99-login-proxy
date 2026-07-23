@@ -83,7 +83,8 @@ export type CharacterSortKey =
   | "park"
   | "bind"
   | "loggedInBy"
-  | "account";
+  | "account"
+  | "roles";
 
 export interface CharacterItems {
   st?: boolean | number | null;
@@ -113,6 +114,7 @@ export interface CharacterEntry {
 export interface AccountTreeEntry {
   aliases?: string[];
   tags?: string[];
+  group_roles?: string[];
   characters?: Record<string, CharacterEntry>;
   last_login?: number | string | null;
   last_login_by?: string;
@@ -137,6 +139,7 @@ export interface CharacterRow {
   bind: string;
   loggedInBy: string;
   account: string;
+  roles: string;
   lastLogin: number | string | null;
   isBlocked: boolean;
   ctTooltip: string;
@@ -359,6 +362,7 @@ export function normalizeAccountTree(raw: unknown): AccountTree {
     result[accountName] = {
       aliases: normalizeStringArray(e.aliases),
       tags: normalizeStringArray(e.tags),
+      group_roles: normalizeStringArray(e.group_roles),
       characters: normalizeCharactersMap(e.characters),
       last_login:
         typeof e.last_login === "number" || typeof e.last_login === "string" ? e.last_login : null,
@@ -778,6 +782,7 @@ function buildCharacterRow(
     bind: bindRaw || "Unknown",
     loggedInBy: isRecent ? (accountMeta.last_login_by ?? "") : "",
     account,
+    roles: (accountMeta.group_roles ?? []).join(", "),
     lastLogin: isRecent ? lastLogin : null,
     isBlocked,
     ctTooltip,
@@ -835,6 +840,8 @@ function rowSearchValue(row: CharacterRow, key: CharacterSortKey): string {
       return row.loggedInBy;
     case "account":
       return row.account;
+    case "roles":
+      return row.roles;
     default:
       return "";
   }
@@ -868,6 +875,7 @@ const SEARCHABLE_KEYS: readonly CharacterSortKey[] = [
   "ch",
   "park",
   "bind",
+  "roles",
 ];
 
 function rowMatchesTerm(

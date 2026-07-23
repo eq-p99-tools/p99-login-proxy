@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   LOCAL_CHARACTER_GROUP_HEADER,
   LOCAL_CHARACTER_WIDTHS,
+  SSO_ACCOUNT_WIDTHS,
   SSO_CHARACTER_GROUP_HEADER,
   SSO_CHARACTER_WIDTHS,
 } from "./tableConfig";
@@ -17,6 +18,11 @@ describe("character group headers", () => {
     expect(SSO_CHARACTER_GROUP_HEADER[2]).toEqual(
       expect.objectContaining({ label: "Pots", colSpan: 2 }),
     );
+    expect(SSO_CHARACTER_WIDTHS.roles).toBe(160);
+  });
+
+  it("includes Access Roles width on SSO accounts", () => {
+    expect(SSO_ACCOUNT_WIDTHS.roles).toBe(160);
   });
 
   it("covers all local character columns with Pots over CT and Th only", () => {

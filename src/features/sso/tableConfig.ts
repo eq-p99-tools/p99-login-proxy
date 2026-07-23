@@ -15,6 +15,7 @@ export const SSO_CHARACTER_WIDTHS = {
   bind: 136,
   loggedInBy: 98,
   account: 100,
+  roles: 160,
 } as const;
 
 const KEY_CELL_LEGEND = "🟢 = has key, ? = unknown, blank = no key.";
@@ -39,6 +40,7 @@ export const SSO_CHARACTER_HEADER_TOOLTIPS = [
   ...CHARACTER_COLUMN_TOOLTIPS_BASE,
   "Logged in by (last SSO user on this character)",
   "Account name (SSO)",
+  "Discord roles whose SSO groups grant access to this account.",
 ] as const;
 
 /** Column header tooltips — mirrors Python ``_LOCAL_CHARACTERS_COLUMN_HEADER_TOOLTIPS``. */
@@ -76,10 +78,10 @@ export const SSO_CHARACTER_GROUP_HEADER = [
   { label: "", colSpan: 4 },
   { label: "Keys", colSpan: 3, title: KEYS_GROUP_HEADER_TOOLTIP },
   { label: "Pots", colSpan: 2, title: POTS_GROUP_HEADER_TOOLTIP },
-  { label: "", colSpan: 5 },
+  { label: "", colSpan: 6 },
 ] as const;
 
-export const SSO_ACCOUNT_WIDTHS = { name: 114, aliases: 250, tags: 250 } as const;
+export const SSO_ACCOUNT_WIDTHS = { name: 114, aliases: 250, tags: 250, roles: 160 } as const;
 export const SSO_ALIAS_WIDTHS = { alias: 100, account: 114 } as const;
 export const SSO_TAG_WIDTHS = { tag: 100, accounts: 514 } as const;
 export const LOCAL_ACCOUNT_WIDTHS = { name: 114, aliases: 500 } as const;

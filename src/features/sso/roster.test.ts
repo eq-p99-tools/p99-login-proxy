@@ -58,6 +58,18 @@ describe("normalizeAccountTree", () => {
     expect(tree.main.characters?.Bad).toEqual({});
     expect(tree.broken).toEqual({});
   });
+
+  it("filters malformed group_roles to strings only", () => {
+    const tree = normalizeAccountTree({
+      main: { group_roles: ["Officer", 42, null, "Member"] },
+    });
+    expect(tree.main.group_roles).toEqual(["Officer", "Member"]);
+  });
+
+  it("omits group_roles when missing or not an array", () => {
+    expect(normalizeAccountTree({ main: {} }).main.group_roles).toBeUndefined();
+    expect(normalizeAccountTree({ main: { group_roles: "bad" } }).main.group_roles).toBeUndefined();
+  });
 });
 
 describe("flattenCharacters", () => {
@@ -102,6 +114,27 @@ describe("flattenCharacters", () => {
     );
     expect(row.park).toBe("Northern Desert Of Ro");
     expect(row.bind).toBe("Kael Drakkel");
+  });
+
+  it("inherits access roles from the parent account", () => {
+    const [row] = flattenCharacters(
+      normalizeAccountTree({
+        acct: {
+          group_roles: ["Member", "Officer"],
+          characters: { Hero: { class: "Cleric" } },
+        },
+      }),
+    );
+    expect(row.roles).toBe("Member, Officer");
+  });
+
+  it("uses empty roles when group_roles is missing", () => {
+    const [row] = flattenCharacters(
+      normalizeAccountTree({
+        acct: { characters: { Hero: {} } },
+      }),
+    );
+    expect(row.roles).toBe("");
   });
 
   it("shows login and blocked state only during the 90-second activity window", () => {
@@ -249,6 +282,19 @@ describe("searchCharacters", () => {
     expect(filtered).toHaveLength(1);
     expect(filtered[0].name).toBe("Alpha");
   });
+
+  it("matches access roles in generic search", () => {
+    const roleRows = flattenCharacters(
+      normalizeAccountTree({
+        acct: {
+          group_roles: ["Officer"],
+          characters: { Hero: {} },
+        },
+      }),
+    );
+    expect(searchCharacters(roleRows, "officer")).toHaveLength(1);
+    expect(searchCharacters(roleRows, "officer").map((r) => r.name)).toEqual(["Hero"]);
+  });
 });
 
 describe("sortCharacters", () => {
@@ -291,6 +337,25 @@ describe("sortCharacters", () => {
   it("reverses non-blank-last columns when descending", () => {
     const sorted = sortCharacters(rows, { key: "name", ascending: false });
     expect(sorted[0].name).toBe("Gamma");
+  });
+
+  it("sorts by access roles ascending and descending", () => {
+    const roleRows = flattenCharacters(
+      normalizeAccountTree({
+        alpha: {
+          group_roles: ["Zeta"],
+          characters: { A: {} },
+        },
+        beta: {
+          group_roles: ["Alpha"],
+          characters: { B: {} },
+        },
+      }),
+    );
+    const asc = sortCharacters(roleRows, { key: "roles", ascending: true });
+    expect(asc.map((r) => r.roles)).toEqual(["Alpha", "Zeta"]);
+    const desc = sortCharacters(roleRows, { key: "roles", ascending: false });
+    expect(desc.map((r) => r.roles)).toEqual(["Zeta", "Alpha"]);
   });
 });
 

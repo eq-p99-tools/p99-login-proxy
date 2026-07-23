@@ -76,7 +76,13 @@ fn full_state_fixture_deserializes() {
             dynamic_tag_zones,
             dynamic_tag_classes,
         } => {
-            assert!(account_tree.get("myaccount").is_some());
+            let entry = account_tree
+                .get("myaccount")
+                .expect("myaccount in full_state fixture");
+            assert_eq!(
+                entry.get("group_roles"),
+                Some(&json!(["Member", "Officer"]))
+            );
             assert_eq!(dynamic_tag_zones, vec!["seb", "vp", "st"]);
             assert_eq!(dynamic_tag_classes, vec!["clr", "enc", "wiz"]);
         }
@@ -89,6 +95,24 @@ fn delta_fixture_deserializes() {
     match parse_inbound("inbound/delta.json") {
         WsInbound::Delta { changes } => {
             assert_eq!(changes.as_array().map(Vec::len), Some(3));
+            let update = &changes.as_array().unwrap()[1];
+            assert_eq!(
+                update.get("action").and_then(|v| v.as_str()),
+                Some("update")
+            );
+            assert_eq!(
+                update
+                    .pointer("/fields/group_roles/add")
+                    .and_then(|v| v.as_array())
+                    .map(|a| a.len()),
+                Some(1)
+            );
+            assert_eq!(
+                update
+                    .pointer("/fields/group_roles/add/0")
+                    .and_then(|v| v.as_str()),
+                Some("Officer")
+            );
         }
         other => panic!("expected Delta, got {other:?}"),
     }

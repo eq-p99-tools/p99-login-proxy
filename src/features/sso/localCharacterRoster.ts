@@ -134,6 +134,7 @@ function toCharacterRow(row: LocalCharacterRow): CharacterRow {
     bind: row.bind,
     loggedInBy: "",
     account: row.account,
+    roles: "",
     lastLogin: null,
     isBlocked: false,
     ctTooltip: row.ctTooltip,
