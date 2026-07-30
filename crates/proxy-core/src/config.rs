@@ -149,7 +149,7 @@ fn default_launch_admin() -> bool {
 }
 
 fn default_auto_add_local_characters() -> bool {
-    true
+    false
 }
 
 fn default_login_timeout_secs() -> u64 {
@@ -229,7 +229,7 @@ impl Default for ConfigFileV1 {
             launch_startup: false,
             launch_admin: true,
             warn_rustle: false,
-            auto_add_local_characters: true,
+            auto_add_local_characters: false,
             skip_sso: false,
             skip_sso_accounts: String::new(),
             sso_backend: "Good Guys".to_string(),

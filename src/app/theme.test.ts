@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveTheme, themeUsesDarkPalette, THEME_OPTIONS } from "./theme";
+import {
+  nativeWindowThemeForMode,
+  resolveTheme,
+  themeUsesDarkPalette,
+  THEME_OPTIONS,
+} from "./theme";
 
 describe("theme", () => {
   it("lists EverQuest-inspired palettes in the theme dropdown", () => {
@@ -41,5 +46,14 @@ describe("theme", () => {
     expect(themeUsesDarkPalette("dark")).toBe(true);
     expect(themeUsesDarkPalette("system", true)).toBe(true);
     expect(themeUsesDarkPalette("system", false)).toBe(false);
+  });
+
+  it("maps palettes to native window chrome while system follows the OS", () => {
+    expect(nativeWindowThemeForMode("system")).toBeNull();
+    expect(nativeWindowThemeForMode("light")).toBe("light");
+    expect(nativeWindowThemeForMode("erudin")).toBe("light");
+    for (const theme of ["dark", "gnomish", "iceclad", "kelethin", "lavastorm", "paineel"] as const) {
+      expect(nativeWindowThemeForMode(theme)).toBe("dark");
+    }
   });
 });

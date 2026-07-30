@@ -80,7 +80,7 @@ pub fn parse_proxyconfig_ini(path: &Path) -> Result<ConfigFileV1, ConfigError> {
         launch_startup: get_bool(default, "launch_startup", false),
         launch_admin: get_bool(default, "launch_admin", true),
         warn_rustle: get_bool(default, "warn_rustle", false),
-        auto_add_local_characters: get_bool(default, "auto_add_local_characters", true),
+        auto_add_local_characters: get_bool(default, "auto_add_local_characters", false),
         skip_sso: false,
         skip_sso_accounts: get_str(default, "skip_sso_accounts", ""),
         sso_backend,

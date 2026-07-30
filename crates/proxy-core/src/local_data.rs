@@ -370,12 +370,14 @@ pub fn save_local_accounts_to(
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let mut out = String::from("name,password,aliases\n");
+    let file = std::fs::File::create(path)?;
+    let mut wtr = csv::Writer::from_writer(file);
+    wtr.write_record(["name", "password", "aliases"])?;
     for (name, password, aliases) in store.rows_for_csv() {
         let alias_field = aliases.join("|");
-        out.push_str(&format!("{name},{password},{alias_field}\n"));
+        wtr.write_record([&name, &password, &alias_field])?;
     }
-    std::fs::write(path, out)?;
+    wtr.flush()?;
     Ok(())
 }
 
@@ -398,8 +400,9 @@ pub fn save_local_characters_to(
         std::fs::create_dir_all(parent)?;
     }
     let fields = local_character_csv_fields();
-    let mut out = fields.join(",");
-    out.push('\n');
+    let file = std::fs::File::create(path)?;
+    let mut wtr = csv::Writer::from_writer(file);
+    wtr.write_record(fields.iter().map(String::as_str))?;
 
     let mut chars: Vec<_> = store.list();
     chars.sort_by_key(|a| a.name.to_lowercase());
@@ -432,10 +435,9 @@ pub fn save_local_characters_to(
             });
             row.push(format_optional_int(parsed));
         }
-        out.push_str(&row.join(","));
-        out.push('\n');
+        wtr.write_record(row.iter().map(String::as_str))?;
     }
-    std::fs::write(path, out)?;
+    wtr.flush()?;
     Ok(())
 }
 
@@ -521,6 +523,25 @@ mod tests {
         assert_eq!(ch.level, Some(55));
         assert_eq!(ch.items.get("st"), Some(&json!(true)));
         assert_eq!(ch.items.get("lizard"), Some(&json!(2)));
+    }
+
+    #[test]
+    fn accounts_csv_round_trips_special_characters() {
+        use crate::accounts::LocalAccountStore;
+        use secrecy::{ExposeSecret, SecretString};
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("local_accounts.csv");
+        let password = "pass,word\"quote".to_string();
+        let store = LocalAccountStore::from_rows([(
+            "main".into(),
+            "main".into(),
+            SecretString::from(password.clone()),
+        )]);
+        save_local_accounts_to(&path, &store).unwrap();
+        let reloaded = load_local_accounts(&path).unwrap();
+        let (_, pw) = reloaded.resolve("main").expect("account row");
+        assert_eq!(pw.expose_secret(), password.as_str());
     }
 
     #[test]

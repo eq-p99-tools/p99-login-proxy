@@ -81,7 +81,58 @@ pub fn find_eq_directory(configured: Option<&str>) -> Option<PathBuf> {
         }
     }
 
+    #[cfg(not(windows))]
+    {
+        for candidate in find_wine_eq_directories() {
+            if is_valid_eq_directory(&candidate) {
+                info!(path = %candidate.display(), "found EverQuest in a Wine/Proton prefix");
+                return Some(candidate);
+            }
+        }
+    }
+
     None
+}
+
+#[cfg(not(windows))]
+fn find_wine_eq_directories() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    let home = directories::BaseDirs::new()
+        .map(|dirs| dirs.home_dir().to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("/"));
+
+    let mut wine_prefixes = vec![home.join(".wine")];
+    if let Ok(prefix) = std::env::var("WINEPREFIX") {
+        if !prefix.trim().is_empty() {
+            wine_prefixes.push(PathBuf::from(prefix));
+        }
+    }
+
+    let lutris_dir = home.join("Games");
+    if lutris_dir.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(&lutris_dir) {
+            for entry in entries.flatten() {
+                if entry.path().is_dir() {
+                    wine_prefixes.push(entry.path());
+                }
+            }
+        }
+    }
+
+    for prefix in wine_prefixes {
+        if !prefix.is_dir() {
+            continue;
+        }
+        let drive_c = prefix.join("drive_c");
+        if !drive_c.is_dir() {
+            continue;
+        }
+        for subpath in DEFAULT_EQ_PATHS {
+            candidates.push(drive_c.join(subpath));
+        }
+    }
+
+    candidates
 }
 
 /// When ``eq_directory`` is blank, discover EQ, persist it, and return the path.
@@ -258,8 +309,13 @@ fn enable_log_in_defaults(content: &str) -> String {
     output
 }
 
+/// Best-effort removal of the read-only flag before writing EQ config files.
+pub fn try_clear_readonly(path: &Path) {
+    try_clear_readonly_impl(path);
+}
+
 #[cfg(unix)]
-fn try_clear_readonly(path: &Path) {
+fn try_clear_readonly_impl(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
     if let Ok(meta) = std::fs::metadata(path) {
         let mut perms = meta.permissions();
@@ -269,14 +325,14 @@ fn try_clear_readonly(path: &Path) {
 }
 
 #[cfg(windows)]
-fn try_clear_readonly(path: &Path) {
+fn try_clear_readonly_impl(path: &Path) {
     let _ = std::process::Command::new("attrib")
         .args(["-R", &path.display().to_string()])
         .status();
 }
 
 #[cfg(not(any(unix, windows)))]
-fn try_clear_readonly(_path: &Path) {}
+fn try_clear_readonly_impl(_path: &Path) {}
 
 /// Scan ``uifiles/`` under each EQ root for Rustle UI fingerprints.
 pub fn detect_rustle_ui(eq_roots: &[PathBuf]) -> bool {

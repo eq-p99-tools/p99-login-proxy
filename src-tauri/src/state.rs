@@ -91,9 +91,36 @@ fn spawn_event_loop(
                     method,
                 } => {
                     notify_login_proxied(&app, alias, account, method);
-                    let sup = supervisor.lock().await;
+                    let mut sup = supervisor.lock().await;
                     sup.stats_tracker().user_login(alias, account, method);
+                    sup.note_login_method(method, account);
                     sup.touch_snapshot();
+                }
+                AppEvent::LocalCharacterUpdate {
+                    name,
+                    park,
+                    bind,
+                    level,
+                    class,
+                    items,
+                } => {
+                    let mut sup = supervisor.lock().await;
+                    if sup.apply_local_character_update(
+                        name,
+                        park.as_deref(),
+                        bind.as_deref(),
+                        *level,
+                        class.as_deref(),
+                        items.as_ref(),
+                    ) {
+                        sup.touch_snapshot();
+                    }
+                }
+                AppEvent::LogFileSwitched { character } => {
+                    let mut sup = supervisor.lock().await;
+                    if sup.try_auto_create_local_character(character) {
+                        sup.touch_snapshot();
+                    }
                 }
                 AppEvent::StatsDirty => {
                     let sup = supervisor.lock().await;

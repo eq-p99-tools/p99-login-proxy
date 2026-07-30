@@ -51,7 +51,7 @@ const MOCK_CONFIG: AppConfig = {
   launch_startup: false,
   launch_admin: true,
   warn_rustle: false,
-  auto_add_local_characters: true,
+  auto_add_local_characters: false,
 };
 
 const MOCK_SSO: SsoStatus = {
@@ -106,7 +106,7 @@ export class MockClient implements DesktopClient {
   private config = { ...MOCK_CONFIG };
   private mode: ProxyMode = "disabled";
   private sso = { ...MOCK_SSO };
-  private accounts: SsoAccountsView = { account_tree: {}, account_count: 0 };
+  private accounts: SsoAccountsView = { account_tree: {}, account_count: 0, stale: false };
   private localAccounts: LocalDataView["accounts"] = [];
   private localCharacters: LocalDataView["characters"] = [];
   private eqDir: string | null = null;
@@ -334,7 +334,7 @@ export class MockClient implements DesktopClient {
   }
 
   /** Test helper: inject malformed SSO data */
-  setMockAccounts(view: SsoAccountsView) {
-    this.accounts = view;
+  setMockAccounts(view: Omit<SsoAccountsView, "stale"> & { stale?: boolean }) {
+    this.accounts = { stale: false, ...view };
   }
 }

@@ -94,7 +94,8 @@ fn credential_router_local_character_unknown_account() {
 fn eqhost_roundtrip() {
     let dir = TempDir::new().unwrap();
     std::fs::write(dir.path().join("eqgame.exe"), b"").unwrap();
-    EqHostWriter::enable_proxy(dir.path(), "127.0.0.1", 5998).unwrap();
+    EqHostWriter::enable_proxy(dir.path(), "127.0.0.1", 5998, "login.eqemulator.net", 5998)
+        .unwrap();
     let text = EqHostWriter::read_eqhost(dir.path()).unwrap();
     assert!(text.contains("[LoginServer]"));
     assert!(EqHostWriter::has_active_proxy_line(
@@ -102,7 +103,7 @@ fn eqhost_roundtrip() {
         "127.0.0.1",
         5998
     ));
-    EqHostWriter::disable_proxy(dir.path(), "127.0.0.1", 5998).unwrap();
+    EqHostWriter::disable_proxy(dir.path(), "login.eqemulator.net", 5998).unwrap();
 }
 
 #[test]
@@ -124,7 +125,8 @@ fn eqhost_directory_proxy_detection() {
         "127.0.0.1",
         5998
     ));
-    EqHostWriter::enable_proxy(dir.path(), "127.0.0.1", 5998).unwrap();
+    EqHostWriter::enable_proxy(dir.path(), "127.0.0.1", 5998, "login.eqemulator.net", 5998)
+        .unwrap();
     assert!(EqHostWriter::is_proxy_enabled_in_directory(
         dir.path(),
         "127.0.0.1",
@@ -136,7 +138,8 @@ fn eqhost_directory_proxy_detection() {
 fn eqhost_proxy_detection_maps_bind_all_to_loopback() {
     let dir = TempDir::new().unwrap();
     std::fs::write(dir.path().join("eqgame.exe"), b"").unwrap();
-    EqHostWriter::enable_proxy(dir.path(), "127.0.0.1", 6790).unwrap();
+    EqHostWriter::enable_proxy(dir.path(), "127.0.0.1", 6790, "login.eqemulator.net", 5998)
+        .unwrap();
     assert!(EqHostWriter::is_proxy_enabled_in_directory(
         dir.path(),
         "0.0.0.0",

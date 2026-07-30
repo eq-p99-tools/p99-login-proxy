@@ -6,11 +6,15 @@ This document records differences between the legacy Python proxy and the native
 
 The native app matches the Python PySide6 reference for user-visible behavior:
 
-- Five reference tabs (Proxy, SSO, Advanced, Log, Changelog) plus a sixth **Extras** tab for native-only settings
+- Five reference tabs (Proxy, SSO, Advanced, Log, Changelog) plus a sixth **Debug/Extras** tab (easter egg) for native-only settings
 - Form layouts, tooltips, proxy mode persistence, SSO character tables, local account/character CRUD
+- SSO Accounts tab with sortable columns including **Access Roles** (Discord role names from SSO groups)
 - Tray menu (Show/Hide, Launch EQ, Check Updates, Exit), dynamic tooltip, login/minimize notifications
 - Icon state switching (default / proxy-only / disabled) per backend icon set
 - Exe-adjacent `proxyconfig.ini`, local CSVs and logs, compatible with Python 1.x installs
+- Nine selectable themes with native window chrome synced to light/dark palette
+- OS autostart (Launch on system login) via Tauri autostart plugin
+- Advanced tab eqhost.txt inline edit, **Reset Backup**, and restore flows
 
 ## Intentional improvements
 
@@ -22,8 +26,22 @@ The native app matches the Python PySide6 reference for user-visible behavior:
 | Config path | CWD-relative `proxyconfig.ini` | Exe-adjacent `proxyconfig.ini` with unknown settings preserved |
 | Client endpoint | Any non-upstream sender | Single tracked client; ambiguous senders rejected |
 | Linux EQ launch | Wine `eqgame.exe patchme` | Wine `eqgame.exe patchme` when `wine` is on PATH |
-| Extras tab | N/A | Secondary EQ path, skip-SSO list, prerelease toggle, lifecycle badge |
+| Extras tab | N/A | Secondary EQ path, skip-SSO list, prerelease toggle, auto-add local characters toggle |
 | Updater install | GitHub zip self-update | Same first-zip-asset rename/extract/relaunch flow |
+| Themes | Dark/light checkbox only | Nine named themes + system default; title bar follows palette |
+| SSO Accounts | Aliases/Tags sub-tabs only sort in Python by implicit order | Accounts, Aliases, Tags, and Characters columns are sortable |
+| Log scrollback | 5000 lines/level in UI buffer | Same 5000-line fetch from backend log store |
+
+## Intentional deviations
+
+| Area | Python | Native |
+|------|--------|--------|
+| `auto_add_local_characters` default | `True` (INI only, no UI) | `False`; toggle on Debug/Extras tab |
+| Dark mode default in fresh INI | Follows Python 1.x | Native may ship with theme presets; legacy `dark_mode` kept in sync |
+| `listen_port` default | `5998` | `6998`; eqhost.txt is rewritten to match on enable, so a fresh install stays self-consistent |
+| Restore Backup | Restores eqhost.txt from `.bak` only | Also sets proxy mode to **Disabled** so a running proxy cannot point EQ at the proxy while eqhost is direct-connect |
+| `github_auth.json` location | Process working directory | Config directory next to `proxyconfig.ini` |
+| SSO account cache on disconnect | Cleared on every WebSocket disconnect | Cleared only on terminal server rejection (4000–4099 / auth failure); ordinary disconnect keeps stale cache for UI until reconnect |
 
 ## Wire compatibility
 
@@ -38,6 +56,9 @@ The native app matches the Python PySide6 reference for user-visible behavior:
 - Fragment assembler duplicate-sequence length accumulation (Python parity)
 - Local character CSV schema (20-column flat format)
 - EQ launch with `patchme` argument; optional Windows elevation when **as Admin** is checked; Linux launches via `wine`
+- Log/inventory watchers update both SSO websocket and `local_characters.csv` for tracked local characters
+- Log line patterns: zone enter, bind confirm, `/charinfo` bind, `/who` zone/self, level up, Velium Vapors vial glow, FTE, raid mob death
+- Secondary EQ install root watched for inventory and log files
 
 ## Removal conditions
 

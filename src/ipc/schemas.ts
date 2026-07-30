@@ -102,7 +102,7 @@ export const AppConfigSchema = z.object({
   launch_startup: z.boolean().optional().default(false),
   launch_admin: z.boolean().optional().default(true),
   warn_rustle: z.boolean().optional().default(false),
-  auto_add_local_characters: z.boolean().optional().default(true),
+  auto_add_local_characters: z.boolean().optional().default(false),
 });
 
 export const SsoStatusSchema = z.object({
@@ -127,6 +127,7 @@ export const SsoAccountsSchema = z.object({
     .optional()
     .transform((v) => (v != null && typeof v === "object" && !Array.isArray(v) ? v : {})),
   account_count: z.number().default(0),
+  stale: z.boolean().default(false),
 });
 
 export const LocalAccountSchema = z.object({

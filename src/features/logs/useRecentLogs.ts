@@ -22,7 +22,7 @@ export function useRecentLogs(client: DesktopClient, minLevel: string) {
 
   const refresh = useCallback(async () => {
     try {
-      const next = await client.getRecentLogs(200, minLevel);
+      const next = await client.getRecentLogs(5000, minLevel);
       setSnapshot(next);
       setError(null);
     } catch (e) {

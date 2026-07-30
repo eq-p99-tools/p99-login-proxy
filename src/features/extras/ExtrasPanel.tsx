@@ -3,15 +3,18 @@ import { useCallback, useEffect, useState } from "react";
 import { Button, ErrorAlert, GroupBox, StatusValue } from "../../components";
 import { useDesktopClient } from "../../app/AppProviders";
 import { useUpdaterStore } from "../updater";
-import { useRuntimeStore } from "../runtime/store";
+import { useRuntimeStore, selectLifecycle } from "../runtime/store";
 import type { ProxySettings } from "../../ipc/schemas";
 
 export function ExtrasPanel() {
   const client = useDesktopClient();
   const syncError = useRuntimeStore((s) => s.syncError);
+  const proxyLifecycle = useRuntimeStore(selectLifecycle);
+  const proxyRunning = proxyLifecycle !== "stopped";
   const [settings, setSettings] = useState<ProxySettings | null>(null);
   const [secondary, setSecondary] = useState("");
   const [prerelease, setPrerelease] = useState(false);
+  const [autoAddLocalCharacters, setAutoAddLocalCharacters] = useState(false);
   const [busy, setBusy] = useState(false);
   const [updateStatus, setUpdateStatus] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -25,6 +28,7 @@ export function ExtrasPanel() {
       setSettings(proxySettings);
       setSecondary(cfg.eq_directory_secondary ?? "");
       setPrerelease(cfg.prerelease_updates);
+      setAutoAddLocalCharacters(cfg.auto_add_local_characters ?? false);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -74,6 +78,19 @@ export function ExtrasPanel() {
     }
   };
 
+  const saveAutoAddLocalCharacters = async (checked: boolean) => {
+    setAutoAddLocalCharacters(checked);
+    setBusy(true);
+    try {
+      const cfg = await client.getAppConfig();
+      await client.saveAppConfig({ ...cfg, auto_add_local_characters: checked });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const checkUpdates = async () => {
     setBusy(true);
     try {
@@ -108,13 +125,16 @@ export function ExtrasPanel() {
           <input
             type="text"
             value={settings?.skip_sso_accounts ?? ""}
-            disabled={busy || !settings}
+            disabled={busy || !settings || proxyRunning}
             onChange={(e) =>
               setSettings((s) => (s ? { ...s, skip_sso_accounts: e.target.value } : s))
             }
           />
         </label>
-        <Button busy={busy} disabled={!settings} onClick={() => void saveSkipSso()}>
+        {proxyRunning ? (
+          <p className="field-hint">Stop the proxy before changing skip-SSO accounts.</p>
+        ) : null}
+        <Button busy={busy} disabled={!settings || proxyRunning} onClick={() => void saveSkipSso()}>
           Save skip SSO accounts
         </Button>
       </GroupBox>
@@ -132,6 +152,19 @@ export function ExtrasPanel() {
         <Button busy={busy} onClick={() => void saveSecondary()}>
           Save secondary path
         </Button>
+        <label className="checkbox-inline">
+          <input
+            type="checkbox"
+            checked={autoAddLocalCharacters}
+            disabled={busy}
+            onChange={(e) => void saveAutoAddLocalCharacters(e.target.checked)}
+          />
+          Auto-add local characters after local login
+        </label>
+        <p className="field-hint">
+          When enabled, the first EQ log file seen after a local-account login creates a row in
+          Local Characters. Off by default in the native app.
+        </p>
       </GroupBox>
 
       <GroupBox title="Updates">

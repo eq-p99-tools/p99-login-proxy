@@ -2,6 +2,8 @@ use std::path::Path;
 
 use thiserror::Error;
 
+use crate::eq_config;
+
 #[derive(Debug, Error)]
 pub enum EqHostError {
     #[error("io: {0}")]
@@ -10,6 +12,8 @@ pub enum EqHostError {
     InvalidDirectory,
     #[error("eqhost.txt not found")]
     MissingEqHost,
+    #[error("no backup file found. The proxy has not been enabled yet.")]
+    MissingBackup,
 }
 
 pub struct EqHostWriter;
@@ -46,6 +50,7 @@ impl EqHostWriter {
     pub fn write_eqhost(dir: &Path, content: &str) -> Result<(), EqHostError> {
         Self::validate_eq_directory(dir)?;
         let path = dir.join("eqhost.txt");
+        Self::prepare_eqhost_for_write(dir, &path);
         Self::atomic_write(&path, content)?;
         Ok(())
     }
@@ -83,6 +88,7 @@ impl EqHostWriter {
         Self::validate_eq_directory(dir)?;
         let backup = dir.join("eqhost.txt").with_extension("txt.bak");
         let content = Self::default_login_server_file_content(login_host, login_port);
+        Self::prepare_eqhost_for_write(dir, &backup);
         Self::atomic_write(&backup, &content)?;
         Ok(())
     }
@@ -103,6 +109,18 @@ impl EqHostWriter {
         })
     }
 
+    /// True when any uncommented ``Host=`` line is not the proxy address.
+    fn has_active_non_proxy_host(text: &str, listen_host: &str, listen_port: u16) -> bool {
+        text.lines().map(str::trim).any(|line| {
+            if line.is_empty() || line.starts_with('#') {
+                return false;
+            }
+            let lower = line.to_lowercase();
+            lower.starts_with("host=")
+                && !Self::has_active_proxy_line(line, listen_host, listen_port)
+        })
+    }
+
     pub fn is_proxy_enabled_in_directory(dir: &Path, listen_host: &str, listen_port: u16) -> bool {
         Self::read_eqhost(dir)
             .map(|text| Self::has_active_proxy_line(&text, listen_host, listen_port))
@@ -113,32 +131,71 @@ impl EqHostWriter {
         dir: &Path,
         listen_host: &str,
         listen_port: u16,
+        login_host: &str,
+        login_port: u16,
     ) -> Result<(), EqHostError> {
         Self::validate_eq_directory(dir)?;
         let path = dir.join("eqhost.txt");
         let backup = path.with_extension("txt.bak");
-        if path.is_file() && !backup.is_file() {
-            std::fs::copy(&path, &backup)?;
+        Self::prepare_eqhost_for_write(dir, &path);
+
+        if !backup.is_file() {
+            let backup_content = if path.is_file() {
+                let current = Self::read_eqhost(dir).unwrap_or_default();
+                if Self::has_active_non_proxy_host(&current, listen_host, listen_port) {
+                    if current.ends_with('\n') {
+                        current
+                    } else {
+                        format!("{current}\n")
+                    }
+                } else {
+                    Self::default_login_server_file_content(login_host, login_port)
+                }
+            } else {
+                Self::default_login_server_file_content(login_host, login_port)
+            };
+            Self::atomic_write(&backup, &backup_content)?;
         }
+
         let content = Self::proxy_file_content(listen_host, listen_port);
         Self::atomic_write(&path, &content)?;
         Ok(())
     }
 
-    pub fn disable_proxy(
-        dir: &Path,
-        _listen_host: &str,
-        _listen_port: u16,
-    ) -> Result<(), EqHostError> {
+    pub fn disable_proxy(dir: &Path, login_host: &str, login_port: u16) -> Result<(), EqHostError> {
         let path = dir.join("eqhost.txt");
         let backup = path.with_extension("txt.bak");
+        Self::prepare_eqhost_for_write(dir, &path);
+
         if backup.is_file() {
             std::fs::copy(&backup, &path)?;
             let _ = std::fs::remove_file(&backup);
         } else if path.is_file() {
-            let _ = std::fs::remove_file(&path);
+            let content = Self::default_login_server_file_content(login_host, login_port);
+            Self::atomic_write(&path, &content)?;
         }
         Ok(())
+    }
+
+    /// Restore eqhost.txt from the backup file. Errors when no backup exists.
+    pub fn restore_from_backup(dir: &Path) -> Result<(), EqHostError> {
+        Self::validate_eq_directory(dir)?;
+        let path = dir.join("eqhost.txt");
+        let backup = path.with_extension("txt.bak");
+        if !backup.is_file() {
+            return Err(EqHostError::MissingBackup);
+        }
+        Self::prepare_eqhost_for_write(dir, &path);
+        std::fs::copy(&backup, &path)?;
+        let _ = std::fs::remove_file(&backup);
+        Ok(())
+    }
+
+    fn prepare_eqhost_for_write(dir: &Path, eqhost_path: &Path) {
+        eq_config::try_clear_readonly(dir);
+        if eqhost_path.is_file() {
+            eq_config::try_clear_readonly(eqhost_path);
+        }
     }
 
     fn atomic_write(path: &Path, content: &str) -> Result<(), EqHostError> {
@@ -146,5 +203,44 @@ impl EqHostWriter {
         std::fs::write(&tmp, content.as_bytes())?;
         std::fs::rename(tmp, path)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn test_dir() -> TempDir {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("eqgame.exe"), b"").unwrap();
+        dir
+    }
+
+    #[test]
+    fn disable_without_backup_writes_default_login_server() {
+        let dir = test_dir();
+        EqHostWriter::write_eqhost(dir.path(), "[LoginServer]\nHost=127.0.0.1:5998\n").unwrap();
+        EqHostWriter::disable_proxy(dir.path(), "login.eqemulator.net", 5998).unwrap();
+        let text = EqHostWriter::read_eqhost(dir.path()).unwrap();
+        assert_eq!(text, "[LoginServer]\nHost=login.eqemulator.net:5998\n");
+        assert!(!dir.path().join("eqhost.txt.bak").exists());
+    }
+
+    #[test]
+    fn enable_over_proxy_only_file_backs_up_synthetic_default() {
+        let dir = test_dir();
+        EqHostWriter::write_eqhost(dir.path(), "[LoginServer]\nHost=127.0.0.1:5998\n").unwrap();
+        EqHostWriter::enable_proxy(dir.path(), "127.0.0.1", 5998, "login.eqemulator.net", 5998)
+            .unwrap();
+        let backup = std::fs::read_to_string(dir.path().join("eqhost.txt.bak")).unwrap();
+        assert_eq!(backup, "[LoginServer]\nHost=login.eqemulator.net:5998\n");
+    }
+
+    #[test]
+    fn restore_from_backup_errors_when_missing() {
+        let dir = test_dir();
+        let err = EqHostWriter::restore_from_backup(dir.path()).unwrap_err();
+        assert!(matches!(err, EqHostError::MissingBackup));
     }
 }

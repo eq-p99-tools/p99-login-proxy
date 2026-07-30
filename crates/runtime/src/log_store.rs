@@ -143,6 +143,12 @@ pub fn format_app_event(event: &crate::events::AppEvent) -> (tracing::Level, Str
             Level::INFO,
             format!("login proxied alias={alias} account={account} method={method}"),
         ),
+        AppEvent::LocalCharacterUpdate { name, .. } => {
+            (Level::DEBUG, format!("local character update for {name}"))
+        }
+        AppEvent::LogFileSwitched { character } => {
+            (Level::INFO, format!("switched EQ log file for {character}"))
+        }
         AppEvent::StatsDirty => (Level::DEBUG, "stats updated".into()),
         AppEvent::ConnectionStarted => (Level::INFO, "connection started".into()),
         AppEvent::ConnectionCompleted => (Level::INFO, "connection completed".into()),

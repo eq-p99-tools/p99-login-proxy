@@ -63,6 +63,10 @@ pub struct SsoBackendOption {
 pub struct SsoAccountsView {
     pub account_tree: Value,
     pub account_count: usize,
+    /// Cache retained from an earlier session while the WebSocket is down. Python
+    /// wipes the cache on disconnect; the native app keeps it to avoid blanking the
+    /// table during brief reconnects and flags it as stale instead.
+    pub stale: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -140,11 +144,13 @@ pub fn get_sso_backends() -> Result<Vec<SsoBackendOption>, String> {
 #[tauri::command]
 pub async fn get_sso_accounts(state: State<'_, AppState>) -> Result<SsoAccountsView, String> {
     let sup = state.supervisor.lock().await;
-    let cache = sup
-        .sso_client()
+    let client = sup.sso_client();
+    let connected = client.as_ref().is_some_and(|c| c.is_connected());
+    let cache = client
         .and_then(|c| c.cache().try_read().ok().map(|g| g.clone()))
         .unwrap_or_default();
     Ok(SsoAccountsView {
+        stale: !connected && cache.account_count > 0,
         account_tree: cache.account_tree,
         account_count: cache.account_count,
     })
@@ -470,15 +476,17 @@ pub async fn restore_eqhost_backup(state: State<'_, AppState>) -> Result<EqSetti
         .eq_directory()
         .cloned()
         .ok_or("EverQuest directory not configured")?;
-    let listen_port = sup.proxy_config().listen_port;
+    let backup_path = eq_dir.join("eqhost.txt.bak");
+    if !backup_path.is_file() {
+        return Err("No backup file found. The proxy has not been enabled yet.".into());
+    }
     let lifecycle = sup.snapshot().bootstrap.proxy_lifecycle;
 
     if lifecycle == ProxyLifecycle::Running || lifecycle == ProxyLifecycle::Starting {
         // stop_proxy (via Disabled) restores eqhost.txt from the backup file.
         sup.set_proxy_mode_selection(ProxyMode::Disabled).await?;
     } else {
-        EqHostWriter::disable_proxy(&eq_dir, "127.0.0.1", listen_port)
-            .map_err(|e| e.to_string())?;
+        EqHostWriter::restore_from_backup(&eq_dir).map_err(|e| e.to_string())?;
         sup.set_proxy_mode_selection(ProxyMode::Disabled).await?;
     }
     sup.touch_snapshot();

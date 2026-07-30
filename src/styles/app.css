@@ -1013,6 +1013,16 @@ select option {
   flex-shrink: 0;
 }
 
+.stale-notice {
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning) 24%, transparent);
+  color: var(--warning);
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  flex-shrink: 0;
+}
+
 .empty-state,
 .loading-state,
 .muted {

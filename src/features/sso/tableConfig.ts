@@ -81,7 +81,7 @@ export const SSO_CHARACTER_GROUP_HEADER = [
   { label: "", colSpan: 6 },
 ] as const;
 
-export const SSO_ACCOUNT_WIDTHS = { name: 114, aliases: 250, tags: 250, roles: 160 } as const;
+export const SSO_ACCOUNT_WIDTHS = { name: 114, aliases: 220, tags: 140, roles: 160 } as const;
 export const SSO_ALIAS_WIDTHS = { alias: 100, account: 114 } as const;
 export const SSO_TAG_WIDTHS = { tag: 100, accounts: 514 } as const;
 export const LOCAL_ACCOUNT_WIDTHS = { name: 114, aliases: 500 } as const;

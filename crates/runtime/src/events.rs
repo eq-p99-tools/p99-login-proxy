@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+
 use proxy_core::model::ProxyLifecycle;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProxyStatus {
@@ -46,6 +49,17 @@ pub enum AppEvent {
         alias: String,
         account: String,
         method: String,
+    },
+    LocalCharacterUpdate {
+        name: String,
+        park: Option<String>,
+        bind: Option<String>,
+        level: Option<i32>,
+        class: Option<String>,
+        items: Option<HashMap<String, Value>>,
+    },
+    LogFileSwitched {
+        character: String,
     },
     StatsDirty,
     ConnectionStarted,

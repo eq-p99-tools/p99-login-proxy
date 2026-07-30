@@ -1,3 +1,5 @@
+import { getCurrentWindow } from "@tauri-apps/api/window";
+
 import type { ThemeMode } from "../ipc/schemas";
 
 export type ResolvedTheme =
@@ -66,8 +68,28 @@ export function themeUsesDarkPalette(mode: ThemeMode, systemDark = false): boole
   return true;
 }
 
+export function nativeWindowThemeForMode(mode: ThemeMode): "dark" | "light" | null {
+  if (mode === "system") {
+    return null;
+  }
+  return themeUsesDarkPalette(mode) ? "dark" : "light";
+}
+
+function applyNativeWindowTheme(mode: ThemeMode): void {
+  if (!(window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) {
+    return;
+  }
+  void getCurrentWindow()
+    .setTheme(nativeWindowThemeForMode(mode))
+    .catch((error: unknown) => {
+      console.warn("Unable to apply native window theme", error);
+    });
+}
+
 /** Apply theme tokens and follow OS changes while System Default is selected. */
 export function applyAppTheme(mode: ThemeMode): void {
+  applyNativeWindowTheme(mode);
+
   if (systemQuery && systemListener) {
     systemQuery.removeEventListener("change", systemListener);
   }

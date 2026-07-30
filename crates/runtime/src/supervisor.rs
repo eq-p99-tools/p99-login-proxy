@@ -1,6 +1,7 @@
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
 
 use std::time::Duration;
 
@@ -9,11 +10,13 @@ use proxy_core::ProxyMode;
 use proxy_core::{
     config_file_path, detect_rustle_ui, discover_and_persist_eq_directory,
     ensure_eqclient_log_enabled, get_client_settings, load_config, load_local_data,
-    resolve_sso_api_url, resolve_sso_ca_bundle, save_config_file, ConfigFileV1, EqConfigStatus,
-    EqHostWriter, SsoCaBundleMode, ValidatedConfig,
+    resolve_sso_api_url, resolve_sso_ca_bundle, save_config_file, save_local_characters,
+    ConfigFileV1, EqConfigStatus, EqHostWriter, LocalCharacter, SsoCaBundleMode, ValidatedConfig,
 };
 
 use secrecy::ExposeSecret;
+
+use serde_json::Value;
 
 use tokio::sync::{mpsc, watch};
 
@@ -56,6 +59,12 @@ pub struct AppSupervisor {
 
     local_data: ProxyLocalData,
 
+    local_character_names: Arc<RwLock<HashSet<String>>>,
+
+    pending_local_account: Option<String>,
+
+    auto_add_local_characters: bool,
+
     eq_directory: Option<PathBuf>,
 
     eq_directory_secondary: Option<PathBuf>,
@@ -72,7 +81,7 @@ pub struct AppSupervisor {
 
     ws: Option<WsHandle>,
 
-    log_watcher: Option<EqLogWatcherHandle>,
+    log_watchers: Vec<EqLogWatcherHandle>,
 
     inventory_watcher: Option<crate::inventory_watcher::InventoryWatcherHandle>,
 
@@ -168,6 +177,15 @@ impl AppSupervisor {
             characters: bundle.characters,
         };
 
+        let local_character_names = Arc::new(RwLock::new(
+            local_data
+                .characters
+                .list()
+                .into_iter()
+                .map(|c| c.name.to_lowercase())
+                .collect::<HashSet<String>>(),
+        ));
+
         let mut snap = snapshot_rx.borrow().clone();
 
         snap.bootstrap.has_token = secrets.has_token(&sso_backend);
@@ -191,6 +209,12 @@ impl AppSupervisor {
 
             local_data,
 
+            local_character_names,
+
+            pending_local_account: None,
+
+            auto_add_local_characters: file.auto_add_local_characters,
+
             eq_directory,
 
             eq_directory_secondary,
@@ -207,7 +231,7 @@ impl AppSupervisor {
 
             ws: None,
 
-            log_watcher: None,
+            log_watchers: Vec::new(),
 
             inventory_watcher: None,
 
@@ -252,7 +276,162 @@ impl AppSupervisor {
             accounts: bundle.accounts,
             characters: bundle.characters,
         };
+        self.refresh_local_character_names();
         info!("local account/character data reloaded");
+    }
+
+    fn refresh_local_character_names(&self) {
+        let names: HashSet<String> = self
+            .local_data
+            .characters
+            .list()
+            .into_iter()
+            .map(|c| c.name.to_lowercase())
+            .collect();
+        if let Ok(mut guard) = self.local_character_names.write() {
+            *guard = names;
+        }
+    }
+
+    pub fn note_login_method(&mut self, method: &str, account: &str) {
+        self.pending_local_account =
+            if matches!(method, "local" | "local_char") && !account.is_empty() {
+                Some(account.trim().to_lowercase())
+            } else {
+                None
+            };
+    }
+
+    pub fn apply_local_character_update(
+        &mut self,
+        name: &str,
+        park: Option<&str>,
+        bind: Option<&str>,
+        level: Option<i32>,
+        class: Option<&str>,
+        items: Option<&HashMap<String, Value>>,
+    ) -> bool {
+        let Some(existing) = self.local_data.characters.find_by_name(name).cloned() else {
+            return false;
+        };
+
+        let mut changed = false;
+        let mut updated = existing;
+
+        if let Some(park) = park {
+            if updated.park.as_deref() != Some(park) {
+                updated.park = Some(park.to_string());
+                changed = true;
+            }
+        }
+        if let Some(bind) = bind {
+            if updated.bind.as_deref() != Some(bind) {
+                updated.bind = Some(bind.to_string());
+                changed = true;
+            }
+        }
+        if let Some(level) = level {
+            if updated.level != Some(level) {
+                updated.level = Some(level);
+                changed = true;
+            }
+        }
+        if let Some(class) = class {
+            if updated.class.as_deref() != Some(class) {
+                updated.class = Some(class.to_string());
+                changed = true;
+            }
+        }
+        if let Some(items) = items {
+            for (key, value) in items {
+                let current = updated.items.get(key);
+                if current != Some(value) {
+                    updated.items.insert(key.clone(), value.clone());
+                    changed = true;
+                }
+            }
+        }
+
+        if !changed {
+            return false;
+        }
+
+        if self.local_data.characters.upsert(updated).is_err() {
+            warn!(character = %name, "failed to upsert local character update");
+            return false;
+        }
+
+        if let Err(e) = save_local_characters(&self.local_data.characters) {
+            warn!(character = %name, error = %e, "failed to save local characters after update");
+            return false;
+        }
+
+        self.refresh_local_character_names();
+        true
+    }
+
+    pub fn try_auto_create_local_character(&mut self, character_name: &str) -> bool {
+        if !self.auto_add_local_characters {
+            return false;
+        }
+        if character_name.trim().is_empty() {
+            return false;
+        }
+
+        let Some(pending) = self.pending_local_account.clone() else {
+            return false;
+        };
+        if !self.local_data.accounts.contains_alias(&pending) {
+            warn!(
+                character = %character_name,
+                account = %pending,
+                "skipping auto-add: pending local account is no longer in local_accounts.csv"
+            );
+            return false;
+        }
+
+        if self.local_data.characters.contains_name(character_name) {
+            let existing_account = self
+                .local_data
+                .characters
+                .find_by_name(character_name)
+                .map(|c| c.account_alias.to_lowercase())
+                .unwrap_or_default();
+            if existing_account != pending {
+                warn!(
+                    character = %character_name,
+                    existing_account = %existing_account,
+                    pending_account = %pending,
+                    "local character bound to different account; not overwriting"
+                );
+            }
+            return false;
+        }
+
+        let character = LocalCharacter {
+            name: character_name.to_string(),
+            account_alias: pending,
+            server: String::new(),
+            class: None,
+            level: None,
+            bind: None,
+            park: None,
+            items: HashMap::new(),
+        };
+
+        if self.local_data.characters.upsert(character).is_err() {
+            warn!(character = %character_name, "failed to auto-create local character");
+            return false;
+        }
+
+        if let Err(e) = save_local_characters(&self.local_data.characters) {
+            warn!(character = %character_name, error = %e, "failed to save auto-created local character");
+            return false;
+        }
+
+        self.refresh_local_character_names();
+        info!(character = %character_name, "auto-created local character row");
+        true
     }
 
     pub async fn reconnect_sso(&mut self) {
@@ -313,6 +492,7 @@ impl AppSupervisor {
         self.eq_directory_secondary = validated.eq_directory_secondary.clone();
         self.rustle_checked = false;
         self.warn_rustle = file.warn_rustle;
+        self.auto_add_local_characters = file.auto_add_local_characters;
         Ok(())
     }
 
@@ -481,43 +661,56 @@ impl AppSupervisor {
         self.ws = Some(handle);
     }
 
-    fn local_character_names(&self) -> std::collections::HashSet<String> {
-        self.local_data
-            .characters
-            .list()
-            .into_iter()
-            .map(|c| c.name.to_lowercase())
-            .collect()
+    fn local_character_names(&self) -> HashSet<String> {
+        self.local_character_names
+            .read()
+            .ok()
+            .map(|names| names.clone())
+            .unwrap_or_default()
     }
 
     fn should_watch_logs(&self) -> bool {
-        self.eq_directory.is_some()
+        !self.eq_install_roots().is_empty()
             && (self.secrets.has_token(&self.sso_backend)
                 || !self.local_character_names().is_empty())
     }
 
     fn ensure_log_watcher(&mut self) {
-        if self.log_watcher.is_some() || !self.should_watch_logs() {
+        if !self.log_watchers.is_empty() || !self.should_watch_logs() {
             return;
         }
-        let Some(eq_dir) = self.eq_directory.as_ref() else {
-            return;
-        };
-        let logs_dir = eq_dir.join("Logs");
-        if !logs_dir.is_dir() {
-            warn!(dir = %logs_dir.display(), "EQ Logs directory not found");
+        let roots = self.eq_install_roots();
+        if roots.is_empty() {
             return;
         }
-        let handle = EqLogWatcherHandle::start(
-            logs_dir.clone(),
-            self.sso_client(),
-            self.local_character_names(),
-            self.stats.clone(),
-            self.event_tx.clone(),
-            self.cancel.child_token(),
-        );
-        info!(dir = %logs_dir.display(), "EQ log watcher started");
-        self.log_watcher = Some(handle);
+
+        for root in roots {
+            let Some(logs_dir) = Self::find_logs_subdir(&root) else {
+                warn!(dir = %root.display(), "no Logs subdirectory found in EQ install root");
+                continue;
+            };
+            let handle = EqLogWatcherHandle::start(
+                logs_dir.clone(),
+                self.sso_client(),
+                Arc::clone(&self.local_character_names),
+                self.stats.clone(),
+                self.event_tx.clone(),
+                self.cancel.child_token(),
+            );
+            info!(dir = %logs_dir.display(), "EQ log watcher started");
+            self.log_watchers.push(handle);
+        }
+    }
+
+    fn find_logs_subdir(eq_root: &Path) -> Option<PathBuf> {
+        let entries = std::fs::read_dir(eq_root).ok()?;
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            if name.to_string_lossy().eq_ignore_ascii_case("logs") && entry.path().is_dir() {
+                return Some(entry.path());
+            }
+        }
+        None
     }
 
     fn ensure_inventory_watcher(&mut self) {
@@ -531,7 +724,8 @@ impl AppSupervisor {
         let handle = crate::inventory_watcher::InventoryWatcherHandle::start(
             roots,
             self.sso_client(),
-            self.local_character_names(),
+            Arc::clone(&self.local_character_names),
+            self.event_tx.clone(),
             self.cancel.child_token(),
         );
         info!("EQ inventory watcher started");
@@ -597,9 +791,13 @@ impl AppSupervisor {
         let Some(ref eq_dir) = self.eq_directory else {
             return;
         };
-        if let Err(e) =
-            EqHostWriter::enable_proxy(eq_dir, "127.0.0.1", self.proxy_config.listen_port)
-        {
+        if let Err(e) = EqHostWriter::enable_proxy(
+            eq_dir,
+            "127.0.0.1",
+            self.proxy_config.listen_port,
+            &self.proxy_config.upstream_host,
+            self.proxy_config.upstream_port,
+        ) {
             warn!(dir = %eq_dir.display(), error = %e, "failed to enable eqhost proxy line");
         } else {
             info!(dir = %eq_dir.display(), "eqhost.txt updated for proxy");
@@ -626,6 +824,8 @@ impl AppSupervisor {
 
         // Python starts ws_client.start() at app launch, independent of the UDP proxy.
         self.ensure_ws_started().await;
+        self.ensure_log_watcher();
+        self.ensure_inventory_watcher();
 
         // Python fixes eqhost.txt as soon as proxy mode is enabled, before UDP starts.
         if file.proxy_enabled {
@@ -778,7 +978,13 @@ impl AppSupervisor {
         info!(listen = %listen_addr, "UDP login proxy running");
 
         if let Some(ref eq_dir) = self.eq_directory {
-            if let Err(e) = EqHostWriter::enable_proxy(eq_dir, "127.0.0.1", config.listen_port) {
+            if let Err(e) = EqHostWriter::enable_proxy(
+                eq_dir,
+                "127.0.0.1",
+                config.listen_port,
+                &config.upstream_host,
+                config.upstream_port,
+            ) {
                 warn!(dir = %eq_dir.display(), error = %e, "failed to enable eqhost proxy line");
             } else {
                 info!(dir = %eq_dir.display(), "eqhost.txt updated for proxy");
@@ -830,9 +1036,11 @@ impl AppSupervisor {
         ) {
             return;
         }
-        if let Err(e) =
-            EqHostWriter::disable_proxy(eq_dir, "127.0.0.1", self.proxy_config.listen_port)
-        {
+        if let Err(e) = EqHostWriter::disable_proxy(
+            eq_dir,
+            &self.proxy_config.upstream_host,
+            self.proxy_config.upstream_port,
+        ) {
             warn!(dir = %eq_dir.display(), error = %e, "failed to restore eqhost.txt");
         } else {
             info!(dir = %eq_dir.display(), "eqhost.txt restored from backup");
@@ -873,7 +1081,7 @@ impl AppSupervisor {
             ws.stop().await;
         }
 
-        if let Some(watcher) = self.log_watcher.take() {
+        while let Some(watcher) = self.log_watchers.pop() {
             watcher.stop();
         }
 

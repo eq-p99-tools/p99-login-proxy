@@ -31,12 +31,17 @@ pub struct LogEvent {
     pub slayer: Option<String>,
     pub eq_log_time: Option<String>,
     pub level: Option<u32>,
+    pub class_name: Option<String>,
 }
 
 pub struct LogPatterns {
     zone_enter: Regex,
     who_zone: Regex,
+    who_self: Regex,
+    charinfo_bind: Regex,
+    bind_confirm: Regex,
     level_up: Regex,
+    velium_vapors: Regex,
     fte: Regex,
     you_slain: Regex,
     mob_slain: Regex,
@@ -119,10 +124,15 @@ static RAID_TARGETS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "vessel drozlin",
         "vilefang",
         "vulak`aerr",
+        "wraith of a shissir",
         "wuoshi",
         "xegony",
+        "xygoz",
         "yelinak",
+        "ymmeln",
         "zlandicar",
+        "zlexak",
+        "zordak ragefire",
     ]
     .into_iter()
     .collect()
@@ -153,8 +163,20 @@ impl Default for LogPatterns {
                 r"^{ts}There (?:are|is) (?P<num>\d+) players? in (?P<zone>.+?)\.$"
             ))
             .unwrap(),
+            who_self: Regex::new(&format!(
+                r"^{ts}\[(?P<level>\d+) (?P<klass>[\w ]+?)\] (?P<name>\w+) "
+            ))
+            .unwrap(),
+            charinfo_bind: Regex::new(&format!(r"^{ts}You are currently bound in: (?P<zone>.*)"))
+                .unwrap(),
+            bind_confirm: Regex::new(&format!(r"^{ts}You feel yourself bind to the area\."))
+                .unwrap(),
             level_up: Regex::new(&format!(
                 r"^{ts}You have gained a level! Welcome to level (?P<level>\d+)!$"
+            ))
+            .unwrap(),
+            velium_vapors: Regex::new(&format!(
+                r"^{ts}Your Vial of Velium Vapors begins to glow\."
             ))
             .unwrap(),
             fte: Regex::new(&format!(r"^{ts}(?P<mob>.+?) engages (?P<player>\w+)!")).unwrap(),
@@ -180,6 +202,7 @@ impl LogPatterns {
                 slayer: None,
                 eq_log_time: Some(caps["time"].to_string()),
                 level: None,
+                class_name: None,
             };
         }
         if let Some(caps) = self.who_zone.captures(line) {
@@ -193,6 +216,49 @@ impl LogPatterns {
                 slayer: None,
                 eq_log_time: Some(caps["time"].to_string()),
                 level: None,
+                class_name: None,
+            };
+        }
+        if let Some(caps) = self.who_self.captures(line) {
+            return LogEvent {
+                kind: LogEventKind::WhoSelf,
+                character: Some(caps["name"].to_string()),
+                zone: None,
+                detail: None,
+                mob: None,
+                player: None,
+                slayer: None,
+                eq_log_time: Some(caps["time"].to_string()),
+                level: caps["level"].parse().ok(),
+                class_name: Some(caps["klass"].to_string()),
+            };
+        }
+        if let Some(caps) = self.charinfo_bind.captures(line) {
+            return LogEvent {
+                kind: LogEventKind::CharinfoBind,
+                character: None,
+                zone: Some(caps["zone"].to_string()),
+                detail: None,
+                mob: None,
+                player: None,
+                slayer: None,
+                eq_log_time: Some(caps["time"].to_string()),
+                level: None,
+                class_name: None,
+            };
+        }
+        if let Some(caps) = self.bind_confirm.captures(line) {
+            return LogEvent {
+                kind: LogEventKind::BindConfirm,
+                character: None,
+                zone: None,
+                detail: None,
+                mob: None,
+                player: None,
+                slayer: None,
+                eq_log_time: Some(caps["time"].to_string()),
+                level: None,
+                class_name: None,
             };
         }
         if let Some(caps) = self.level_up.captures(line) {
@@ -206,6 +272,21 @@ impl LogPatterns {
                 slayer: None,
                 eq_log_time: Some(caps["time"].to_string()),
                 level: caps["level"].parse().ok(),
+                class_name: None,
+            };
+        }
+        if let Some(caps) = self.velium_vapors.captures(line) {
+            return LogEvent {
+                kind: LogEventKind::VeliumVapors,
+                character: None,
+                zone: None,
+                detail: None,
+                mob: None,
+                player: None,
+                slayer: None,
+                eq_log_time: Some(caps["time"].to_string()),
+                level: None,
+                class_name: None,
             };
         }
         if let Some(caps) = self.fte.captures(line) {
@@ -219,6 +300,7 @@ impl LogPatterns {
                 slayer: None,
                 eq_log_time: Some(caps["time"].to_string()),
                 level: None,
+                class_name: None,
             };
         }
         if let Some(caps) = self.you_slain.captures(line) {
@@ -232,6 +314,7 @@ impl LogPatterns {
                 slayer: None,
                 eq_log_time: Some(caps["time"].to_string()),
                 level: None,
+                class_name: None,
             };
         }
         if let Some(caps) = self.mob_slain.captures(line) {
@@ -245,6 +328,7 @@ impl LogPatterns {
                 slayer: Some(caps["slayer"].to_string()),
                 eq_log_time: Some(caps["time"].to_string()),
                 level: None,
+                class_name: None,
             };
         }
         LogEvent {
@@ -257,6 +341,7 @@ impl LogPatterns {
             slayer: None,
             eq_log_time: None,
             level: None,
+            class_name: None,
         }
     }
 
@@ -269,6 +354,62 @@ impl LogPatterns {
             start + pos + MARKER.len()
         } else {
             content.len()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TS: &str = "[Wed Jul 30 12:00:00 2026] ";
+
+    #[test]
+    fn classify_bind_confirm() {
+        let patterns = LogPatterns::default();
+        let event = patterns.classify(&format!("{TS}You feel yourself bind to the area."));
+        assert_eq!(event.kind, LogEventKind::BindConfirm);
+    }
+
+    #[test]
+    fn classify_charinfo_bind() {
+        let patterns = LogPatterns::default();
+        let event = patterns.classify(&format!("{TS}You are currently bound in: Kael Drakkel"));
+        assert_eq!(event.kind, LogEventKind::CharinfoBind);
+        assert_eq!(event.zone.as_deref(), Some("Kael Drakkel"));
+    }
+
+    #[test]
+    fn classify_who_self() {
+        let patterns = LogPatterns::default();
+        let event = patterns.classify(&format!(
+            "{TS}[60 Cleric] Healername tells the guild, hello"
+        ));
+        assert_eq!(event.kind, LogEventKind::WhoSelf);
+        assert_eq!(event.character.as_deref(), Some("Healername"));
+        assert_eq!(event.level, Some(60));
+        assert_eq!(event.class_name.as_deref(), Some("Cleric"));
+    }
+
+    #[test]
+    fn classify_velium_vapors() {
+        let patterns = LogPatterns::default();
+        let event = patterns.classify(&format!("{TS}Your Vial of Velium Vapors begins to glow."));
+        assert_eq!(event.kind, LogEventKind::VeliumVapors);
+    }
+
+    #[test]
+    fn raid_targets_include_union_entries() {
+        for name in [
+            "wraith of a shissir",
+            "xygoz",
+            "ymmeln",
+            "zlexak",
+            "zordak ragefire",
+            "xegony",
+            "yelinak",
+        ] {
+            assert!(is_raid_target(name), "missing raid target: {name}");
         }
     }
 }

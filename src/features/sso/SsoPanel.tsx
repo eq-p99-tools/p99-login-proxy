@@ -63,6 +63,10 @@ function characterRowClass(row: CharacterRow): string | undefined {
   return undefined;
 }
 
+type SsoAccountSortKey = "name" | "aliases" | "tags" | "roles";
+type AliasSortKey = "alias" | "account";
+type TagSortKey = "tag" | "accounts";
+
 export function SsoPanel() {
   const client = useDesktopClient();
   const [subTab, setSubTab] = useState<SsoSubTab>("characters");
@@ -74,6 +78,12 @@ export function SsoPanel() {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<CharacterSortKey>("loggedInBy");
   const [sortAsc, setSortAsc] = useState(true);
+  const [accountSortKey, setAccountSortKey] = useState<SsoAccountSortKey>("name");
+  const [accountSortAsc, setAccountSortAsc] = useState(true);
+  const [aliasSortKey, setAliasSortKey] = useState<AliasSortKey>("alias");
+  const [aliasSortAsc, setAliasSortAsc] = useState(true);
+  const [tagSortKey, setTagSortKey] = useState<TagSortKey>("tag");
+  const [tagSortAsc, setTagSortAsc] = useState(true);
   const [localSortKey, setLocalSortKey] = useState<LocalCharacterSortKey>("class");
   const [localSortAsc, setLocalSortAsc] = useState(true);
   const [localAccountSortKey, setLocalAccountSortKey] = useState<LocalAccountSortKey>("name");
@@ -86,6 +96,8 @@ export function SsoPanel() {
   const [accountPassword, setAccountPassword] = useState("");
   const [accountAliases, setAccountAliases] = useState("");
   const [deleteAccount, setDeleteAccount] = useState<string | null>(null);
+
+  const [accountsStale, setAccountsStale] = useState(false);
 
   const [charDialog, setCharDialog] = useState<"add" | "edit" | null>(null);
   const [editingChar, setEditingChar] = useState<LocalCharacter | null>(null);
@@ -100,6 +112,7 @@ export function SsoPanel() {
       ]);
       setStatus(s);
       setTree(normalizeAccountTree(accounts.account_tree));
+      setAccountsStale(accounts.stale);
       setLocalData(local);
       setError(null);
     } catch (e) {
@@ -126,8 +139,14 @@ export function SsoPanel() {
       tags: (entry.tags ?? []).join(", "),
       roles: (entry.group_roles ?? []).join(", "),
     }));
-    return filterRows(rows, search, (r) => `${r.name} ${r.aliases} ${r.tags} ${r.roles}`);
-  }, [tree, search]);
+    const filtered = filterRows(rows, search, (r) => `${r.name} ${r.aliases} ${r.tags} ${r.roles}`);
+    return filtered.sort((a, b) => {
+      const comparison =
+        a[accountSortKey].localeCompare(b[accountSortKey], undefined, { sensitivity: "base" }) ||
+        a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+      return accountSortAsc ? comparison : -comparison;
+    });
+  }, [tree, search, accountSortKey, accountSortAsc]);
 
   const aliasRows = useMemo(() => {
     const out: { alias: string; account: string }[] = [];
@@ -136,12 +155,14 @@ export function SsoPanel() {
         out.push({ alias, account: acct });
       }
     }
-    return filterRows(
-      out.sort((a, b) => a.alias.localeCompare(b.alias)),
-      search,
-      (r) => `${r.alias} ${r.account}`,
-    );
-  }, [tree, search]);
+    const filtered = filterRows(out, search, (r) => `${r.alias} ${r.account}`);
+    return filtered.sort((a, b) => {
+      const comparison =
+        a[aliasSortKey].localeCompare(b[aliasSortKey], undefined, { sensitivity: "base" }) ||
+        a.alias.localeCompare(b.alias, undefined, { sensitivity: "base" });
+      return aliasSortAsc ? comparison : -comparison;
+    });
+  }, [tree, search, aliasSortKey, aliasSortAsc]);
 
   const tagRows = useMemo(() => {
     const map = new Map<string, string[]>();
@@ -152,11 +173,15 @@ export function SsoPanel() {
         map.set(tag, list);
       }
     }
-    const rows = [...map.entries()]
-      .map(([tag, accounts]) => ({ tag, accounts: accounts.join(", ") }))
-      .sort((a, b) => a.tag.localeCompare(b.tag));
-    return filterRows(rows, search, (r) => `${r.tag} ${r.accounts}`);
-  }, [tree, search]);
+    const rows = [...map.entries()].map(([tag, accounts]) => ({ tag, accounts: accounts.join(", ") }));
+    const filtered = filterRows(rows, search, (r) => `${r.tag} ${r.accounts}`);
+    return filtered.sort((a, b) => {
+      const comparison =
+        a[tagSortKey].localeCompare(b[tagSortKey], undefined, { sensitivity: "base" }) ||
+        a.tag.localeCompare(b.tag, undefined, { sensitivity: "base" });
+      return tagSortAsc ? comparison : -comparison;
+    });
+  }, [tree, search, tagSortKey, tagSortAsc]);
 
   const localAccountRows = useMemo(() => {
     if (!localData) return [];
@@ -423,6 +448,33 @@ export function SsoPanel() {
     }
   };
 
+  const toggleAccountSort = (key: SsoAccountSortKey) => {
+    if (accountSortKey === key) {
+      setAccountSortAsc((value) => !value);
+    } else {
+      setAccountSortKey(key);
+      setAccountSortAsc(true);
+    }
+  };
+
+  const toggleAliasSort = (key: AliasSortKey) => {
+    if (aliasSortKey === key) {
+      setAliasSortAsc((value) => !value);
+    } else {
+      setAliasSortKey(key);
+      setAliasSortAsc(true);
+    }
+  };
+
+  const toggleTagSort = (key: TagSortKey) => {
+    if (tagSortKey === key) {
+      setTagSortAsc((value) => !value);
+    } else {
+      setTagSortKey(key);
+      setTagSortAsc(true);
+    }
+  };
+
   const characterColumns = [
     { key: "readiness", header: "✓", headerTitle: SSO_CHARACTER_HEADER_TOOLTIPS[0], width: SSO_CHARACTER_WIDTHS.readiness, align: "center" as const, sortable: true, render: (r: CharacterRow) => r.readiness, cellTitle: (r: CharacterRow) => r.readinessTooltip },
     { key: "name", header: "Character", headerTitle: SSO_CHARACTER_HEADER_TOOLTIPS[1], width: SSO_CHARACTER_WIDTHS.name, sortable: true, render: (r: CharacterRow) => r.name },
@@ -468,6 +520,11 @@ export function SsoPanel() {
       </nav>
 
       <div className="panel-body">
+        {accountsStale && !subTab.startsWith("local-") ? (
+          <p className="stale-notice" role="status">
+            Not connected to the SSO service. Showing the last data received.
+          </p>
+        ) : null}
         {needsSearch && subTab === "characters" ? (
           <div className="characters-search-row">
             <SearchField value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -502,19 +559,23 @@ export function SsoPanel() {
           <DataTable
             fill
             columns={[
-              { key: "name", header: "Account Name", width: SSO_ACCOUNT_WIDTHS.name, render: (r) => r.name },
-              { key: "aliases", header: "Aliases", width: SSO_ACCOUNT_WIDTHS.aliases, render: (r) => r.aliases },
-              { key: "tags", header: "Tags", width: SSO_ACCOUNT_WIDTHS.tags, render: (r) => r.tags },
+              { key: "name", header: "Account Name", width: SSO_ACCOUNT_WIDTHS.name, sortable: true, render: (r) => r.name },
+              { key: "aliases", header: "Aliases", width: SSO_ACCOUNT_WIDTHS.aliases, sortable: true, render: (r) => r.aliases },
+              { key: "tags", header: "Tags", width: SSO_ACCOUNT_WIDTHS.tags, sortable: true, render: (r) => r.tags },
               {
                 key: "roles",
                 header: "Access Roles",
                 headerTitle: "Discord roles whose SSO groups grant access to this account.",
                 width: SSO_ACCOUNT_WIDTHS.roles,
+                sortable: true,
                 render: (r) => r.roles,
               },
             ]}
             rows={accountRows}
             rowKey={(r) => r.name}
+            sortKey={accountSortKey}
+            sortAsc={accountSortAsc}
+            onSort={(key) => toggleAccountSort(key as SsoAccountSortKey)}
             emptyMessage="No SSO accounts cached"
           />
         ) : null}
@@ -523,11 +584,14 @@ export function SsoPanel() {
           <DataTable
             fill
             columns={[
-              { key: "alias", header: "Alias", width: SSO_ALIAS_WIDTHS.alias, render: (r) => r.alias },
-              { key: "account", header: "Account Name", width: SSO_ALIAS_WIDTHS.account, render: (r) => r.account },
+              { key: "alias", header: "Alias", width: SSO_ALIAS_WIDTHS.alias, sortable: true, render: (r) => r.alias },
+              { key: "account", header: "Account Name", width: SSO_ALIAS_WIDTHS.account, sortable: true, render: (r) => r.account },
             ]}
             rows={aliasRows}
             rowKey={(r) => `${r.account}:${r.alias}`}
+            sortKey={aliasSortKey}
+            sortAsc={aliasSortAsc}
+            onSort={(key) => toggleAliasSort(key as AliasSortKey)}
             emptyMessage="No aliases"
           />
         ) : null}
@@ -536,11 +600,14 @@ export function SsoPanel() {
           <DataTable
             fill
             columns={[
-              { key: "tag", header: "Tag", width: SSO_TAG_WIDTHS.tag, render: (r) => r.tag },
-              { key: "accounts", header: "Account Names", width: SSO_TAG_WIDTHS.accounts, render: (r) => r.accounts },
+              { key: "tag", header: "Tag", width: SSO_TAG_WIDTHS.tag, sortable: true, render: (r) => r.tag },
+              { key: "accounts", header: "Account Names", width: SSO_TAG_WIDTHS.accounts, sortable: true, render: (r) => r.accounts },
             ]}
             rows={tagRows}
             rowKey={(r) => r.tag}
+            sortKey={tagSortKey}
+            sortAsc={tagSortAsc}
+            onSort={(key) => toggleTagSort(key as TagSortKey)}
             emptyMessage="No tags"
           />
         ) : null}

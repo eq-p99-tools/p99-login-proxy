@@ -1,14 +1,17 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
 
 use proxy_core::{
     character_name_from_inventory_path, inventory_items_json, is_inventory_file,
     parse_inventory_file,
 };
+use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
+use crate::events::AppEvent;
 use crate::watchers::WatcherHandle;
 use crate::websocket::SsoClient;
 
@@ -20,16 +23,25 @@ impl InventoryWatcherHandle {
     pub fn start(
         eq_roots: Vec<PathBuf>,
         sso: Option<SsoClient>,
-        local_character_names: HashSet<String>,
+        local_character_names: Arc<RwLock<HashSet<String>>>,
+        event_tx: mpsc::Sender<AppEvent>,
         parent_cancel: CancellationToken,
     ) -> Self {
         let cancel = parent_cancel.child_token();
         let child = cancel.child_token();
-        let (event_tx, event_rx) = mpsc::channel(64);
-        let _watcher = WatcherHandle::start(eq_roots.clone(), event_tx, child.clone());
+        let (file_event_tx, event_rx) = mpsc::channel(64);
+        let _watcher = WatcherHandle::start(eq_roots.clone(), file_event_tx, child.clone());
 
         tokio::spawn(async move {
-            run_inventory_loop(eq_roots, sso, local_character_names, event_rx, child).await;
+            run_inventory_loop(
+                eq_roots,
+                sso,
+                local_character_names,
+                event_tx,
+                event_rx,
+                child,
+            )
+            .await;
         });
 
         Self { cancel }
@@ -43,7 +55,8 @@ impl InventoryWatcherHandle {
 async fn run_inventory_loop(
     eq_roots: Vec<PathBuf>,
     sso: Option<SsoClient>,
-    local_chars: HashSet<String>,
+    local_character_names: Arc<RwLock<HashSet<String>>>,
+    event_tx: mpsc::Sender<AppEvent>,
     mut events: mpsc::Receiver<PathBuf>,
     cancel: CancellationToken,
 ) {
@@ -52,17 +65,44 @@ async fn run_inventory_loop(
             _ = cancel.cancelled() => break,
             ev = events.recv() => {
                 let Some(path) = ev else { break };
-                handle_inventory_event(&path, &eq_roots, sso.as_ref(), &local_chars).await;
+                handle_inventory_event(
+                    &path,
+                    &eq_roots,
+                    sso.as_ref(),
+                    &local_character_names,
+                    &event_tx,
+                )
+                .await;
             }
         }
     }
+}
+
+fn character_is_tracked(
+    char_lc: &str,
+    sso: Option<&SsoClient>,
+    local_character_names: &Arc<RwLock<HashSet<String>>>,
+) -> (bool, bool) {
+    let in_sso = sso.is_some_and(|client| {
+        client
+            .cache()
+            .try_read()
+            .ok()
+            .is_some_and(|g| g.characters_cached.contains(char_lc))
+    });
+    let in_local = local_character_names
+        .read()
+        .ok()
+        .is_some_and(|names| names.contains(char_lc));
+    (in_sso, in_local)
 }
 
 async fn handle_inventory_event(
     path: &Path,
     eq_roots: &[PathBuf],
     sso: Option<&SsoClient>,
-    local_chars: &HashSet<String>,
+    local_character_names: &Arc<RwLock<HashSet<String>>>,
+    event_tx: &mpsc::Sender<AppEvent>,
 ) {
     if !is_inventory_file(path) {
         return;
@@ -74,14 +114,7 @@ async fn handle_inventory_event(
         return;
     };
     let char_lc = character.to_lowercase();
-    let in_sso = sso.is_some_and(|client| {
-        client
-            .cache()
-            .try_read()
-            .ok()
-            .is_some_and(|g| g.characters_cached.contains(&char_lc))
-    });
-    let in_local = local_chars.contains(&char_lc);
+    let (in_sso, in_local) = character_is_tracked(&char_lc, sso, local_character_names);
     if !in_sso && !in_local {
         return;
     }
@@ -89,9 +122,26 @@ async fn handle_inventory_event(
     let flags = parse_inventory_file(path);
     let items = inventory_items_json(&flags);
     info!(%character, "inventory update");
-    if let Some(client) = sso.filter(|_| in_sso) {
-        client
-            .send_update_location(&character, None, None, None, Some(items))
+
+    if in_sso {
+        if let Some(client) = sso {
+            client
+                .send_update_location(&character, None, None, None, Some(items.clone()))
+                .await;
+        }
+    }
+    if in_local {
+        let items_map: HashMap<String, Value> =
+            items.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let _ = event_tx
+            .send(AppEvent::LocalCharacterUpdate {
+                name: character,
+                park: None,
+                bind: None,
+                level: None,
+                class: None,
+                items: Some(items_map),
+            })
             .await;
     }
 }
