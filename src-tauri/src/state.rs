@@ -145,6 +145,9 @@ fn spawn_event_loop(
                 AppEvent::RustleWarning { message } => {
                     let _ = app.emit("rustle-warning", serde_json::json!({ "message": message }));
                 }
+                AppEvent::FatalError { message } => {
+                    let _ = app.emit("fatal-error", serde_json::json!({ "message": message }));
+                }
                 _ => {}
             }
 

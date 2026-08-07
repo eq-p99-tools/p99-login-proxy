@@ -2,18 +2,22 @@ import { listen } from "@tauri-apps/api/event";
 import { useEffect, useRef, useState } from "react";
 
 import { Button, ModalDialog } from "../components";
+import { useDesktopClient } from "./AppProviders";
 import { useRuntimeStore } from "../features/runtime/store";
 
 interface AlertState {
   title: string;
   message: string;
+  exitOnClose?: boolean;
 }
 
 /**
  * App-level message boxes matching the Python QMessageBox popups:
- * "SSO Login Rejected", "SSO Connection Error", and "Rustle UI Detected".
+ * "SSO Login Rejected", "SSO Connection Error", "Rustle UI Detected", and
+ * startup UDP bind failure ("Error").
  */
 export function SystemDialogs() {
+  const client = useDesktopClient();
   const [alert, setAlert] = useState<AlertState | null>(null);
   const wsState = useRuntimeStore((s) => s.runtime?.bootstrap.ws_state);
   const wsError = useRuntimeStore((s) => s.runtime?.bootstrap.ws_error);
@@ -39,6 +43,15 @@ export function SystemDialogs() {
       setAlert({ title: "Rustle UI Detected", message: event.payload.message });
     }).then((fn) => unlisteners.push(fn));
 
+    void listen<{ message: string }>("fatal-error", (event) => {
+      if (cancelled) return;
+      setAlert({
+        title: "Error",
+        message: event.payload.message,
+        exitOnClose: true,
+      });
+    }).then((fn) => unlisteners.push(fn));
+
     return () => {
       cancelled = true;
       unlisteners.forEach((fn) => fn());
@@ -59,13 +72,21 @@ export function SystemDialogs() {
     }
   }, [wsState, wsError]);
 
+  const handleClose = () => {
+    const shouldExit = alert?.exitOnClose ?? false;
+    setAlert(null);
+    if (shouldExit) {
+      void client.requestShutdown();
+    }
+  };
+
   return (
     <ModalDialog
       title={alert?.title ?? ""}
       open={alert != null}
-      onClose={() => setAlert(null)}
+      onClose={handleClose}
       footer={
-        <Button variant="secondary" onClick={() => setAlert(null)}>
+        <Button variant="secondary" onClick={handleClose}>
           OK
         </Button>
       }

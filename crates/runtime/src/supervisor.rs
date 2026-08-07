@@ -835,6 +835,11 @@ impl AppSupervisor {
         if file.proxy_enabled && self.eq_directory.is_some() {
             if let Err(e) = self.set_proxy_mode_selection(mode).await {
                 warn!("bootstrap_startup: auto-start proxy failed: {e}");
+                let _ = self
+                    .event_tx
+                    .try_send(AppEvent::FatalError {
+                        message: "Failed to start UDP proxy, check if another instance is running, and restart.".into(),
+                    });
             }
         } else if !file.proxy_enabled {
             self.publish_snapshot_inner();

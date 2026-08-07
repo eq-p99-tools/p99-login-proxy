@@ -530,7 +530,6 @@ async fn run_ws_loop(
                     continue;
                 }
 
-                client.inner.connected.store(true, Ordering::Relaxed);
                 debug!(
                     client_version = %config.client_version,
                     client_settings = %config.client_settings,
@@ -744,6 +743,7 @@ async fn handle_inbound(
                 AccountCache::from_parts(&account_tree, &dynamic_tag_zones, &dynamic_tag_classes);
             let count = cache.account_count;
             *client.cache().write().await = cache;
+            client.inner.connected.store(true, Ordering::Relaxed);
             notify_state(
                 on_state,
                 WsStateEvent::Connected {
@@ -832,6 +832,7 @@ async fn resolve_login_auth_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use secrecy::SecretString;
     use serde_json::json;
     use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
     use tokio_tungstenite::tungstenite::protocol::CloseFrame;
@@ -969,5 +970,25 @@ mod tests {
             format_delta_summary(&changes),
             "add alice; update bob (characters, tags); remove carol"
         );
+    }
+
+    fn test_client_config() -> SsoClientConfig {
+        SsoClientConfig {
+            api_url: "http://localhost:5998".into(),
+            backend_name: "Localhost".into(),
+            client_version: "2.0.0".into(),
+            verify_tls: false,
+            ca_bundle: SsoCaBundleMode::System,
+            timeout_secs: 5,
+            client_settings: json!({}),
+        }
+    }
+
+    #[tokio::test]
+    async fn login_auth_blocked_before_full_state() {
+        let client = SsoClient::new(test_client_config(), SecretString::from("token"));
+        assert!(!client.is_connected());
+        let result = client.request_login_auth("mytag").await;
+        assert_eq!(result.error.as_deref(), Some("WebSocket not connected"));
     }
 }

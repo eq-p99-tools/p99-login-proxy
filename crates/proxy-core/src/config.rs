@@ -7,13 +7,23 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::warn;
 
-/// Built-in SSO backends (Python ``SSO_API_OPTIONS``).
+/// Built-in SSO backends (Python ``SSO_API_OPTIONS``), excluding Localhost.
 pub const SSO_BACKENDS: &[(&str, &str)] = &[
     ("Good Guys", "https://proxy.p99loginproxy.net"),
     ("Kingdom", "https://bot.kingdomdkp.com"),
     ("Marginal Threat", "https://proxy.p99loginproxy.net"),
-    ("Localhost", "http://localhost:5998"),
 ];
+
+const SSO_BACKEND_LOCALHOST: (&str, &str) = ("Localhost", "http://localhost:5998");
+
+/// Built-in backends for the running app version (Localhost only on prerelease builds).
+pub fn builtin_sso_backends() -> Vec<(&'static str, &'static str)> {
+    let mut options: Vec<(&str, &str)> = SSO_BACKENDS.to_vec();
+    if !crate::app_version::version().pre.is_empty() {
+        options.push(SSO_BACKEND_LOCALHOST);
+    }
+    options
+}
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -82,8 +92,6 @@ pub struct ConfigFileV1 {
     pub warn_rustle: bool,
     #[serde(default = "default_auto_add_local_characters")]
     pub auto_add_local_characters: bool,
-    #[serde(default)]
-    pub skip_sso: bool,
     #[serde(default)]
     pub skip_sso_accounts: String,
     #[serde(default)]
@@ -230,7 +238,6 @@ impl Default for ConfigFileV1 {
             launch_admin: true,
             warn_rustle: false,
             auto_add_local_characters: false,
-            skip_sso: false,
             skip_sso_accounts: String::new(),
             sso_backend: "Good Guys".to_string(),
             sso_api_url: None,
@@ -273,7 +280,6 @@ pub struct ValidatedConfig {
     pub launch_admin: bool,
     pub warn_rustle: bool,
     pub auto_add_local_characters: bool,
-    pub skip_sso: bool,
     pub skip_sso_accounts: Vec<String>,
     pub sso_backend: String,
     pub sso_verify_tls: bool,
@@ -315,7 +321,6 @@ impl ValidatedConfig {
             launch_admin: file.launch_admin,
             warn_rustle: file.warn_rustle,
             auto_add_local_characters: file.auto_add_local_characters,
-            skip_sso: file.skip_sso,
             skip_sso_accounts: parse_skip_sso_accounts(&file.skip_sso_accounts),
             sso_backend: file.sso_backend.clone(),
             sso_verify_tls: file.sso_verify_tls,
@@ -364,9 +369,9 @@ pub fn resolve_sso_api_url(file: &ConfigFileV1) -> String {
 
 /// Built-in SSO backends merged with legacy ``[sso_backends]`` entries.
 pub fn list_sso_backend_options(file: &ConfigFileV1) -> Vec<(String, String)> {
-    let mut options: Vec<(String, String)> = SSO_BACKENDS
-        .iter()
-        .map(|(name, url)| ((*name).to_string(), (*url).to_string()))
+    let mut options: Vec<(String, String)> = builtin_sso_backends()
+        .into_iter()
+        .map(|(name, url)| (name.to_string(), url.to_string()))
         .collect();
 
     for (name, url) in &file.sso_backends {
@@ -422,4 +427,18 @@ pub fn load_config() -> Result<ConfigFileV1, ConfigError> {
 
 pub fn save_config_file(path: &Path, file: &ConfigFileV1) -> Result<(), ConfigError> {
     crate::proxyconfig_ini::write_proxyconfig_ini(path, file)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn localhost_backend_follows_app_prerelease() {
+        let has_prerelease = !crate::app_version::version().pre.is_empty();
+        let has_localhost = builtin_sso_backends()
+            .iter()
+            .any(|(name, _)| *name == "Localhost");
+        assert_eq!(has_localhost, has_prerelease);
+    }
 }

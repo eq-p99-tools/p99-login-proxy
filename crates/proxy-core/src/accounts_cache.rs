@@ -229,7 +229,7 @@ pub fn build_dynamic_tag_names(zones: &[String], classes: &[String]) -> Vec<Stri
     let mut out = Vec::new();
     for zone in zones {
         for class in classes {
-            out.push(format!("{zone}_{class}"));
+            out.push(format!("{zone}{class}"));
         }
     }
     out
@@ -297,6 +297,15 @@ mod tests {
             }),
         );
         assert_eq!(tree["main"]["group_roles"], json!(["Officer"]));
+    }
+
+    #[test]
+    fn dynamic_tag_names_concatenate_zone_and_class() {
+        let tags = build_dynamic_tag_names(
+            &["kael".into(), "seb".into()],
+            &["cleric".into(), "wiz".into()],
+        );
+        assert_eq!(tags, vec!["kaelcleric", "kaelwiz", "sebcleric", "sebwiz"]);
     }
 
     #[test]

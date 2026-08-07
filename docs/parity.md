@@ -24,7 +24,7 @@ The native app matches the Python PySide6 reference for user-visible behavior:
 | TLS | `sso_verify_tls=False` allowed | Verified TLS required in production builds |
 | Secrets | Plaintext INI/CSV | API tokens migrate to the OS credential store and are scrubbed from INI |
 | Config path | CWD-relative `proxyconfig.ini` | Exe-adjacent `proxyconfig.ini` with unknown settings preserved |
-| Client endpoint | Any non-upstream sender | Single tracked client; ambiguous senders rejected |
+| Client endpoint | Any non-upstream sender | Single tracked client; last non-upstream sender wins (Python parity) |
 | Linux EQ launch | Wine `eqgame.exe patchme` | Wine `eqgame.exe patchme` when `wine` is on PATH |
 | Extras tab | N/A | Secondary EQ path, skip-SSO list, prerelease toggle, auto-add local characters toggle |
 | Updater install | GitHub zip self-update | Same first-zip-asset rename/extract/relaunch flow |
@@ -42,6 +42,7 @@ The native app matches the Python PySide6 reference for user-visible behavior:
 | Restore Backup | Restores eqhost.txt from `.bak` only | Also sets proxy mode to **Disabled** so a running proxy cannot point EQ at the proxy while eqhost is direct-connect |
 | `github_auth.json` location | Process working directory | Config directory next to `proxyconfig.ini` |
 | SSO account cache on disconnect | Cleared on every WebSocket disconnect | Cleared only on terminal server rejection (4000–4099 / auth failure); ordinary disconnect keeps stale cache for UI until reconnect |
+| Bad-password classifier DES key | LoginAccepted classifier always uses default zero key; login rewrite uses configured key | Both classification and rewrite use the configured `[encryption]` key (fixes Python inconsistency) |
 
 ## Wire compatibility
 

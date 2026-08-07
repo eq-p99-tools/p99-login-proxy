@@ -14,7 +14,6 @@ pub enum LogEventKind {
     LevelUp,
     VeliumVapors,
     Fte,
-    PlayerKill,
     MobKill,
     YouSlain,
     Unknown,

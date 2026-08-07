@@ -121,9 +121,23 @@ impl EqHostWriter {
         })
     }
 
+    fn active_host_lines(text: &str) -> Vec<String> {
+        text.lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .filter(|line| line.to_lowercase().starts_with("host="))
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// True when eqhost.txt has exactly one active ``Host=`` line and it points at the proxy.
     pub fn is_proxy_enabled_in_directory(dir: &Path, listen_host: &str, listen_port: u16) -> bool {
         Self::read_eqhost(dir)
-            .map(|text| Self::has_active_proxy_line(&text, listen_host, listen_port))
+            .map(|text| {
+                let active = Self::active_host_lines(&text);
+                active.len() == 1
+                    && Self::has_active_proxy_line(&active[0], listen_host, listen_port)
+            })
             .unwrap_or(false)
     }
 
@@ -242,5 +256,20 @@ mod tests {
         let dir = test_dir();
         let err = EqHostWriter::restore_from_backup(dir.path()).unwrap_err();
         assert!(matches!(err, EqHostError::MissingBackup));
+    }
+
+    #[test]
+    fn mixed_host_lines_are_not_using_proxy() {
+        let dir = test_dir();
+        EqHostWriter::write_eqhost(
+            dir.path(),
+            "[LoginServer]\nHost=127.0.0.1:5998\nHost=login.eqemulator.net:5998\n",
+        )
+        .unwrap();
+        assert!(!EqHostWriter::is_proxy_enabled_in_directory(
+            dir.path(),
+            "127.0.0.1",
+            5998
+        ));
     }
 }

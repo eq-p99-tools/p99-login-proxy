@@ -171,6 +171,22 @@ fn eqhost_reset_backup_overwrites_existing() {
 }
 
 #[test]
+fn eqhost_mixed_host_lines_are_not_using_proxy() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("eqgame.exe"), b"").unwrap();
+    EqHostWriter::write_eqhost(
+        dir.path(),
+        "[LoginServer]\nHost=127.0.0.1:5998\nHost=login.eqemulator.net:5998\n",
+    )
+    .unwrap();
+    assert!(!EqHostWriter::is_proxy_enabled_in_directory(
+        dir.path(),
+        "127.0.0.1",
+        5998
+    ));
+}
+
+#[test]
 fn eqhost_proxy_detection_accepts_localhost_line() {
     let dir = TempDir::new().unwrap();
     std::fs::write(dir.path().join("eqgame.exe"), b"").unwrap();

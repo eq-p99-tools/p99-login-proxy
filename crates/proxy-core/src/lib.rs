@@ -23,9 +23,9 @@ pub use accounts_cache::AccountCache;
 pub use app_version::{version, version_string, window_title, APP_NAME};
 pub use class_translate::resolve_class;
 pub use config::{
-    config_file_path, list_sso_backend_options, load_config, load_config_file,
-    parse_skip_sso_accounts, resolve_sso_api_url, resolve_sso_ca_bundle, save_config_file,
-    ConfigFileV1, SsoCaBundleMode, ValidatedConfig, SSO_BACKENDS,
+    builtin_sso_backends, config_file_path, list_sso_backend_options, load_config,
+    load_config_file, parse_skip_sso_accounts, resolve_sso_api_url, resolve_sso_ca_bundle,
+    save_config_file, ConfigFileV1, SsoCaBundleMode, ValidatedConfig, SSO_BACKENDS,
 };
 pub use decision::{CredentialDecision, CredentialRouter};
 pub use eq_config::{
