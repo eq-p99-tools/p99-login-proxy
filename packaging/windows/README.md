@@ -19,7 +19,9 @@ Internet access is required for that first install.
 Tagged CI builds copy the binary to `P99LoginProxy-{version}.exe` and publish one Windows
 asset: `P99LoginProxy-{version}.zip` with MIME type `application/zip`. Both Python 1.x
 and native 2.x clients download that exact zip asset, back up the running stable
-executable, extract the versioned member as `P99LoginProxy.exe`, and relaunch.
+executable, and relaunch. Native v2 verifies the zip against the release `SHA256SUMS`,
+requires exactly one correctly named top-level executable, and waits for the old process
+to exit before initializing the replacement.
 
 Linux AppImage assets are published beside the zip on the same GitHub release but are
 ignored by legacy v1 updaters.
@@ -28,6 +30,7 @@ ignored by legacy v1 updaters.
 
 - [x] Portable zip updater and release workflow configured
 - [x] Embedded WebView2 bootstrapper for missing-runtime installs
+- [x] CI pins and verifies the WebView2 bootstrapper SHA-256
 - [ ] RC migration matrix passed — see [`docs/RELEASE.md`](../docs/RELEASE.md)
 - [ ] Smoke test on Windows 11
 - [ ] Verify single-instance focuses existing window

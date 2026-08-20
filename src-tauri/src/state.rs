@@ -6,7 +6,6 @@ use std::time::Duration;
 use crate::icons::update_tray_and_window_icons;
 use crate::notifications::notify_login_proxied;
 use crate::tray::{refresh_tray_tooltip, update_toggle_menu_label};
-use proxy_core::model::BootstrapState;
 use proxy_core::model::ProxyLifecycle;
 use runtime::events::AppEvent;
 use runtime::{format_app_event, AppSupervisor, LogStore, RuntimeStateView};
@@ -66,10 +65,6 @@ impl AppState {
 
     pub fn is_tray_available(&self) -> bool {
         self.tray_available.load(Ordering::Relaxed)
-    }
-
-    pub fn bootstrap_state(&self) -> BootstrapState {
-        self.snapshot_rx.borrow().bootstrap.clone()
     }
 
     pub fn runtime_state(&self) -> runtime::RuntimeSnapshot {
@@ -145,9 +140,6 @@ fn spawn_event_loop(
                 AppEvent::RustleWarning { message } => {
                     let _ = app.emit("rustle-warning", serde_json::json!({ "message": message }));
                 }
-                AppEvent::FatalError { message } => {
-                    let _ = app.emit("fatal-error", serde_json::json!({ "message": message }));
-                }
                 _ => {}
             }
 
@@ -181,6 +173,7 @@ fn spawn_snapshot_emitter(
     supervisor: Arc<Mutex<AppSupervisor>>,
 ) {
     tauri::async_runtime::spawn(async move {
+        let mut last_icon_state = None;
         loop {
             if rx.changed().await.is_err() {
                 break;
@@ -198,9 +191,13 @@ fn spawn_snapshot_emitter(
                 let sup = supervisor.lock().await;
                 sup.sso_backend().to_string()
             };
-            update_tray_and_window_icons(&app, proxy_mode, &backend);
+            let icon_state = (proxy_mode, backend);
+            if last_icon_state.as_ref() != Some(&icon_state) {
+                update_tray_and_window_icons(&app, icon_state.0, &icon_state.1);
+                update_toggle_menu_label(&app);
+                last_icon_state = Some(icon_state);
+            }
             refresh_tray_tooltip(&app).await;
-            update_toggle_menu_label(&app);
         }
     });
 }

@@ -1,6 +1,5 @@
 import type {
   AppConfig,
-  BootstrapState,
   EqSettingsView,
   LocalCharacterInput,
   LocalDataView,
@@ -46,7 +45,6 @@ export interface UpdateCheckResult {
 }
 
 export interface DesktopClient {
-  getBootstrapState(): Promise<BootstrapState>;
   getRuntimeState(): Promise<RuntimeState>;
   setProxyModeSelection(mode: ProxyMode): Promise<RuntimeState>;
   updateListenPort(listenPort: number): Promise<RuntimeState>;
@@ -76,7 +74,7 @@ export interface DesktopClient {
   fetchGithubChangelog(): Promise<string>;
   getRecentLogs(limit?: number, minLevel?: string): Promise<LogSnapshot>;
   clearLogs(): Promise<void>;
-  checkForUpdates(): Promise<UpdateCheckResult>;
+  checkForUpdates(notifyNoUpdate?: boolean): Promise<UpdateCheckResult>;
   showWindow(): Promise<void>;
   hideWindow(): Promise<void>;
   requestShutdown(): Promise<void>;

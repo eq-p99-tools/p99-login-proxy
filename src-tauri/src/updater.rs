@@ -1,4 +1,6 @@
-use std::io::{Cursor, Read};
+use std::fmt::Write as _;
+use std::fs::{File, OpenOptions};
+use std::io::{Cursor, ErrorKind, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -12,13 +14,90 @@ use proxy_core::{
 use pulldown_cmark::{html, Options, Parser};
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
 use tracing::{info, warn};
 
 const GITHUB_RELEASES_URL: &str =
     "https://api.github.com/repos/eq-p99-tools/p99-login-proxy/releases?per_page=10";
+const CHECKSUM_ASSET_NAME: &str = "SHA256SUMS";
+const WAIT_FOR_UPDATE_LOCK_ARG: &str = "--wait-for-update-lock";
+const UPDATE_PARENT_WAIT_TIMEOUT: Duration = Duration::from_secs(60);
 
 static CHANGELOG_HTML: Mutex<Option<String>> = Mutex::new(None);
+
+fn update_lock_path_from_args(
+    args: impl IntoIterator<Item = std::ffi::OsString>,
+) -> Result<Option<PathBuf>, String> {
+    let mut args = args.into_iter();
+    while let Some(arg) = args.next() {
+        if arg == WAIT_FOR_UPDATE_LOCK_ARG {
+            return args
+                .next()
+                .map(PathBuf::from)
+                .map(Some)
+                .ok_or_else(|| format!("{WAIT_FOR_UPDATE_LOCK_ARG} requires a path"));
+        }
+    }
+    Ok(None)
+}
+
+pub fn wait_for_update_parent_if_requested() -> Result<(), String> {
+    let Some(path) = update_lock_path_from_args(std::env::args_os())? else {
+        return Ok(());
+    };
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&path)
+        .map_err(|error| format!("Could not open update relaunch lock: {error}"))?;
+    let started = std::time::Instant::now();
+    loop {
+        match fs2::FileExt::try_lock_exclusive(&file) {
+            Ok(()) => break,
+            Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                if started.elapsed() >= UPDATE_PARENT_WAIT_TIMEOUT {
+                    return Err("Timed out waiting for the previous version to exit".into());
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(error) => {
+                return Err(format!("Could not wait for the previous version: {error}"));
+            }
+        }
+    }
+    fs2::FileExt::unlock(&file).map_err(|error| error.to_string())?;
+    drop(file);
+    let _ = std::fs::remove_file(path);
+    Ok(())
+}
+
+pub fn spawn_update_relaunch(executable: &Path) -> Result<File, String> {
+    let lock_path = std::env::temp_dir().join(format!(
+        "p99-login-proxy-update-{}.lock",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&lock_path);
+    let file = OpenOptions::new()
+        .create_new(true)
+        .read(true)
+        .write(true)
+        .open(&lock_path)
+        .map_err(|error| format!("Could not create update relaunch lock: {error}"))?;
+    fs2::FileExt::lock_exclusive(&file)
+        .map_err(|error| format!("Could not lock update relaunch marker: {error}"))?;
+    if let Err(error) = std::process::Command::new(executable)
+        .arg(WAIT_FOR_UPDATE_LOCK_ARG)
+        .arg(&lock_path)
+        .spawn()
+    {
+        let _ = fs2::FileExt::unlock(&file);
+        drop(file);
+        let _ = std::fs::remove_file(lock_path);
+        return Err(format!("Update installed, but relaunch failed: {error}"));
+    }
+    Ok(file)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateCheckResult {
@@ -63,10 +142,8 @@ struct GitHubRelease {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
 struct GitHubAsset {
     name: String,
-    content_type: String,
     browser_download_url: String,
 }
 
@@ -103,11 +180,6 @@ pub async fn check_for_updates(notify_no_update: bool) -> UpdateCheckResult {
         version = %version(),
         notify_no_update, "checking for updates"
     );
-    let changelog_result = fetch_github_changelog().await;
-    if let Err(ref e) = changelog_result {
-        warn!(error = %e, "failed to fetch changelog during update check");
-    }
-
     let Ok(releases) = fetch_releases().await else {
         return update_check_result(
             false,
@@ -122,6 +194,7 @@ pub async fn check_for_updates(notify_no_update: bool) -> UpdateCheckResult {
             },
         );
     };
+    cache_changelog(&releases);
 
     let prerelease_ok = allows_prereleases();
     let current = version().clone();
@@ -170,6 +243,18 @@ pub async fn check_for_updates(notify_no_update: bool) -> UpdateCheckResult {
                 "You are on the latest version.".into()
             },
         )
+    }
+}
+
+fn cache_changelog(releases: &[ParsedRelease]) {
+    let prerelease_ok = allows_prereleases();
+    let visible: Vec<_> = releases
+        .iter()
+        .filter(|release| prerelease_ok || !release.prerelease)
+        .collect();
+    let html = compile_changelog_html(visible);
+    if let Ok(mut cache) = CHANGELOG_HTML.lock() {
+        *cache = Some(html);
     }
 }
 
@@ -240,7 +325,7 @@ fn parse_version(raw: &str) -> Result<Version, String> {
     Version::parse(raw).map_err(|e| format!("invalid semver '{raw}': {e}"))
 }
 
-fn compile_changelog_html(releases: &[ParsedRelease]) -> String {
+fn compile_changelog_html<'a>(releases: impl IntoIterator<Item = &'a ParsedRelease>) -> String {
     let mut markdown = String::new();
     for release in releases {
         markdown.push_str(&format!("## v{}\n", release.version));
@@ -278,12 +363,9 @@ fn markdown_to_html(markdown: &str) -> String {
     html_out
 }
 
-/// Run the silent startup update check, then a daily check at local noon
-/// (parity with the Python APScheduler 12:00 cron job).
-pub async fn run_startup_and_scheduled_checks(app: AppHandle) {
-    let result = check_for_updates(false).await;
-    emit_if_available(&app, &result);
-
+/// Run the daily local-noon update check. The frontend performs the startup
+/// check after registering its listeners so the initial prompt cannot be lost.
+pub async fn run_scheduled_checks(app: AppHandle) {
     loop {
         let wait = duration_until_next_noon();
         tokio::time::sleep(wait).await;
@@ -340,7 +422,10 @@ fn select_update_asset(release: &ParsedRelease) -> Option<&GitHubAsset> {
     release.assets.iter().find(|asset| asset.name == expected)
 }
 
-async fn download_release_asset(app: &AppHandle, asset: &GitHubAsset) -> Result<Vec<u8>, String> {
+async fn download_release_asset(
+    app: Option<&AppHandle>,
+    asset: &GitHubAsset,
+) -> Result<Vec<u8>, String> {
     let client = github_client()?;
     let mut request = client.get(&asset.browser_download_url);
     if let Some(auth) = github_auth() {
@@ -359,12 +444,56 @@ async fn download_release_asset(app: &AppHandle, asset: &GitHubAsset) -> Result<
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|error| format!("Update download failed: {error}"))?;
         bytes.extend_from_slice(&chunk);
-        let _ = app.emit(
-            "update-progress",
-            serde_json::json!({"downloaded": bytes.len(), "total": total}),
-        );
+        if let Some(app) = app {
+            let _ = app.emit(
+                "update-progress",
+                serde_json::json!({"downloaded": bytes.len(), "total": total}),
+            );
+        }
     }
     Ok(bytes)
+}
+
+fn verify_sha256(manifest: &str, asset_name: &str, bytes: &[u8]) -> Result<(), String> {
+    let mut expected = None;
+    for line in manifest.lines() {
+        let mut fields = line.split_whitespace();
+        let Some(hash) = fields.next() else {
+            continue;
+        };
+        let Some(name) = fields.next().map(|name| name.trim_start_matches('*')) else {
+            continue;
+        };
+        if name != asset_name {
+            continue;
+        }
+        if expected.replace(hash).is_some() {
+            return Err(format!(
+                "{CHECKSUM_ASSET_NAME} contains duplicate entries for '{asset_name}'"
+            ));
+        }
+    }
+    let expected =
+        expected.ok_or_else(|| format!("{CHECKSUM_ASSET_NAME} is missing '{asset_name}'"))?;
+    if expected.len() != 64 || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(format!(
+            "{CHECKSUM_ASSET_NAME} contains an invalid SHA-256 for '{asset_name}'"
+        ));
+    }
+    let actual = sha256_hex(bytes);
+    if !actual.eq_ignore_ascii_case(expected) {
+        return Err(format!("SHA-256 verification failed for '{asset_name}'"));
+    }
+    Ok(())
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .fold(String::with_capacity(64), |mut output, byte| {
+            let _ = write!(output, "{byte:02x}");
+            output
+        })
 }
 
 /// Download the selected release and replace the portable executable.
@@ -380,12 +509,21 @@ pub async fn install_update(app: &AppHandle, version: &str) -> Result<PathBuf, S
     let expected = expected_update_asset_name(&target);
     let asset = select_update_asset(release)
         .ok_or_else(|| format!("Release v{target} is missing asset '{expected}'"))?;
+    let checksum_asset = release
+        .assets
+        .iter()
+        .find(|asset| asset.name == CHECKSUM_ASSET_NAME)
+        .ok_or_else(|| format!("Release v{target} is missing asset '{CHECKSUM_ASSET_NAME}'"))?;
 
-    let bytes = download_release_asset(app, asset).await?;
+    let bytes = download_release_asset(Some(app), asset).await?;
+    let checksum_bytes = download_release_asset(None, checksum_asset).await?;
+    let checksum_manifest = std::str::from_utf8(&checksum_bytes)
+        .map_err(|_| format!("{CHECKSUM_ASSET_NAME} is not valid UTF-8"))?;
+    verify_sha256(checksum_manifest, &asset.name, &bytes)?;
 
     #[cfg(windows)]
     {
-        replace_portable_executable(&bytes)
+        replace_portable_executable(&bytes, &target)
     }
     #[cfg(target_os = "linux")]
     {
@@ -399,7 +537,10 @@ pub async fn install_update(app: &AppHandle, version: &str) -> Result<PathBuf, S
 }
 
 #[cfg(windows)]
-fn replace_portable_executable(zip_bytes: &[u8]) -> Result<PathBuf, String> {
+fn replace_portable_executable(
+    zip_bytes: &[u8],
+    target_version: &Version,
+) -> Result<PathBuf, String> {
     let current_exe = std::env::current_exe().map_err(|error| error.to_string())?;
     let current_name = current_exe
         .file_name()
@@ -418,7 +559,8 @@ fn replace_portable_executable(zip_bytes: &[u8]) -> Result<PathBuf, String> {
     std::fs::rename(&current_exe, &backup)
         .map_err(|error| format!("Failed to back up current executable: {error}"))?;
 
-    let result = extract_first_zip_member(zip_bytes, exe_dir);
+    let expected_member = format!("P99LoginProxy-{target_version}.exe");
+    let result = extract_expected_zip_member(zip_bytes, exe_dir, &expected_member);
     if let Err(error) = result {
         let _ = std::fs::rename(&backup, &current_exe);
         return Err(error);
@@ -501,10 +643,19 @@ fn is_directory_writable(path: &Path) -> Result<bool, String> {
     }
 }
 
-#[cfg_attr(not(windows), allow(dead_code))]
-fn extract_first_zip_member(zip_bytes: &[u8], destination: &Path) -> Result<PathBuf, String> {
+fn extract_expected_zip_member(
+    zip_bytes: &[u8],
+    destination: &Path,
+    expected_member: &str,
+) -> Result<PathBuf, String> {
     let mut archive = zip::ZipArchive::new(Cursor::new(zip_bytes))
         .map_err(|error| format!("Invalid update zip: {error}"))?;
+    if archive.len() != 1 {
+        return Err(format!(
+            "Update zip must contain exactly one file; found {} entries",
+            archive.len()
+        ));
+    }
     let mut member = archive
         .by_index(0)
         .map_err(|error| format!("Update zip is empty: {error}"))?;
@@ -512,7 +663,14 @@ fn extract_first_zip_member(zip_bytes: &[u8], destination: &Path) -> Result<Path
         .enclosed_name()
         .ok_or_else(|| "Update zip contains an unsafe path".to_string())?;
     if member.is_dir() {
-        return Err("The first update zip member is not an executable".to_string());
+        return Err("The update zip member is not an executable".to_string());
+    }
+    if enclosed.components().count() != 1
+        || enclosed.file_name().and_then(|name| name.to_str()) != Some(expected_member)
+    {
+        return Err(format!(
+            "Update zip must contain only the top-level file '{expected_member}'"
+        ));
     }
     let extracted = destination.join(enclosed);
     if let Some(parent) = extracted.parent() {
@@ -574,12 +732,10 @@ mod tests {
             assets: vec![
                 GitHubAsset {
                     name: "P99LoginProxy-2.0.1-x86_64.AppImage".to_string(),
-                    content_type: "application/vnd.appimage".to_string(),
                     browser_download_url: "appimage".to_string(),
                 },
                 GitHubAsset {
                     name: "P99LoginProxy-2.0.1.zip".to_string(),
-                    content_type: "application/octet-stream".to_string(),
                     browser_download_url: "zip".to_string(),
                 },
             ],
@@ -600,12 +756,10 @@ mod tests {
             assets: vec![
                 GitHubAsset {
                     name: "P99LoginProxy-2.0.1.zip".to_string(),
-                    content_type: "application/zip".to_string(),
                     browser_download_url: "zip".to_string(),
                 },
                 GitHubAsset {
                     name: "P99LoginProxy-2.0.1-x86_64.AppImage".to_string(),
-                    content_type: "application/vnd.appimage".to_string(),
                     browser_download_url: "appimage".to_string(),
                 },
             ],
@@ -624,7 +778,6 @@ mod tests {
             prerelease: false,
             assets: vec![GitHubAsset {
                 name: "other.zip".to_string(),
-                content_type: "application/zip".to_string(),
                 browser_download_url: "wrong".to_string(),
             }],
         };
@@ -632,7 +785,7 @@ mod tests {
     }
 
     #[test]
-    fn extracts_first_member_to_stable_name() {
+    fn extracts_exact_member_to_stable_name() {
         let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
         zip.start_file(
             "P99LoginProxy-2.0.1.exe",
@@ -643,7 +796,8 @@ mod tests {
         let archive = zip.finish().unwrap().into_inner();
         let dir = tempfile::tempdir().unwrap();
 
-        let path = extract_first_zip_member(&archive, dir.path()).unwrap();
+        let path =
+            extract_expected_zip_member(&archive, dir.path(), "P99LoginProxy-2.0.1.exe").unwrap();
         assert_eq!(path, dir.path().join(STABLE_EXE_NAME));
         assert_eq!(std::fs::read(path).unwrap(), b"portable exe");
     }
@@ -656,7 +810,53 @@ mod tests {
         zip.write_all(b"bad").unwrap();
         let archive = zip.finish().unwrap().into_inner();
         let dir = tempfile::tempdir().unwrap();
-        assert!(extract_first_zip_member(&archive, dir.path()).is_err());
+        assert!(
+            extract_expected_zip_member(&archive, dir.path(), "P99LoginProxy-2.0.1.exe").is_err()
+        );
+    }
+
+    #[test]
+    fn rejects_update_zip_with_extra_members() {
+        let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default();
+        zip.start_file("P99LoginProxy-2.0.1.exe", options).unwrap();
+        zip.write_all(b"portable exe").unwrap();
+        zip.start_file("unexpected.txt", options).unwrap();
+        zip.write_all(b"extra").unwrap();
+        let archive = zip.finish().unwrap().into_inner();
+        let dir = tempfile::tempdir().unwrap();
+
+        assert!(
+            extract_expected_zip_member(&archive, dir.path(), "P99LoginProxy-2.0.1.exe").is_err()
+        );
+    }
+
+    #[test]
+    fn verifies_named_sha256_entry() {
+        let bytes = b"release artifact";
+        let hash = sha256_hex(bytes);
+        let manifest = format!("{hash}  P99LoginProxy-2.0.1.zip\n");
+        assert!(verify_sha256(&manifest, "P99LoginProxy-2.0.1.zip", bytes).is_ok());
+        assert!(verify_sha256(&manifest, "P99LoginProxy-2.0.1.zip", b"tampered").is_err());
+        assert!(verify_sha256(&manifest, "other.zip", bytes).is_err());
+    }
+
+    #[test]
+    fn parses_update_wait_lock_argument() {
+        let args = [
+            std::ffi::OsString::from("P99LoginProxy.exe"),
+            std::ffi::OsString::from(WAIT_FOR_UPDATE_LOCK_ARG),
+            std::ffi::OsString::from("C:\\Temp\\update.lock"),
+        ];
+        assert_eq!(
+            update_lock_path_from_args(args).unwrap(),
+            Some(PathBuf::from("C:\\Temp\\update.lock"))
+        );
+        assert!(update_lock_path_from_args([
+            std::ffi::OsString::from("P99LoginProxy.exe"),
+            std::ffi::OsString::from(WAIT_FOR_UPDATE_LOCK_ARG),
+        ])
+        .is_err());
     }
 
     #[test]

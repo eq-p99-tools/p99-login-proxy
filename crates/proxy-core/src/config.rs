@@ -59,8 +59,20 @@ pub fn config_file_path() -> Option<PathBuf> {
             return Some(cwd.join("proxyconfig.ini"));
         }
     }
-    std::env::current_exe()
-        .ok()
+    let appimage = if cfg!(target_os = "linux") {
+        std::env::var_os("APPIMAGE").map(PathBuf::from)
+    } else {
+        None
+    };
+    release_config_file_path(appimage, std::env::current_exe().ok())
+}
+
+fn release_config_file_path(
+    appimage: Option<PathBuf>,
+    current_exe: Option<PathBuf>,
+) -> Option<PathBuf> {
+    appimage
+        .or(current_exe)
         .and_then(|exe| exe.parent().map(|dir| dir.join("proxyconfig.ini")))
 }
 
@@ -440,5 +452,24 @@ mod tests {
             .iter()
             .any(|(name, _)| *name == "Localhost");
         assert_eq!(has_localhost, has_prerelease);
+    }
+
+    #[test]
+    fn release_config_lives_beside_appimage() {
+        let appimage = PathBuf::from("/home/player/P99LoginProxy.AppImage");
+        let mounted_exe = PathBuf::from("/tmp/.mount_p99/usr/bin/P99LoginProxy");
+        assert_eq!(
+            release_config_file_path(Some(appimage), Some(mounted_exe)),
+            Some(PathBuf::from("/home/player/proxyconfig.ini"))
+        );
+    }
+
+    #[test]
+    fn release_config_falls_back_to_executable_directory() {
+        let exe = PathBuf::from("/opt/p99/P99LoginProxy");
+        assert_eq!(
+            release_config_file_path(None, Some(exe)),
+            Some(PathBuf::from("/opt/p99/proxyconfig.ini"))
+        );
     }
 }

@@ -14,6 +14,7 @@ export function useRuntimeSync(client: DesktopClient) {
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
+    let pollId: number | undefined;
 
     const apply = (raw: unknown) => {
       try {
@@ -24,7 +25,7 @@ export function useRuntimeSync(client: DesktopClient) {
       }
     };
 
-    const bootstrap = async () => {
+    const refresh = async () => {
       try {
         const state = await client.getRuntimeState();
         if (!cancelled) {
@@ -38,25 +39,43 @@ export function useRuntimeSync(client: DesktopClient) {
       }
     };
 
-    void bootstrap();
+    const startFallbackPolling = () => {
+      if (pollId == null) {
+        pollId = window.setInterval(() => void refresh(), FALLBACK_POLL_MS);
+      }
+    };
 
-    if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
-      void listen("runtime-state", (event) => {
-        if (!cancelled) {
-          apply(event.payload);
+    const setup = async () => {
+      if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+        try {
+          const stop = await listen("runtime-state", (event) => {
+            if (!cancelled) {
+              apply(event.payload);
+            }
+          });
+          if (cancelled) {
+            stop();
+            return;
+          }
+          unlisten = stop;
+        } catch (e) {
+          if (!cancelled) {
+            setSyncError(e instanceof Error ? e.message : String(e));
+            startFallbackPolling();
+          }
         }
-      }).then((fn) => {
-        unlisten = fn;
-      });
-    }
-
-    const pollId = window.setInterval(() => {
-      void bootstrap();
-    }, FALLBACK_POLL_MS);
+      } else {
+        startFallbackPolling();
+      }
+      await refresh();
+    };
+    void setup();
 
     return () => {
       cancelled = true;
-      window.clearInterval(pollId);
+      if (pollId != null) {
+        window.clearInterval(pollId);
+      }
       unlisten?.();
     };
   }, [client, setRuntime, setSyncError]);

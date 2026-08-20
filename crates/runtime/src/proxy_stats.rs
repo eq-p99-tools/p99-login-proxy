@@ -87,11 +87,6 @@ impl ProxyStatsTracker {
         g.eqclient_log_enabled = eqclient_log_enabled;
     }
 
-    #[allow(dead_code)]
-    pub fn set_eq_config_enabled(&self, enabled: bool) {
-        self.set_eq_config_status(enabled, enabled);
-    }
-
     pub fn connection_started(&self) {
         let mut g = self.inner.lock().unwrap();
         g.total_connections += 1;

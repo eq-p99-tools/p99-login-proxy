@@ -2,6 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useEffect } from "react";
 
 import { Button, ModalDialog } from "../../components";
+import { useDesktopClient } from "../../app/AppProviders";
 import { downloadAndInstallUpdate, isTauriRuntime } from "./installUpdate";
 import { useUpdaterStore } from "./store";
 
@@ -11,6 +12,7 @@ import { useUpdaterStore } from "./store";
  * "Check for updates" button via the updater store.
  */
 export function UpdatePrompt() {
+  const client = useDesktopClient();
   const phase = useUpdaterStore((s) => s.phase);
   const title = useUpdaterStore((s) => s.title);
   const version = useUpdaterStore((s) => s.version);
@@ -28,23 +30,47 @@ export function UpdatePrompt() {
     let cancelled = false;
     const unlisteners: (() => void)[] = [];
 
-    void listen<{ version: string | null; message: string }>("update-available", (event) => {
-      if (!cancelled) {
-        promptUpdate(event.payload.version, event.payload.message);
+    const setup = async () => {
+      const unlistenAvailable = await listen<{ version: string | null; message: string }>(
+        "update-available",
+        (event) => {
+          if (!cancelled) {
+            promptUpdate(event.payload.version, event.payload.message);
+          }
+        },
+      );
+      if (cancelled) {
+        unlistenAvailable();
+        return;
       }
-    }).then((fn) => unlisteners.push(fn));
+      unlisteners.push(unlistenAvailable);
 
-    void listen<{ title: string; message: string }>("update-check-info", (event) => {
-      if (!cancelled) {
-        showUpdateInfo(event.payload.title, event.payload.message);
+      const unlistenInfo = await listen<{ title: string; message: string }>(
+        "update-check-info",
+        (event) => {
+          if (!cancelled) {
+            showUpdateInfo(event.payload.title, event.payload.message);
+          }
+        },
+      );
+      if (cancelled) {
+        unlistenInfo();
+        return;
       }
-    }).then((fn) => unlisteners.push(fn));
+      unlisteners.push(unlistenInfo);
+
+      const result = await client.checkForUpdates(false);
+      if (!cancelled && result.available) {
+        promptUpdate(result.version ?? null, result.message);
+      }
+    };
+    void setup();
 
     return () => {
       cancelled = true;
       unlisteners.forEach((fn) => fn());
     };
-  }, [promptUpdate, showUpdateInfo]);
+  }, [client, promptUpdate, showUpdateInfo]);
 
   if (phase === "idle") {
     return null;

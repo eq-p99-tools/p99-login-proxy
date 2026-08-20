@@ -22,8 +22,38 @@ jobs:
           git fetch origin rust --depth=1
           git merge-base --is-ancestor "${{ github.sha }}" origin/rust
 
-  build-windows:
+  quality:
     needs: validate-tag
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+      - name: Rust format
+        run: cargo fmt --all -- --check
+      - name: Rust tests
+        run: cargo test --workspace
+      - name: Rust Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Frontend tests
+        run: npm test
+      - name: Frontend production build
+        run: npm run build
+
+  build-windows:
+    needs: [validate-tag, quality]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,10 +77,14 @@ jobs:
           $dest = "src-tauri/resources/webview2/MicrosoftEdgeWebview2Setup.exe"
           New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
           Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile $dest
-          if ((Get-Item $dest).Length -lt 1000000) {
-            throw "Downloaded WebView2 bootstrapper looks too small"
+          $expected = "be695eb3732a94e181f008ab5cf6ee650f8644676e87f9e02b6ab0d02f2ea08e"
+          $actual = (Get-FileHash -Algorithm SHA256 $dest).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) {
+            throw "WebView2 bootstrapper SHA-256 mismatch: expected $expected, got $actual"
           }
       - run: npm ci
+      - name: Windows read-only regression test
+        run: cargo test -p proxy-core clears_readonly_without_spawning_a_console_process
       - name: Build portable executable
         run: npm run tauri build -- --target x86_64-pc-windows-msvc --no-bundle
       - name: Package legacy-compatible update zip
@@ -85,7 +119,7 @@ jobs:
           path: P99LoginProxy-*.zip
 
   build-linux:
-    needs: validate-tag
+    needs: [validate-tag, quality]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -152,6 +186,12 @@ jobs:
           mkdir -p upload
           find release-assets -type f \( -name '*.zip' -o -name '*.AppImage' \) -exec cp {} upload/ \;
           ls -la upload
+      - name: Generate SHA-256 manifest
+        working-directory: upload
+        run: |
+          sha256sum *.zip *.AppImage > SHA256SUMS
+          test "$(wc -l < SHA256SUMS)" -eq 2
+          sha256sum --check SHA256SUMS
       - name: Release version
         id: release_version
         run: echo "number=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
@@ -179,6 +219,7 @@ jobs:
             case "$name" in
               *.zip) ctype="application/zip" ;;
               *.AppImage) ctype="application/vnd.appimage" ;;
+              SHA256SUMS) ctype="text/plain" ;;
               *) echo "Skipping unknown asset: $name"; continue ;;
             esac
             echo "Uploading $name as $ctype"
@@ -206,6 +247,9 @@ jobs:
                 ;;
               *.AppImage)
                 expected="application/vnd.appimage"
+                ;;
+              SHA256SUMS)
+                expected="text/plain"
                 ;;
               *)
                 continue

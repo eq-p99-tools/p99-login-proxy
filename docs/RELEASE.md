@@ -19,14 +19,16 @@ repository-wide, but each workflow runs from the tagged commit’s tree.
 
 ## Release assets
 
-Each v2 draft release publishes exactly two downloadable assets:
+Each v2 draft release publishes exactly three downloadable assets:
 
 | Asset | MIME type | Used by |
 |-------|-----------|---------|
 | `P99LoginProxy-{version}.zip` | `application/zip` | Windows portable updater (v1 + v2) |
 | `P99LoginProxy-{version}-x86_64.AppImage` | `application/vnd.appimage` | Linux AppImage users/updater |
+| `SHA256SUMS` | `text/plain` | Native v2 artifact verification |
 
-The zip contains exactly one top-level member: `P99LoginProxy-{version}.exe`.
+The zip contains exactly one top-level member: `P99LoginProxy-{version}.exe`. Native
+updates fail closed unless the selected artifact matches its `SHA256SUMS` entry.
 
 Legacy v1 updaters ignore the AppImage because it is neither named `.zip` nor uploaded
 with a zip-like MIME type. Native v2 updaters select assets by exact filename, so asset
@@ -41,6 +43,7 @@ order on the release no longer matters.
    - GitHub marks the release **prerelease** (tag contains `-`).
    - Windows zip layout is valid.
    - AppImage MIME type is `application/vnd.appimage`.
+   - `SHA256SUMS` contains and verifies both platform artifacts.
 5. Publish the draft manually. Opted-in v1 clients (`opt_into_prereleases = True`) can
    then see the RC; ordinary v1.4.2 installs do not.
 
@@ -59,7 +62,8 @@ and not required for the updater migration itself.
 - [ ] Tag matches `v2.<minor>.<patch>[-prerelease]`
 - [ ] Tagged commit is on `origin/rust`
 - [ ] Draft is marked prerelease when the tag suffix is present
-- [ ] Windows zip asset and Linux AppImage asset both present with expected names
+- [ ] Windows zip, Linux AppImage, and `SHA256SUMS` assets present with expected names
+- [ ] `sha256sum --check SHA256SUMS` succeeds
 - [ ] Release notes mention WebView2 bootstrap, stable exe, token backup, and rollback
 
 ## Portable update contract
@@ -68,9 +72,11 @@ Both Windows clients use the same zip contract:
 
 1. `GET /repos/eq-p99-tools/p99-login-proxy/releases?per_page=10`
 2. Semver-sort tags; respect prerelease flag unless opted in
-3. Download `P99LoginProxy-{version}.zip`
-4. Extract `P99LoginProxy-{version}.exe` from index 0
-5. Rename to stable `P99LoginProxy.exe` beside the portable folder
+3. Download `P99LoginProxy-{version}.zip` and `SHA256SUMS`
+4. Verify SHA-256, then require exactly one top-level member named
+   `P99LoginProxy-{version}.exe`
+5. Rename to stable `P99LoginProxy.exe` and spawn it in wait-for-parent mode
+6. Shut down the old process; the replacement starts after the single-instance lock is released
 
 Linux AppImage auto-update uses the same release list but downloads
 `P99LoginProxy-{version}-x86_64.AppImage`, backs up the current AppImage, atomically
@@ -95,7 +101,8 @@ Microsoft and retry.
 ### Config and CSV files
 
 Place `proxyconfig.ini`, `local_accounts.csv`, and `local_characters.csv` beside
-`P99LoginProxy.exe`. v2 reads exe-adjacent config; v1 sometimes used CWD-relative paths.
+`P99LoginProxy.exe` on Windows or beside the launched `$APPIMAGE` on Linux. v1 sometimes
+used CWD-relative paths.
 
 On first start v2:
 
@@ -137,7 +144,9 @@ npm run build
 npm test
 ```
 
-Windows portable build also requires the WebView2 bootstrapper:
+Windows portable build also requires the WebView2 bootstrapper. Use the same pinned
+SHA-256 enforced in `.github/workflows/release.yml`; a changed Microsoft payload must be
+reviewed and deliberately repinned:
 
 ```powershell
 Invoke-WebRequest `
@@ -161,7 +170,8 @@ Copy-Item target/x86_64-pc-windows-msvc/release/P99LoginProxy.exe $exe
 Compress-Archive -Path $exe -DestinationPath "P99LoginProxy-$version.zip" -Force
 ```
 
-Automated archive checks live in `proxy-core` (`release::validate_update_zip`).
+Automated archive and checksum checks live in the native updater tests. Tagged packaging
+is gated on Rust format/tests/Clippy plus frontend tests/build before either platform is built.
 
 ## RC migration matrix (manual)
 

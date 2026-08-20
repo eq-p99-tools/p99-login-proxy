@@ -71,6 +71,20 @@ pub fn effective_bind_host(listen_host: &str, upstream: SocketAddr) -> String {
     }
 }
 
+/// Address written to `eqhost.txt`. Wildcard bind addresses accept local
+/// connections but are not valid destinations, so advertise IPv4 loopback.
+pub fn eqhost_connect_host(listen_host: &str) -> &str {
+    let host = listen_host.trim();
+    if host
+        .parse::<IpAddr>()
+        .is_ok_and(|address| address.is_unspecified())
+    {
+        "127.0.0.1"
+    } else {
+        host
+    }
+}
+
 impl Default for ProxyRuntimeConfig {
     fn default() -> Self {
         Self {
@@ -134,7 +148,7 @@ impl ProxyLocalData {
 mod tests {
     use std::net::{Ipv4Addr, SocketAddr};
 
-    use super::{effective_bind_host, is_loopback_host};
+    use super::{effective_bind_host, eqhost_connect_host, is_loopback_host};
 
     #[test]
     fn loopback_listen_upgraded_for_external_upstream() {
@@ -166,5 +180,17 @@ mod tests {
         assert!(is_loopback_host("127.0.0.1"));
         assert!(is_loopback_host("localhost"));
         assert!(!is_loopback_host("0.0.0.0"));
+    }
+
+    #[test]
+    fn eqhost_uses_loopback_for_wildcard_binds() {
+        assert_eq!(eqhost_connect_host("0.0.0.0"), "127.0.0.1");
+        assert_eq!(eqhost_connect_host("::"), "127.0.0.1");
+    }
+
+    #[test]
+    fn eqhost_preserves_specific_bind_address() {
+        assert_eq!(eqhost_connect_host("192.168.1.12"), "192.168.1.12");
+        assert_eq!(eqhost_connect_host("localhost"), "localhost");
     }
 }

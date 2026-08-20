@@ -40,6 +40,7 @@ export const BootstrapStateSchema = z.object({
   proxy_lifecycle: ProxyLifecycleSchema,
   ws_state: WsConnectionStateSchema,
   ws_error: z.string().nullable().optional().transform((v) => v ?? null),
+  startup_error: z.string().nullable().optional().transform((v) => v ?? null),
   listen_address: z.string(),
   listen_port: z.number(),
 });

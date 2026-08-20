@@ -32,6 +32,10 @@ pub struct BootstrapState {
     /// Detail message for the last WS auth failure (Python auth-failed detail).
     #[serde(default)]
     pub ws_error: Option<String>,
+    /// Fatal startup error retained until the next successful start so the UI
+    /// can retrieve it even if the original event preceded listener setup.
+    #[serde(default)]
+    pub startup_error: Option<String>,
     pub listen_address: String,
     pub listen_port: u16,
 }
@@ -45,6 +49,7 @@ impl Default for BootstrapState {
             proxy_lifecycle: ProxyLifecycle::Stopped,
             ws_state: WsConnectionState::Disconnected,
             ws_error: None,
+            startup_error: None,
             listen_address: "127.0.0.1".to_string(),
             listen_port: 6998,
         }

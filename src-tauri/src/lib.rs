@@ -16,6 +16,10 @@ pub fn launched_in_background() -> bool {
     std::env::args().any(|arg| arg == BACKGROUND_LAUNCH_ARG)
 }
 
+pub fn wait_for_update_parent_if_requested() -> Result<(), String> {
+    updater::wait_for_update_parent_if_requested()
+}
+
 pub fn normalize_release_working_directory() {
     #[cfg(not(debug_assertions))]
     if let Some(dir) = portable_app_directory() {
@@ -134,7 +138,7 @@ pub fn run() {
             }
             let update_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                updater::run_startup_and_scheduled_checks(update_handle).await;
+                updater::run_scheduled_checks(update_handle).await;
             });
 
             if let Some(state) = app.try_state::<AppState>() {
@@ -155,7 +159,6 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            commands::get_bootstrap_state,
             commands::get_runtime_state,
             commands::get_sso_status,
             commands::get_sso_accounts,

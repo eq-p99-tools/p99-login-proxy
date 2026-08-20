@@ -25,6 +25,7 @@ const MOCK_BOOTSTRAP: BootstrapState = {
   proxy_lifecycle: "stopped",
   ws_state: "disconnected",
   ws_error: null,
+  startup_error: null,
   listen_address: "127.0.0.1",
   listen_port: 6998,
 };
@@ -112,10 +113,6 @@ export class MockClient implements DesktopClient {
   private eqDir: string | null = null;
   private passwordStore = new Map<string, string>();
   private launchAtLogin = false;
-
-  async getBootstrapState(): Promise<BootstrapState> {
-    return { ...this.bootstrap };
-  }
 
   async getRuntimeState(): Promise<RuntimeState> {
     return mockRuntime(this.bootstrap, this.mode);
@@ -312,7 +309,7 @@ export class MockClient implements DesktopClient {
 
   async clearLogs(): Promise<void> {}
 
-  async checkForUpdates(): Promise<UpdateCheckResult> {
+  async checkForUpdates(_notifyNoUpdate = true): Promise<UpdateCheckResult> {
     return {
       available: false,
       title: "No Update Available",

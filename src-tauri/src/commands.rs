@@ -1,11 +1,11 @@
-use proxy_core::model::BootstrapState;
+use proxy_core::accounts::LocalAccountStore;
 use proxy_core::{
     config_file_path, list_sso_backend_options, load_config_file, load_local_data,
     save_config_file, save_local_accounts, save_local_characters, ConfigFileV1, EqHostWriter,
     ProxyMode,
 };
 use runtime::{LogLine, RuntimeStateView};
-use secrecy::ExposeSecret;
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Manager, State};
@@ -75,6 +75,46 @@ pub struct LocalAccountInput {
     #[serde(default)]
     pub password: String,
     pub aliases: Vec<String>,
+}
+
+fn replacement_account_store(
+    rows: Vec<LocalAccountInput>,
+    existing: &LocalAccountStore,
+) -> Result<LocalAccountStore, String> {
+    let mut replacement = LocalAccountStore::default();
+    for row in rows {
+        let name = row.name.trim();
+        if name.is_empty() {
+            continue;
+        }
+        let password = if row.password.is_empty() {
+            existing
+                .resolve(name)
+                .map(|(_, password)| password.expose_secret().to_string())
+                .unwrap_or_default()
+        } else {
+            row.password
+        };
+        if password.is_empty() {
+            return Err(format!("password required for new account '{name}'"));
+        }
+        replacement.insert(
+            name.to_string(),
+            name.to_string(),
+            SecretString::from(password.clone()),
+        );
+        for alias in row.aliases {
+            let alias = alias.trim();
+            if !alias.is_empty() {
+                replacement.insert(
+                    alias.to_string(),
+                    name.to_string(),
+                    SecretString::from(password.clone()),
+                );
+            }
+        }
+    }
+    Ok(replacement)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -255,42 +295,8 @@ pub async fn save_local_data(
 ) -> Result<LocalDataView, String> {
     use proxy_core::characters::LocalCharacterStore;
     use proxy_core::model::LocalCharacter;
-    use secrecy::SecretString;
-
     let existing = load_local_data();
-    let mut account_store = existing.accounts;
-    for row in accounts {
-        let name = row.name.trim();
-        if name.is_empty() {
-            continue;
-        }
-        let password = if row.password.is_empty() {
-            account_store
-                .resolve(name)
-                .map(|(_, p)| p.expose_secret().to_string())
-                .unwrap_or_default()
-        } else {
-            row.password.clone()
-        };
-        if password.is_empty() {
-            return Err(format!("password required for new account '{name}'"));
-        }
-        account_store.insert(
-            name.to_string(),
-            name.to_string(),
-            SecretString::from(password.clone()),
-        );
-        for alias in row.aliases {
-            let a = alias.trim();
-            if !a.is_empty() {
-                account_store.insert(
-                    a.to_string(),
-                    name.to_string(),
-                    SecretString::from(password.clone()),
-                );
-            }
-        }
-    }
+    let account_store = replacement_account_store(accounts, &existing.accounts)?;
 
     let mut char_store = LocalCharacterStore::default();
     for row in characters {
@@ -321,6 +327,53 @@ pub async fn save_local_data(
         });
     }
     get_local_data(state).await
+}
+
+#[cfg(test)]
+mod local_account_tests {
+    use super::*;
+
+    fn row(name: &str, password: &str, aliases: &[&str]) -> LocalAccountInput {
+        LocalAccountInput {
+            name: name.to_string(),
+            password: password.to_string(),
+            aliases: aliases.iter().map(|alias| (*alias).to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn replacement_removes_deleted_accounts_and_aliases() {
+        let existing = replacement_account_store(
+            vec![
+                row("account1", "secret1", &["oldalias"]),
+                row("deleted", "secret2", &[]),
+            ],
+            &LocalAccountStore::default(),
+        )
+        .unwrap();
+
+        let saved =
+            replacement_account_store(vec![row("account1", "", &["newalias"])], &existing).unwrap();
+
+        assert!(saved.resolve("account1").is_some());
+        assert!(saved.resolve("newalias").is_some());
+        assert!(saved.resolve("oldalias").is_none());
+        assert!(saved.resolve("deleted").is_none());
+    }
+
+    #[test]
+    fn replacement_requires_password_for_renamed_account() {
+        let existing = replacement_account_store(
+            vec![row("oldname", "secret", &[])],
+            &LocalAccountStore::default(),
+        )
+        .unwrap();
+
+        let error =
+            replacement_account_store(vec![row("newname", "", &[])], &existing).unwrap_err();
+
+        assert!(error.contains("new account 'newname'"));
+    }
 }
 
 #[tauri::command]
@@ -689,14 +742,15 @@ pub async fn install_update(
     version: String,
 ) -> Result<(), String> {
     let executable = crate::updater::install_update(&app, &version).await?;
+    let relaunch_lock = crate::updater::spawn_update_relaunch(&executable)?;
     crate::tray::teardown_app_ui(&app);
     {
         let mut supervisor = state.supervisor.lock().await;
         supervisor.shutdown_in_place().await;
     }
-    std::process::Command::new(&executable)
-        .spawn()
-        .map_err(|error| format!("Update installed, but relaunch failed: {error}"))?;
+    // Keep the lock held until process termination. The replacement waits on
+    // it before initializing Tauri's single-instance plugin.
+    std::mem::forget(relaunch_lock);
     app.exit(0);
     Ok(())
 }
@@ -798,11 +852,6 @@ pub async fn update_listen_port(
         proxy: snap.proxy,
         stats: snap.stats,
     })
-}
-
-#[tauri::command]
-pub fn get_bootstrap_state(state: State<'_, AppState>) -> BootstrapState {
-    state.bootstrap_state()
 }
 
 #[tauri::command]

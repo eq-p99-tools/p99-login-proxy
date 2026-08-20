@@ -152,7 +152,6 @@ pub fn format_app_event(event: &crate::events::AppEvent) -> (tracing::Level, Str
         AppEvent::StatsDirty => (Level::DEBUG, "stats updated".into()),
         AppEvent::ConnectionStarted => (Level::INFO, "connection started".into()),
         AppEvent::ConnectionCompleted => (Level::INFO, "connection completed".into()),
-        AppEvent::FatalError { message } => (Level::ERROR, format!("fatal: {message}")),
     }
 }
 

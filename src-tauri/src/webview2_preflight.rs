@@ -100,6 +100,11 @@ pub fn show_startup_error(message: &str) {
     }
 }
 
+#[cfg(not(windows))]
+pub fn show_startup_error(message: &str) {
+    eprintln!("{message}");
+}
+
 #[cfg(windows)]
 pub fn run_preflight_or_exit() {
     if let Err(error) = ensure_webview2_runtime() {

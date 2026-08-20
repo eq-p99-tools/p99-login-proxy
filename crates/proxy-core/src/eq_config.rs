@@ -325,10 +325,23 @@ fn try_clear_readonly_impl(path: &Path) {
 }
 
 #[cfg(windows)]
+#[allow(clippy::permissions_set_readonly_false)] // Safe on Windows; this function is not compiled on Unix.
 fn try_clear_readonly_impl(path: &Path) {
-    let _ = std::process::Command::new("attrib")
-        .args(["-R", &path.display().to_string()])
-        .status();
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return;
+    };
+    let mut permissions = metadata.permissions();
+    if !permissions.readonly() {
+        return;
+    }
+    permissions.set_readonly(false);
+    if let Err(error) = std::fs::set_permissions(path, permissions) {
+        warn!(
+            path = %path.display(),
+            %error,
+            "could not clear read-only attribute; continuing without changing permissions"
+        );
+    }
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -449,5 +462,20 @@ mod tests {
         let dir = TempDir::new().unwrap();
         std::fs::write(dir.path().join("eqgame.exe"), b"stub").unwrap();
         assert!(find_eq_directory(Some(dir.path().to_str().unwrap())).is_some());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn clears_readonly_without_spawning_a_console_process() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("eqhost.txt");
+        std::fs::write(&path, b"[LoginServer]\n").unwrap();
+        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        permissions.set_readonly(true);
+        std::fs::set_permissions(&path, permissions).unwrap();
+
+        try_clear_readonly(&path);
+
+        assert!(!std::fs::metadata(path).unwrap().permissions().readonly());
     }
 }

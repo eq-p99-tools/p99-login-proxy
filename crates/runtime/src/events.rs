@@ -64,7 +64,4 @@ pub enum AppEvent {
     StatsDirty,
     ConnectionStarted,
     ConnectionCompleted,
-    FatalError {
-        message: String,
-    },
 }

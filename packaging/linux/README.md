@@ -4,6 +4,9 @@
 - The AppImage is uploaded with MIME type `application/vnd.appimage`, so legacy v1 Windows
   updaters ignore it even on mixed releases.
 - Native v2 Linux auto-update requires launching the AppImage so `$APPIMAGE` is set.
+- Config, CSV, and log files resolve beside `$APPIMAGE`, not inside its read-only mount.
+- Auto-update verifies the AppImage against `SHA256SUMS`, preserves executable mode,
+  replaces `$APPIMAGE` with rollback backup, and waits for the old process before relaunch.
 - A fully static musl binary is not feasible because Tauri links system WebKitGTK.
 - **Validation targets:** Ubuntu 24.04 LTS (GNOME Wayland/X11), current Fedora KDE
 

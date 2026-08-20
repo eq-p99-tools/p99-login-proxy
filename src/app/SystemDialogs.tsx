@@ -21,7 +21,9 @@ export function SystemDialogs() {
   const [alert, setAlert] = useState<AlertState | null>(null);
   const wsState = useRuntimeStore((s) => s.runtime?.bootstrap.ws_state);
   const wsError = useRuntimeStore((s) => s.runtime?.bootstrap.ws_error);
+  const startupError = useRuntimeStore((s) => s.runtime?.bootstrap.startup_error);
   const connectionErrorShownRef = useRef(false);
+  const startupErrorShownRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
@@ -36,21 +38,12 @@ export function SystemDialogs() {
         title: "SSO Login Rejected",
         message: event.payload.reason || "Authentication rejected by server",
       });
-    }).then((fn) => unlisteners.push(fn));
+    }).then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
 
     void listen<{ message: string }>("rustle-warning", (event) => {
       if (cancelled) return;
       setAlert({ title: "Rustle UI Detected", message: event.payload.message });
-    }).then((fn) => unlisteners.push(fn));
-
-    void listen<{ message: string }>("fatal-error", (event) => {
-      if (cancelled) return;
-      setAlert({
-        title: "Error",
-        message: event.payload.message,
-        exitOnClose: true,
-      });
-    }).then((fn) => unlisteners.push(fn));
+    }).then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
 
     return () => {
       cancelled = true;
@@ -71,6 +64,17 @@ export function SystemDialogs() {
       });
     }
   }, [wsState, wsError]);
+
+  useEffect(() => {
+    if (!startupError) {
+      startupErrorShownRef.current = false;
+      return;
+    }
+    if (!startupErrorShownRef.current) {
+      startupErrorShownRef.current = true;
+      setAlert({ title: "Error", message: startupError, exitOnClose: true });
+    }
+  }, [startupError]);
 
   const handleClose = () => {
     const shouldExit = alert?.exitOnClose ?? false;

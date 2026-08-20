@@ -26,7 +26,7 @@ use tokio_util::sync::CancellationToken;
 
 use tracing::{info, warn};
 
-use crate::config::{ProxyLocalData, ProxyRuntimeConfig};
+use crate::config::{eqhost_connect_host, ProxyLocalData, ProxyRuntimeConfig};
 
 use crate::events::AppEvent;
 
@@ -239,10 +239,6 @@ impl AppSupervisor {
         };
 
         (supervisor, snapshot_rx, event_rx)
-    }
-
-    pub fn set_proxy_config(&mut self, config: ProxyRuntimeConfig) {
-        self.proxy_config = config;
     }
 
     pub fn set_local_data(&mut self, local: ProxyLocalData) {
@@ -472,14 +468,15 @@ impl AppSupervisor {
         Ok(())
     }
 
-    pub fn persist_config<F>(&self, update: F) -> Result<(), String>
+    pub fn persist_config<F>(&self, update: F) -> Result<ConfigFileV1, String>
     where
         F: FnOnce(&mut ConfigFileV1),
     {
         let path = config_file_path().ok_or("config path unavailable")?;
         let mut file = load_config().map_err(|e| e.to_string())?;
         update(&mut file);
-        save_config_file(&path, &file).map_err(|e| e.to_string())
+        save_config_file(&path, &file).map_err(|e| e.to_string())?;
+        Ok(file)
     }
 
     pub fn apply_runtime_config(&mut self, file: &ConfigFileV1) -> Result<(), String> {
@@ -786,14 +783,28 @@ impl AppSupervisor {
         self.publish_snapshot_inner();
     }
 
+    fn set_startup_error(&self, error: Option<String>) {
+        let mut snapshot = self.snapshot_tx.borrow().clone();
+        snapshot.bootstrap.startup_error = error;
+        let _ = self.snapshot_tx.send(snapshot);
+    }
+
     /// Parity with Python `eq_config.enable_proxy()` on startup / mode change.
     fn ensure_eqhost_proxy_enabled(&self) {
         let Some(ref eq_dir) = self.eq_directory else {
             return;
         };
+        let proxy_host = eqhost_connect_host(&self.proxy_config.listen_host);
+        if EqHostWriter::is_proxy_enabled_in_directory(
+            eq_dir,
+            proxy_host,
+            self.proxy_config.listen_port,
+        ) {
+            return;
+        }
         if let Err(e) = EqHostWriter::enable_proxy(
             eq_dir,
-            "127.0.0.1",
+            proxy_host,
             self.proxy_config.listen_port,
             &self.proxy_config.upstream_host,
             self.proxy_config.upstream_port,
@@ -827,19 +838,15 @@ impl AppSupervisor {
         self.ensure_log_watcher();
         self.ensure_inventory_watcher();
 
-        // Python fixes eqhost.txt as soon as proxy mode is enabled, before UDP starts.
-        if file.proxy_enabled {
-            self.ensure_eqhost_proxy_enabled();
-        }
-
         if file.proxy_enabled && self.eq_directory.is_some() {
-            if let Err(e) = self.set_proxy_mode_selection(mode).await {
+            // Do not persist unchanged config during bootstrap. Read-only config or
+            // EQ files must not prevent the UDP proxy itself from starting.
+            if let Err(e) = self.start_proxy().await {
                 warn!("bootstrap_startup: auto-start proxy failed: {e}");
-                let _ = self
-                    .event_tx
-                    .try_send(AppEvent::FatalError {
-                        message: "Failed to start UDP proxy, check if another instance is running, and restart.".into(),
-                    });
+                self.set_startup_error(Some(
+                    "Failed to start UDP proxy, check if another instance is running, and restart."
+                        .into(),
+                ));
             }
         } else if !file.proxy_enabled {
             self.publish_snapshot_inner();
@@ -880,7 +887,6 @@ impl AppSupervisor {
                 self.stop_proxy().await;
             }
             ProxyMode::EnabledSso | ProxyMode::EnabledProxyOnly => {
-                self.ensure_eqhost_proxy_enabled();
                 if self.udp.is_some() {
                     self.stop_proxy().await;
                 }
@@ -896,10 +902,9 @@ impl AppSupervisor {
             return Err("listen_port must be between 1 and 65535".into());
         }
 
-        self.persist_config(|file| {
+        let file = self.persist_config(|file| {
             file.listen_port = listen_port;
         })?;
-        let file = load_config().map_err(|e| e.to_string())?;
         self.apply_runtime_config(&file)?;
 
         let should_run = file.proxy_enabled;
@@ -979,23 +984,11 @@ impl AppSupervisor {
 
         self.stats.reset_uptime();
         self.publish_runtime_state(Some(ProxyLifecycle::Running), Some(listen_addr));
+        self.set_startup_error(None);
 
         info!(listen = %listen_addr, "UDP login proxy running");
 
-        if let Some(ref eq_dir) = self.eq_directory {
-            if let Err(e) = EqHostWriter::enable_proxy(
-                eq_dir,
-                "127.0.0.1",
-                config.listen_port,
-                &config.upstream_host,
-                config.upstream_port,
-            ) {
-                warn!(dir = %eq_dir.display(), error = %e, "failed to enable eqhost proxy line");
-            } else {
-                info!(dir = %eq_dir.display(), "eqhost.txt updated for proxy");
-                self.touch_snapshot();
-            }
-        }
+        self.ensure_eqhost_proxy_enabled();
 
         Ok(())
     }
@@ -1015,28 +1008,15 @@ impl AppSupervisor {
         self.start_proxy().await
     }
 
-    pub async fn start_proxy_with(
-        &mut self,
-
-        config: ProxyRuntimeConfig,
-
-        local: ProxyLocalData,
-    ) -> Result<(), String> {
-        self.proxy_config = config;
-
-        self.local_data = local;
-
-        self.start_proxy().await
-    }
-
     /// Parity with Python `eq_config.disable_proxy()` when eqhost points at the proxy.
     fn restore_eqhost_if_using_proxy(&self) {
         let Some(ref eq_dir) = self.eq_directory else {
             return;
         };
+        let proxy_host = eqhost_connect_host(&self.proxy_config.listen_host);
         if !EqHostWriter::is_proxy_enabled_in_directory(
             eq_dir,
-            "127.0.0.1",
+            proxy_host,
             self.proxy_config.listen_port,
         ) {
             return;
@@ -1114,10 +1094,6 @@ impl AppSupervisor {
         }
 
         info!("supervisor shutdown complete");
-    }
-
-    pub async fn shutdown(mut self) {
-        self.shutdown_in_place().await;
     }
 }
 

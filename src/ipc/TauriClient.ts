@@ -9,7 +9,6 @@ import type {
 } from "./Client";
 import {
   AppConfigSchema,
-  BootstrapStateSchema,
   EqSettingsSchema,
   LocalDataSchema,
   LogSnapshotSchema,
@@ -19,7 +18,6 @@ import {
   SsoBackendOptionSchema,
   SsoStatusSchema,
   type AppConfig,
-  type BootstrapState,
   type EqSettingsView,
   type LocalDataView,
   type LogSnapshot,
@@ -32,10 +30,6 @@ import {
 } from "./schemas";
 
 export class TauriClient implements DesktopClient {
-  async getBootstrapState(): Promise<BootstrapState> {
-    return BootstrapStateSchema.parse(await invoke("get_bootstrap_state"));
-  }
-
   async getRuntimeState(): Promise<RuntimeState> {
     return RuntimeStateSchema.parse(await invoke("get_runtime_state"));
   }
@@ -158,8 +152,8 @@ export class TauriClient implements DesktopClient {
     await invoke("clear_logs");
   }
 
-  async checkForUpdates(): Promise<UpdateCheckResult> {
-    return (await invoke("check_for_updates", { notifyNoUpdate: true })) as UpdateCheckResult;
+  async checkForUpdates(notifyNoUpdate = true): Promise<UpdateCheckResult> {
+    return (await invoke("check_for_updates", { notifyNoUpdate })) as UpdateCheckResult;
   }
 
   async showWindow(): Promise<void> {
