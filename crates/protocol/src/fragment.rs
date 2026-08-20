@@ -8,7 +8,6 @@ pub struct FragmentAssembler {
     fragments: std::collections::BTreeMap<u16, Vec<u8>>,
     total_len: Option<u32>,
     first_seq: Option<u16>,
-    accumulated: usize,
 }
 
 impl FragmentAssembler {
@@ -20,7 +19,6 @@ impl FragmentAssembler {
         self.fragments.clear();
         self.total_len = None;
         self.first_seq = None;
-        self.accumulated = 0;
     }
 
     pub fn add(&mut self, seq: u16, raw_frag: &[u8]) -> Option<Vec<u8>> {
@@ -29,35 +27,70 @@ impl FragmentAssembler {
         }
         let frag_data = &raw_frag[4..];
 
-        if self.first_seq.is_none() || seq < self.first_seq.unwrap_or(seq) {
-            if self.first_seq.is_some() && seq < self.first_seq.unwrap() {
+        let starts_new_sequence = self.first_seq.is_some_and(|first_seq| {
+            seq != first_seq && seq.wrapping_sub(first_seq) > u16::MAX / 2
+        });
+        if self.first_seq.is_none() || starts_new_sequence {
+            if starts_new_sequence {
                 self.fragments.clear();
-                self.accumulated = 0;
             }
-            self.first_seq = Some(seq);
             if frag_data.len() < 4 {
                 return None;
             }
+            self.first_seq = Some(seq);
             self.total_len = Some(u32::from_be_bytes(frag_data[0..4].try_into().ok()?));
             let payload = frag_data[4..].to_vec();
-            self.accumulated = payload.len();
             self.fragments.insert(seq, payload);
+        } else if self.first_seq == Some(seq) {
+            // A retransmitted first fragment still contains the 4-byte total
+            // length. Treating it as a continuation corrupts the payload.
+            if frag_data.len() < 4 {
+                return None;
+            }
+            let total_len = u32::from_be_bytes(frag_data[0..4].try_into().ok()?);
+            if self.total_len != Some(total_len) {
+                return None;
+            }
+            self.fragments.insert(seq, frag_data[4..].to_vec());
         } else {
-            let payload = frag_data.to_vec();
-            self.accumulated += payload.len();
-            self.fragments.insert(seq, payload);
+            // Replacing by sequence number makes duplicate retransmissions
+            // idempotent instead of counting their bytes more than once.
+            self.fragments.insert(seq, frag_data.to_vec());
         }
 
-        let total = self.total_len?;
-        if self.accumulated >= total as usize {
-            return Some(self.reassemble(total as usize));
+        let total_len = self.total_len? as usize;
+        if self.contiguous_len() >= total_len {
+            return Some(self.reassemble(total_len));
         }
         None
     }
 
+    fn contiguous_len(&self) -> usize {
+        let Some(mut seq) = self.first_seq else {
+            return 0;
+        };
+        let mut len = 0;
+        for _ in 0..self.fragments.len() {
+            let Some(payload) = self.fragments.get(&seq) else {
+                break;
+            };
+            len += payload.len();
+            seq = seq.wrapping_add(1);
+        }
+        len
+    }
+
     fn reassemble(&mut self, total_len: usize) -> Vec<u8> {
-        let ordered: Vec<_> = self.fragments.values().map(|d| d.as_slice()).collect();
-        let mut joined: Vec<u8> = ordered.concat();
+        let mut joined = Vec::with_capacity(total_len);
+        let mut seq = self.first_seq.expect("active assembler has first sequence");
+        while joined.len() < total_len {
+            let payload = self
+                .fragments
+                .get(&seq)
+                .expect("completion requires contiguous fragments");
+            joined.extend_from_slice(payload);
+            seq = seq.wrapping_add(1);
+        }
         self.reset();
         joined.truncate(total_len);
         joined
@@ -103,4 +136,52 @@ pub fn build_fragments(app_payload: &[u8], start_seq: u16, max_packet: usize) ->
         seq = seq.wrapping_add(1);
     }
     frags
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn payload() -> Vec<u8> {
+        (0..40).collect()
+    }
+
+    #[test]
+    fn duplicate_fragments_do_not_complete_with_gaps() {
+        let payload = payload();
+        let fragments = build_fragments(&payload, 10, 16);
+        let mut assembler = FragmentAssembler::default();
+
+        assert_eq!(assembler.add(10, &fragments[0]), None);
+        for _ in 0..10 {
+            assert_eq!(assembler.add(12, &fragments[2]), None);
+        }
+        assert_eq!(assembler.add(11, &fragments[1]), None);
+        assert_eq!(assembler.add(13, &fragments[3]), Some(payload));
+    }
+
+    #[test]
+    fn duplicate_first_fragment_does_not_include_total_length() {
+        let payload = payload();
+        let fragments = build_fragments(&payload, 20, 16);
+        let mut assembler = FragmentAssembler::default();
+
+        assert_eq!(assembler.add(20, &fragments[0]), None);
+        assert_eq!(assembler.add(20, &fragments[0]), None);
+        assert_eq!(assembler.add(21, &fragments[1]), None);
+        assert_eq!(assembler.add(22, &fragments[2]), None);
+        assert_eq!(assembler.add(23, &fragments[3]), Some(payload));
+    }
+
+    #[test]
+    fn reassembles_contiguous_fragments_across_sequence_wrap() {
+        let payload = payload();
+        let fragments = build_fragments(&payload, u16::MAX - 1, 16);
+        let mut assembler = FragmentAssembler::default();
+
+        assert_eq!(assembler.add(u16::MAX - 1, &fragments[0]), None);
+        assert_eq!(assembler.add(u16::MAX, &fragments[1]), None);
+        assert_eq!(assembler.add(0, &fragments[2]), None);
+        assert_eq!(assembler.add(1, &fragments[3]), Some(payload));
+    }
 }

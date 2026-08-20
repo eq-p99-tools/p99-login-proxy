@@ -1,11 +1,11 @@
 pub fn soe_crc32(data: &[u8], key: u32) -> u32 {
     let table = crc_table();
-    let mut crc = 0u32;
-    for &byte in data {
+    let mut crc = u32::MAX;
+    for byte in key.to_le_bytes().into_iter().chain(data.iter().copied()) {
         let idx = ((crc ^ u32::from(byte)) & 0xFF) as usize;
         crc = table[idx] ^ (crc >> 8);
     }
-    crc ^ key
+    !crc
 }
 
 pub fn append_crc(packet: &[u8], key: u32, crc_bytes: u8) -> Vec<u8> {
@@ -46,4 +46,15 @@ fn crc_table() -> &'static [u32; 256] {
         }
         table
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn crc_matches_eqemu_keyed_vectors() {
+        assert_eq!(soe_crc32(b"123456789", 0), 0x2289_6B0A);
+        assert_eq!(soe_crc32(b"123456789", 0x1234_5678), 0xAAD0_5244);
+    }
 }

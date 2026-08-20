@@ -3,7 +3,8 @@
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
-use protocol::soe::transport_opcode;
+use protocol::crc::{append_crc, strip_crc};
+use protocol::soe::{parse_session_response, transport_opcode};
 use protocol::{
     try_intercept_bad_password_combined, try_intercept_bad_password_packet, LoginPacket,
     ProxySessionState, RetryOutcome, SsoRetryNotice, SsoRetryState, TransportOp,
@@ -26,6 +27,8 @@ pub struct LoginProxyEngine {
     last_recv: Instant,
     auth_in_flight: bool,
     sso: Option<SsoClient>,
+    crc_bytes: u8,
+    crc_key: u32,
 }
 
 impl LoginProxyEngine {
@@ -48,11 +51,45 @@ impl LoginProxyEngine {
             last_recv: Instant::now(),
             auth_in_flight: false,
             sso,
+            crc_bytes: 0,
+            crc_key: 0,
         }
     }
 
     pub fn client_addr(&self) -> Option<SocketAddr> {
         self.client
+    }
+
+    fn packet_uses_crc(data: &[u8]) -> bool {
+        !matches!(
+            transport_opcode(data),
+            x if x == TransportOp::SessionRequest as u16
+                || x == TransportOp::SessionResponse as u16
+        )
+    }
+
+    fn strip_wire_crc<'a>(&self, data: &'a [u8]) -> &'a [u8] {
+        if self.crc_bytes == 0 || !Self::packet_uses_crc(data) {
+            data
+        } else {
+            strip_crc(data, self.crc_bytes)
+        }
+    }
+
+    /// Restore the negotiated SOE CRC after all packet rewrites are complete.
+    pub fn finalize_actions(&self, actions: &mut ProxyActions) {
+        if self.crc_bytes == 0 {
+            return;
+        }
+        for packet in actions
+            .send_client
+            .iter_mut()
+            .chain(actions.send_upstream.iter_mut())
+        {
+            if Self::packet_uses_crc(packet) {
+                *packet = append_crc(packet, self.crc_key, self.crc_bytes);
+            }
+        }
     }
 
     fn session_free(&mut self) {
@@ -80,7 +117,8 @@ impl LoginProxyEngine {
     ) -> ProxyActions {
         let now = Instant::now();
         if is_upstream_peer(from, upstream) {
-            return self.handle_server_packet(data, 0, data.len());
+            let packet = self.strip_wire_crc(data);
+            return self.handle_server_packet(packet, 0, packet.len());
         }
 
         // Python always updates client_addr on every non-upstream datagram.
@@ -92,7 +130,8 @@ impl LoginProxyEngine {
             }
         }
         let connection_started = self.maybe_reset_session(now);
-        let mut actions = self.handle_client_packet(data, from, now);
+        let packet = self.strip_wire_crc(data);
+        let mut actions = self.handle_client_packet(packet, from, now);
         actions.connection_started |= connection_started;
         actions
     }
@@ -281,6 +320,16 @@ impl LoginProxyEngine {
 
         match opcode {
             x if x == TransportOp::SessionResponse as u16 => {
+                if let Ok(response) = parse_session_response(data) {
+                    self.crc_bytes = response.crc_bytes;
+                    self.crc_key = response.encode_key;
+                    info!(
+                        crc_bytes = response.crc_bytes,
+                        crc_key = response.encode_key,
+                        max_packet_size = response.max_packet_size,
+                        "login server session parameters"
+                    );
+                }
                 info!("session established with login server");
                 self.in_session = true;
                 self.session_free();
@@ -447,6 +496,27 @@ mod tests {
         let server_actions = engine.on_datagram(&resp, upstream, upstream);
         assert_eq!(server_actions.send_client, vec![resp]);
         assert!(server_actions.send_upstream.is_empty());
+    }
+
+    #[test]
+    fn negotiated_crc_is_stripped_before_processing_and_restored_afterward() {
+        let upstream: SocketAddr = "127.0.0.1:5998".parse().unwrap();
+        let client: SocketAddr = "127.0.0.1:50000".parse().unwrap();
+        let mut engine =
+            LoginProxyEngine::new(ProxyRuntimeConfig::default(), ProxyLocalData::default());
+        let key = 0x1234_5678u32;
+        let mut response = build_session_response();
+        response[6..10].copy_from_slice(&key.to_be_bytes());
+        response[10] = 2;
+        engine.on_datagram(&response, upstream, upstream);
+
+        let keepalive = build_keepalive().to_vec();
+        let wire_packet = append_crc(&keepalive, key, 2);
+        let mut actions = engine.on_datagram(&wire_packet, client, upstream);
+
+        assert_eq!(actions.send_upstream, vec![keepalive]);
+        engine.finalize_actions(&mut actions);
+        assert_eq!(actions.send_upstream, vec![wire_packet]);
     }
 
     #[test]

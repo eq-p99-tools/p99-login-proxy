@@ -99,6 +99,8 @@ impl UdpProxyHandle {
                                     }
                                 }
 
+                                engine.finalize_actions(&mut actions);
+
                                 if let Some(client) = engine.client_addr() {
                                     for out in actions.send_client {
                                         if let Err(e) = socket.send_to(&out, client).await {
