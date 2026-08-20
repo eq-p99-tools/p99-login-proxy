@@ -3,9 +3,6 @@
 Handles session establishment, packet wrapping, acknowledgements,
 combined packet splitting, and fragment reassembly for the EverQuest
 login server protocol.
-
-P99's login server uses crc_bytes=0 and encode_key=0, so CRC is
-effectively a no-op.  The logic is retained for completeness.
 """
 
 from __future__ import annotations
@@ -50,7 +47,7 @@ def transport_name(op: int) -> str:
 
 
 # ---------------------------------------------------------------------------
-# CRC-32  (SOE variant: init=0, final XOR with encode_key)
+# CRC-32  (EQEmu SOE variant: key bytes precede packet bytes)
 # ---------------------------------------------------------------------------
 def _generate_crc_table() -> list[int]:
     table = []
@@ -69,10 +66,10 @@ _CRC_TABLE = _generate_crc_table()
 
 
 def soe_crc32(data: bytes, key: int) -> int:
-    crc = 0
-    for byte in data:
+    crc = 0xFFFFFFFF
+    for byte in key.to_bytes(4, "little") + data:
         crc = _CRC_TABLE[(crc ^ byte) & 0xFF] ^ (crc >> 8)
-    return (crc ^ key) & 0xFFFFFFFF
+    return (~crc) & 0xFFFFFFFF
 
 
 def append_crc(packet: bytes, key: int, crc_bytes: int) -> bytes:
@@ -85,7 +82,7 @@ def append_crc(packet: bytes, key: int, crc_bytes: int) -> bytes:
 
 
 def strip_crc(packet: bytes, crc_bytes: int) -> bytes:
-    if crc_bytes == 0:
+    if crc_bytes == 0 or len(packet) < crc_bytes:
         return packet
     return packet[:-crc_bytes]
 
@@ -298,13 +295,13 @@ def build_fragments(
     frags.append(hdr + chunk)
 
     pos = first_capacity
-    seq = start_seq + 1
+    seq = (start_seq + 1) & 0xFFFF
     while pos < total_len:
         chunk = app_payload[pos : pos + subsequent_capacity]
         hdr = struct.pack(">HH", TransportOp.Fragment, seq)
         frags.append(hdr + chunk)
         pos += subsequent_capacity
-        seq += 1
+        seq = (seq + 1) & 0xFFFF
 
     return frags
 
@@ -323,7 +320,6 @@ class FragmentAssembler:
         self.fragments: dict[int, bytes] = {}
         self.total_len: int | None = None
         self.first_seq: int | None = None
-        self._accumulated: int = 0
 
     @property
     def active(self) -> bool:
@@ -334,31 +330,62 @@ class FragmentAssembler:
 
         Returns reassembled app payload when all fragments arrive.
         """
-        frag_data = raw_frag[4:]  # strip opcode(2) + seq(2)
+        if len(raw_frag) < SUBSEQUENT_FRAG_OVERHEAD:
+            return None
+        frag_data = raw_frag[SUBSEQUENT_FRAG_OVERHEAD:]
 
-        if self.first_seq is None or seq < self.first_seq:
-            if self.first_seq is not None and seq < self.first_seq:
+        starts_new_sequence = (
+            self.first_seq is not None and seq != self.first_seq and ((seq - self.first_seq) & 0xFFFF) > 0x7FFF
+        )
+        if self.first_seq is None or starts_new_sequence:
+            if starts_new_sequence:
                 self.fragments.clear()
-                self._accumulated = 0
+            if len(frag_data) < 4:
+                return None
             self.first_seq = seq
             self.total_len = struct.unpack(">I", frag_data[:4])[0]
-            payload = frag_data[4:]
-            self.fragments[seq] = payload
-            self._accumulated += len(payload)
+            self.fragments[seq] = frag_data[4:]
+        elif seq == self.first_seq:
+            if len(frag_data) < 4:
+                return None
+            total_len = struct.unpack(">I", frag_data[:4])[0]
+            if total_len != self.total_len:
+                return None
+            self.fragments[seq] = frag_data[4:]
         else:
             self.fragments[seq] = frag_data
-            self._accumulated += len(frag_data)
 
-        if self.total_len is not None and self._accumulated >= self.total_len:
+        if self.total_len is not None and self._contiguous_len() >= self.total_len:
             return self._reassemble()
         return None
 
+    def _contiguous_len(self) -> int:
+        if self.first_seq is None:
+            return 0
+        total = 0
+        seq = self.first_seq
+        for _ in range(len(self.fragments)):
+            payload = self.fragments.get(seq)
+            if payload is None:
+                break
+            total += len(payload)
+            seq = (seq + 1) & 0xFFFF
+        return total
+
     def _reassemble(self) -> bytes:
-        ordered = sorted(self.fragments.items())
-        return b"".join(d for _, d in ordered)[: self.total_len]
+        assert self.first_seq is not None
+        assert self.total_len is not None
+        chunks = []
+        size = 0
+        seq = self.first_seq
+        while size < self.total_len:
+            payload = self.fragments[seq]
+            chunks.append(payload)
+            size += len(payload)
+            seq = (seq + 1) & 0xFFFF
+        return b"".join(chunks)[: self.total_len]
 
     def reset(self):
         self.fragments.clear()
         self.total_len = None
         self.first_seq = None
-        self._accumulated = 0

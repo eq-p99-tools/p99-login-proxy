@@ -255,7 +255,7 @@ class ProxySessionState:
         raw = bytes(buf[start_index : start_index + length])
 
         server_seq = soe.get_sequence(raw, 0)
-        self.seq_from_server = server_seq + 1
+        self.seq_from_server = (server_seq + 1) & 0xFFFF
 
         if not self._fragment_assembler.active:
             header = soe.parse_first_fragment_header(raw)

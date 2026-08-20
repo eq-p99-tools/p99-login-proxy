@@ -53,6 +53,8 @@ class LoginProxy(asyncio.DatagramProtocol):
         self._sso_original_login: bytes | None = None
         self._sso_retry_armed: bool = False
         self._sso_retry_fired: bool = False
+        self._crc_bytes: int = 0
+        self._crc_key: int = 0
         ui.PROXY_STATS.update_status("Initializing")
 
     def session_free(self):
@@ -348,12 +350,34 @@ class LoginProxy(asyncio.DatagramProtocol):
     # ------------------------------------------------------------------
     # Client -> Login Server
     # ------------------------------------------------------------------
+    @staticmethod
+    def _packet_uses_crc(data: bytes | bytearray) -> bool:
+        if len(data) < 2:
+            return False
+        return soe.get_transport_opcode(data) not in (
+            soe.TransportOp.SessionRequest,
+            soe.TransportOp.SessionResponse,
+        )
+
+    def _strip_wire_crc(self, data: bytes | bytearray) -> bytes:
+        raw = bytes(data)
+        if self._crc_bytes == 0 or not self._packet_uses_crc(raw):
+            return raw
+        return soe.strip_crc(raw, self._crc_bytes)
+
+    def _append_wire_crc(self, data: bytes | bytearray) -> bytes:
+        raw = bytes(data)
+        if self._crc_bytes == 0 or not self._packet_uses_crc(raw):
+            return raw
+        return soe.append_crc(raw, self._crc_key, self._crc_bytes)
+
     def handle_client_packet(
         self,
         data: bytearray,
         addr: tuple[str, int],
     ):
         """Called on a packet from the client"""
+        data = bytearray(self._strip_wire_crc(data))
         recv_time = time.time()
         # debug_write_packet(data, False)
 
@@ -430,6 +454,8 @@ class LoginProxy(asyncio.DatagramProtocol):
         length: int | None = None,
     ):
         """Handle packets from the login server"""
+        if start_index == 0 and (length is None or length == len(data)):
+            data = self._strip_wire_crc(data)
         if length is None:
             length = len(data)
         # debug_write_packet(data, True)
@@ -442,9 +468,16 @@ class LoginProxy(asyncio.DatagramProtocol):
             logger.debug("Processing server packet with opcode: %s", soe.transport_name(opcode))
 
         if opcode == soe.TransportOp.SessionResponse:
+            response = soe.parse_session_response(data)
+            self._crc_bytes = response["crc_bytes"]
+            self._crc_key = response["encode_key"]
             self.in_session = True
             self.session_free()
-            logger.debug("Session response received, session established")
+            logger.debug(
+                "Session response received, session established (crc_bytes=%d, crc_key=0x%08X)",
+                self._crc_bytes,
+                self._crc_key,
+            )
 
         elif opcode == soe.TransportOp.Combined:
             logger.debug("Received combined packet, applying rewrites")
@@ -507,14 +540,14 @@ class LoginProxy(asyncio.DatagramProtocol):
         # logger.debug(
         #     "Sending data to client %s: %s",
         #     self.client_addr, data)
-        self.transport.sendto(data, self.client_addr)
+        self.transport.sendto(self._append_wire_crc(data), self.client_addr)
 
     def send_to_loginserver(self, data: bytearray | bytes):
         if not data:
             logger.debug("Empty data, not sending to loginserver")
             return
         # logger.debug("Sending data to loginserver: %s", data)
-        self.transport.sendto(data, config.EQEMU_ADDR)
+        self.transport.sendto(self._append_wire_crc(data), config.EQEMU_ADDR)
 
 
 async def main():
