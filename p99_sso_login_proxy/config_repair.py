@@ -5,7 +5,7 @@ from __future__ import annotations
 import configparser
 import os
 import re
-from typing import Mapping
+from collections.abc import Mapping
 
 _CUSTOM_LABEL_RE = re.compile(r"^Custom:\s*(.+)$", re.IGNORECASE)
 _OLD_P99_NAME = "P99 Login Proxy"
@@ -142,14 +142,10 @@ def _repair_api_tokens(
         if _is_unsafe_key(safe_name):
             continue
 
-        if safe_name not in repaired or (token and not repaired[safe_name]):
-            repaired[safe_name] = token
-        elif token and repaired[safe_name] != token:
+        if safe_name not in repaired or (token and repaired[safe_name] != token):
             repaired[safe_name] = token
 
-    if _OLD_P99_NAME in repaired and (
-        "Good Guys" in repaired or "Marginal Threat" in repaired
-    ):
+    if _OLD_P99_NAME in repaired and ("Good Guys" in repaired or "Marginal Threat" in repaired):
         repaired.pop(_OLD_P99_NAME, None)
 
     return repaired
@@ -207,9 +203,7 @@ def config_text_needs_repair(text: str) -> bool:
     }:
         return True
 
-    original_tokens = {
-        key: _collapse_values(values) for key, values in sections.get(_API_TOKENS_SECTION, {}).items()
-    }
+    original_tokens = {key: _collapse_values(values) for key, values in sections.get(_API_TOKENS_SECTION, {}).items()}
     if repaired.get(_API_TOKENS_SECTION, {}) != original_tokens:
         return True
 
@@ -219,9 +213,8 @@ def config_text_needs_repair(text: str) -> bool:
                 return True
             if key == "sso_api_name" and _CUSTOM_LABEL_RE.match(_collapse_values(values)):
                 return True
-            if section == _API_TOKENS_SECTION and key == "Custom":
-                if _extract_url_from_value(_collapse_values(values)):
-                    return True
+            if section == _API_TOKENS_SECTION and key == "Custom" and _extract_url_from_value(_collapse_values(values)):
+                return True
             if len(values) > 1:
                 return True
 

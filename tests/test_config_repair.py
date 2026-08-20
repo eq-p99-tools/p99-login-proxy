@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import configparser
 
-import pytest
-
 from p99_sso_login_proxy import config_repair
 
 EXAMPLE_TOKEN = "example-token-abc123"
