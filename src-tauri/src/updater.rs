@@ -1,6 +1,8 @@
 use std::fmt::Write as _;
 use std::fs::{File, OpenOptions};
-use std::io::{Cursor, ErrorKind, Read};
+use std::io::ErrorKind;
+#[cfg(any(windows, test))]
+use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -643,6 +645,7 @@ fn is_directory_writable(path: &Path) -> Result<bool, String> {
     }
 }
 
+#[cfg(any(windows, test))]
 fn extract_expected_zip_member(
     zip_bytes: &[u8],
     destination: &Path,
