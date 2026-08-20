@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::fs::{File, OpenOptions};
 use std::io::ErrorKind;
@@ -204,6 +205,7 @@ pub async fn check_for_updates(notify_no_update: bool) -> UpdateCheckResult {
     let visible: Vec<_> = releases
         .into_iter()
         .filter(|r| prerelease_ok || !r.prerelease)
+        .filter(|r| r.version.major == current.major)
         .collect();
 
     let Some(latest) = visible.first() else {
@@ -327,6 +329,29 @@ fn parse_version(raw: &str) -> Result<Version, String> {
     Version::parse(raw).map_err(|e| format!("invalid semver '{raw}': {e}"))
 }
 
+fn validate_update_target(
+    target: &Version,
+    current: &Version,
+    target_is_prerelease: bool,
+    prereleases_allowed: bool,
+) -> Result<(), String> {
+    if target.major != current.major {
+        return Err(format!(
+            "Automatic update from major version {} to {} is not supported",
+            current.major, target.major
+        ));
+    }
+    if target <= current {
+        return Err(format!(
+            "Update target v{target} must be newer than v{current}"
+        ));
+    }
+    if target_is_prerelease && !prereleases_allowed {
+        return Err(format!("Prerelease update v{target} is not enabled"));
+    }
+    Ok(())
+}
+
 fn compile_changelog_html<'a>(releases: impl IntoIterator<Item = &'a ParsedRelease>) -> String {
     let mut markdown = String::new();
     for release in releases {
@@ -416,12 +441,36 @@ fn expected_update_asset_name(version: &Version) -> String {
     }
 }
 
+#[cfg(test)]
 fn select_update_asset(release: &ParsedRelease) -> Option<&GitHubAsset> {
     let expected = expected_update_asset_name(&release.version);
     if expected.is_empty() {
         return None;
     }
     release.assets.iter().find(|asset| asset.name == expected)
+}
+
+fn unique_asset<'a>(
+    release: &'a ParsedRelease,
+    asset_name: &str,
+) -> Result<&'a GitHubAsset, String> {
+    let mut matches = release
+        .assets
+        .iter()
+        .filter(|asset| asset.name == asset_name);
+    let asset = matches.next().ok_or_else(|| {
+        format!(
+            "Release v{} is missing asset '{asset_name}'",
+            release.version
+        )
+    })?;
+    if matches.next().is_some() {
+        return Err(format!(
+            "Release v{} contains duplicate assets named '{asset_name}'",
+            release.version
+        ));
+    }
+    Ok(asset)
 }
 
 async fn download_release_asset(
@@ -457,31 +506,44 @@ async fn download_release_asset(
 }
 
 fn verify_sha256(manifest: &str, asset_name: &str, bytes: &[u8]) -> Result<(), String> {
-    let mut expected = None;
+    let mut entries = HashMap::new();
     for line in manifest.lines() {
-        let mut fields = line.split_whitespace();
-        let Some(hash) = fields.next() else {
-            continue;
-        };
-        let Some(name) = fields.next().map(|name| name.trim_start_matches('*')) else {
-            continue;
-        };
-        if name != asset_name {
+        if line.trim().is_empty() {
             continue;
         }
-        if expected.replace(hash).is_some() {
+        let mut fields = line.split_whitespace();
+        let hash = fields
+            .next()
+            .ok_or_else(|| format!("{CHECKSUM_ASSET_NAME} contains a malformed line"))?;
+        let name = fields
+            .next()
+            .map(|name| name.trim_start_matches('*'))
+            .ok_or_else(|| format!("{CHECKSUM_ASSET_NAME} contains a malformed line"))?;
+        if fields.next().is_some()
+            || name.is_empty()
+            || name == "."
+            || name == ".."
+            || name.contains('/')
+            || name.contains('\\')
+        {
             return Err(format!(
-                "{CHECKSUM_ASSET_NAME} contains duplicate entries for '{asset_name}'"
+                "{CHECKSUM_ASSET_NAME} contains an unsafe asset name"
+            ));
+        }
+        if hash.len() != 64 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(format!(
+                "{CHECKSUM_ASSET_NAME} contains an invalid SHA-256 for '{name}'"
+            ));
+        }
+        if entries.insert(name, hash).is_some() {
+            return Err(format!(
+                "{CHECKSUM_ASSET_NAME} contains duplicate entries for '{name}'"
             ));
         }
     }
-    let expected =
-        expected.ok_or_else(|| format!("{CHECKSUM_ASSET_NAME} is missing '{asset_name}'"))?;
-    if expected.len() != 64 || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err(format!(
-            "{CHECKSUM_ASSET_NAME} contains an invalid SHA-256 for '{asset_name}'"
-        ));
-    }
+    let expected = entries
+        .get(asset_name)
+        .ok_or_else(|| format!("{CHECKSUM_ASSET_NAME} is missing '{asset_name}'"))?;
     let actual = sha256_hex(bytes);
     if !actual.eq_ignore_ascii_case(expected) {
         return Err(format!("SHA-256 verification failed for '{asset_name}'"));
@@ -501,21 +563,18 @@ fn sha256_hex(bytes: &[u8]) -> String {
 /// Download the selected release and replace the portable executable.
 ///
 /// Returns the path to launch after the caller has shut down the proxy.
-pub async fn install_update(app: &AppHandle, version: &str) -> Result<PathBuf, String> {
-    let target = parse_version(version)?;
+pub async fn install_update(app: &AppHandle, target_version_raw: &str) -> Result<PathBuf, String> {
+    let target = parse_version(target_version_raw)?;
+    let current = version();
     let releases = fetch_releases().await?;
     let release = releases
         .iter()
         .find(|release| release.version == target)
         .ok_or_else(|| format!("GitHub release v{target} was not found"))?;
+    validate_update_target(&target, current, release.prerelease, allows_prereleases())?;
     let expected = expected_update_asset_name(&target);
-    let asset = select_update_asset(release)
-        .ok_or_else(|| format!("Release v{target} is missing asset '{expected}'"))?;
-    let checksum_asset = release
-        .assets
-        .iter()
-        .find(|asset| asset.name == CHECKSUM_ASSET_NAME)
-        .ok_or_else(|| format!("Release v{target} is missing asset '{CHECKSUM_ASSET_NAME}'"))?;
+    let asset = unique_asset(release, &expected)?;
+    let checksum_asset = unique_asset(release, CHECKSUM_ASSET_NAME)?;
 
     let bytes = download_release_asset(Some(app), asset).await?;
     let checksum_bytes = download_release_asset(None, checksum_asset).await?;
@@ -551,9 +610,21 @@ fn replace_portable_executable(
     if !current_name.eq_ignore_ascii_case(STABLE_EXE_NAME) {
         return Err("Automatic update requires the portable P99LoginProxy.exe build.".to_string());
     }
+    let expected_member = format!("P99LoginProxy-{target_version}.exe");
+    let executable_bytes = validated_zip_executable(zip_bytes, &expected_member)?;
     let exe_dir = current_exe
         .parent()
         .ok_or_else(|| "Current executable has no parent directory".to_string())?;
+    let partial = exe_dir.join(".P99LoginProxy-update.partial.exe");
+    if partial.exists() {
+        std::fs::remove_file(&partial).map_err(|error| error.to_string())?;
+    }
+    std::fs::write(&partial, executable_bytes)
+        .map_err(|error| format!("Could not write update executable: {error}"))?;
+    File::open(&partial)
+        .and_then(|file| file.sync_all())
+        .map_err(|error| format!("Could not flush update executable: {error}"))?;
+
     let backup = exe_dir.join(format!("P99LoginProxy-{}.exe", version_string()));
     if backup.exists() {
         std::fs::remove_file(&backup).map_err(|error| error.to_string())?;
@@ -561,11 +632,10 @@ fn replace_portable_executable(
     std::fs::rename(&current_exe, &backup)
         .map_err(|error| format!("Failed to back up current executable: {error}"))?;
 
-    let expected_member = format!("P99LoginProxy-{target_version}.exe");
-    let result = extract_expected_zip_member(zip_bytes, exe_dir, &expected_member);
-    if let Err(error) = result {
+    if let Err(error) = std::fs::rename(&partial, &current_exe) {
         let _ = std::fs::rename(&backup, &current_exe);
-        return Err(error);
+        let _ = std::fs::remove_file(&partial);
+        return Err(format!("Could not install update executable: {error}"));
     }
     Ok(current_exe)
 }
@@ -646,11 +716,7 @@ fn is_directory_writable(path: &Path) -> Result<bool, String> {
 }
 
 #[cfg(any(windows, test))]
-fn extract_expected_zip_member(
-    zip_bytes: &[u8],
-    destination: &Path,
-    expected_member: &str,
-) -> Result<PathBuf, String> {
+fn validated_zip_executable(zip_bytes: &[u8], expected_member: &str) -> Result<Vec<u8>, String> {
     let mut archive = zip::ZipArchive::new(Cursor::new(zip_bytes))
         .map_err(|error| format!("Invalid update zip: {error}"))?;
     if archive.len() != 1 {
@@ -675,26 +741,14 @@ fn extract_expected_zip_member(
             "Update zip must contain only the top-level file '{expected_member}'"
         ));
     }
-    let extracted = destination.join(enclosed);
-    if let Some(parent) = extracted.parent() {
-        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    }
     let mut bytes = Vec::new();
     member
         .read_to_end(&mut bytes)
         .map_err(|error| format!("Could not read update zip: {error}"))?;
-    std::fs::write(&extracted, bytes)
-        .map_err(|error| format!("Could not extract update: {error}"))?;
-
-    let stable = destination.join(STABLE_EXE_NAME);
-    if extracted != stable {
-        if stable.exists() {
-            std::fs::remove_file(&stable).map_err(|error| error.to_string())?;
-        }
-        std::fs::rename(&extracted, &stable)
-            .map_err(|error| format!("Could not rename update executable: {error}"))?;
+    if bytes.is_empty() {
+        return Err("Update executable is empty".to_string());
     }
-    Ok(stable)
+    Ok(bytes)
 }
 
 fn duration_until_next_noon() -> Duration {
@@ -797,12 +851,8 @@ mod tests {
         .unwrap();
         zip.write_all(b"portable exe").unwrap();
         let archive = zip.finish().unwrap().into_inner();
-        let dir = tempfile::tempdir().unwrap();
-
-        let path =
-            extract_expected_zip_member(&archive, dir.path(), "P99LoginProxy-2.0.1.exe").unwrap();
-        assert_eq!(path, dir.path().join(STABLE_EXE_NAME));
-        assert_eq!(std::fs::read(path).unwrap(), b"portable exe");
+        let bytes = validated_zip_executable(&archive, "P99LoginProxy-2.0.1.exe").unwrap();
+        assert_eq!(bytes, b"portable exe");
     }
 
     #[test]
@@ -812,10 +862,7 @@ mod tests {
             .unwrap();
         zip.write_all(b"bad").unwrap();
         let archive = zip.finish().unwrap().into_inner();
-        let dir = tempfile::tempdir().unwrap();
-        assert!(
-            extract_expected_zip_member(&archive, dir.path(), "P99LoginProxy-2.0.1.exe").is_err()
-        );
+        assert!(validated_zip_executable(&archive, "P99LoginProxy-2.0.1.exe").is_err());
     }
 
     #[test]
@@ -827,11 +874,7 @@ mod tests {
         zip.start_file("unexpected.txt", options).unwrap();
         zip.write_all(b"extra").unwrap();
         let archive = zip.finish().unwrap().into_inner();
-        let dir = tempfile::tempdir().unwrap();
-
-        assert!(
-            extract_expected_zip_member(&archive, dir.path(), "P99LoginProxy-2.0.1.exe").is_err()
-        );
+        assert!(validated_zip_executable(&archive, "P99LoginProxy-2.0.1.exe").is_err());
     }
 
     #[test]
@@ -842,6 +885,53 @@ mod tests {
         assert!(verify_sha256(&manifest, "P99LoginProxy-2.0.1.zip", bytes).is_ok());
         assert!(verify_sha256(&manifest, "P99LoginProxy-2.0.1.zip", b"tampered").is_err());
         assert!(verify_sha256(&manifest, "other.zip", bytes).is_err());
+    }
+
+    #[test]
+    fn rejects_unsafe_or_duplicate_checksum_entries() {
+        let hash = sha256_hex(b"release artifact");
+        assert!(verify_sha256(
+            &format!("{hash}  ../P99LoginProxy.zip\n"),
+            "P99LoginProxy.zip",
+            b"release artifact"
+        )
+        .is_err());
+        assert!(verify_sha256(
+            &format!("{hash}  other.zip\n{hash}  other.zip\n"),
+            "other.zip",
+            b"release artifact"
+        )
+        .is_err());
+        assert!(verify_sha256(
+            &format!("{hash}  other.zip unexpected\n"),
+            "other.zip",
+            b"release artifact"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn update_target_must_be_newer_same_major_and_allowed() {
+        let current = Version::parse("2.0.0").unwrap();
+        assert!(
+            validate_update_target(&Version::parse("2.0.1").unwrap(), &current, false, false)
+                .is_ok()
+        );
+        assert!(
+            validate_update_target(&Version::parse("3.0.0").unwrap(), &current, false, true)
+                .is_err()
+        );
+        assert!(
+            validate_update_target(&Version::parse("2.0.0").unwrap(), &current, false, true)
+                .is_err()
+        );
+        assert!(validate_update_target(
+            &Version::parse("2.1.0-rc1").unwrap(),
+            &current,
+            true,
+            false
+        )
+        .is_err());
     }
 
     #[test]

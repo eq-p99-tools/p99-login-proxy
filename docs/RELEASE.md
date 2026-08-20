@@ -71,7 +71,8 @@ and not required for the updater migration itself.
 Both Windows clients use the same zip contract:
 
 1. `GET /repos/eq-p99-tools/p99-login-proxy/releases?per_page=10`
-2. Semver-sort tags; respect prerelease flag unless opted in
+2. Semver-sort tags; require a newer release in the current major and respect the
+   prerelease flag unless opted in
 3. Download `P99LoginProxy-{version}.zip` and `SHA256SUMS`
 4. Verify SHA-256, then require exactly one top-level member named
    `P99LoginProxy-{version}.exe`
