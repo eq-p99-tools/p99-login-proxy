@@ -77,7 +77,7 @@ jobs:
           $dest = "src-tauri/resources/webview2/MicrosoftEdgeWebview2Setup.exe"
           New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
           Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile $dest
-          $expected = "be695eb3732a94e181f008ab5cf6ee650f8644676e87f9e02b6ab0d02f2ea08e"
+          $expected = "26fce08907a0059bbb44e86b4af3b69bf91ae58bb491b13e81debd8a22550341"
           $actual = (Get-FileHash -Algorithm SHA256 $dest).Hash.ToLowerInvariant()
           if ($actual -ne $expected) {
             throw "WebView2 bootstrapper SHA-256 mismatch: expected $expected, got $actual"
