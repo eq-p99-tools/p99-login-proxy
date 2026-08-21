@@ -77,10 +77,10 @@ jobs:
           $dest = "src-tauri/resources/webview2/MicrosoftEdgeWebview2Setup.exe"
           New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
           Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile $dest
-          $expected = "26fce08907a0059bbb44e86b4af3b69bf91ae58bb491b13e81debd8a22550341"
-          $actual = (Get-FileHash -Algorithm SHA256 $dest).Hash.ToLowerInvariant()
-          if ($actual -ne $expected) {
-            throw "WebView2 bootstrapper SHA-256 mismatch: expected $expected, got $actual"
+          $signature = Get-AuthenticodeSignature $dest
+          $subject = $signature.SignerCertificate.Subject
+          if ($signature.Status -ne "Valid" -or $subject -notmatch '(^|,\s*)CN=Microsoft Corporation(,|$)') {
+            throw "WebView2 bootstrapper signature is not valid Microsoft code: status=$($signature.Status), subject=$subject"
           }
       - run: npm ci
       - name: Windows read-only regression test
