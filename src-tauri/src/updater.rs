@@ -58,7 +58,7 @@ pub fn wait_for_update_parent_if_requested() -> Result<(), String> {
     loop {
         match fs2::FileExt::try_lock_exclusive(&file) {
             Ok(()) => break,
-            Err(error) if error.kind() == ErrorKind::WouldBlock => {
+            Err(error) if is_update_lock_contention(&error) => {
                 if started.elapsed() >= UPDATE_PARENT_WAIT_TIMEOUT {
                     return Err("Timed out waiting for the previous version to exit".into());
                 }
@@ -73,6 +73,11 @@ pub fn wait_for_update_parent_if_requested() -> Result<(), String> {
     drop(file);
     let _ = std::fs::remove_file(path);
     Ok(())
+}
+
+fn is_update_lock_contention(error: &std::io::Error) -> bool {
+    error.kind() == ErrorKind::WouldBlock
+        || (cfg!(windows) && matches!(error.raw_os_error(), Some(32 | 33)))
 }
 
 pub fn spawn_update_relaunch(executable: &Path) -> Result<File, String> {
@@ -1008,6 +1013,23 @@ mod tests {
             std::ffi::OsString::from(WAIT_FOR_UPDATE_LOCK_ARG),
         ])
         .is_err());
+    }
+
+    #[test]
+    fn would_block_is_update_lock_contention() {
+        let error = std::io::Error::from(ErrorKind::WouldBlock);
+        assert!(is_update_lock_contention(&error));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn windows_file_lock_errors_are_update_contention() {
+        assert!(is_update_lock_contention(
+            &std::io::Error::from_raw_os_error(32)
+        ));
+        assert!(is_update_lock_contention(
+            &std::io::Error::from_raw_os_error(33)
+        ));
     }
 
     #[test]
