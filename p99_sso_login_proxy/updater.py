@@ -167,18 +167,30 @@ def compile_changelog(releases):
     return markdown.markdown(changelog)
 
 
-def download_and_unpack(url: str):
+def select_update_zip_asset(assets, version):
+    """Return the browser download URL for the exact Windows portable zip asset."""
+    expected = f"P99LoginProxy-{version}.zip"
+    for asset in assets:
+        if asset.get("name") == expected:
+            return asset.get("browser_download_url")
+    return None
+
+
+def download_and_unpack(url: str, version: str | None = None):
     """Download and unpack the update zip file"""
     # pylint: disable=no-member
     resp = get(url)
     resp.raise_for_status()
     asset_data = resp.json()
-    ZIP_CONTENT_TYPES = {"application/x-zip-compressed", "application/zip", "application/octet-stream"}
     zip_url = None
-    for asset in asset_data:
-        if asset["content_type"] in ZIP_CONTENT_TYPES or asset.get("name", "").endswith(".zip"):
-            zip_url = asset["browser_download_url"]
-            break
+    if version is not None:
+        zip_url = select_update_zip_asset(asset_data, version)
+    if zip_url is None and version is None:
+        ZIP_CONTENT_TYPES = {"application/x-zip-compressed", "application/zip", "application/octet-stream"}
+        for asset in asset_data:
+            if asset["content_type"] in ZIP_CONTENT_TYPES or asset.get("name", "").endswith(".zip"):
+                zip_url = asset["browser_download_url"]
+                break
     if zip_url:
         LOG.info("Downloading update from %s", zip_url)
         zip_data = get(zip_url, stream=True)
@@ -258,7 +270,7 @@ def _prompt_and_apply_update(releases, latest_version):
             show_update_error_main_thread(f"Failed to prepare for update: {e}")
             return
 
-    newest_exe = download_and_unpack(assets_url)
+    newest_exe = download_and_unpack(assets_url, latest_version)
     if not newest_exe:
         LOG.error("Failed to download update. Continuing with existing version.")
         if backed_up:
