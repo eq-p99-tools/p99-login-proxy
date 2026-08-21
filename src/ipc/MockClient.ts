@@ -199,10 +199,22 @@ export class MockClient implements DesktopClient {
     return { accounts: [...this.localAccounts], characters: [...this.localCharacters] };
   }
 
+  setMockLocalData(data: LocalDataView): void {
+    this.localAccounts = [...data.accounts];
+    this.localCharacters = [...data.characters];
+    for (const account of data.accounts) {
+      this.passwordStore.set(account.username, account.password);
+    }
+  }
+
   async saveLocalData(
     accounts: LocalAccountInput[],
     characters: LocalCharacterInput[],
+    allowEmptyAccounts = false,
   ): Promise<LocalDataView> {
+    if (accounts.length === 0 && this.localAccounts.length > 0 && !allowEmptyAccounts) {
+      throw new Error("Refusing to delete all local accounts without explicit confirmation");
+    }
     for (const row of accounts) {
       const password =
         row.password && row.password.length > 0

@@ -40,7 +40,7 @@ pub use inventory_parser::{
 };
 pub use local_data::{
     load_local_accounts, load_local_characters, load_local_data, save_local_accounts,
-    save_local_characters, LocalDataBundle, LocalDataError,
+    save_local_characters, try_load_local_data, LocalDataBundle, LocalDataError,
 };
 pub use logs::{character_from_log_path, is_raid_target, LogEvent, LogEventKind, LogPatterns};
 pub use model::*;

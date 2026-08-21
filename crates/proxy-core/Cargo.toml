@@ -18,10 +18,8 @@ secrecy.workspace = true
 toml.workspace = true
 rust-ini.workspace = true
 semver.workspace = true
-zip = { version = "4", default-features = false, features = ["deflate"] }
-
-[dev-dependencies]
 tempfile.workspace = true
+zip = { version = "4", default-features = false, features = ["deflate"] }
 
 [lints]
 workspace = true

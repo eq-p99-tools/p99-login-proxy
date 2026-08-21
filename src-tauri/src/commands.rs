@@ -1,7 +1,7 @@
 use proxy_core::accounts::LocalAccountStore;
 use proxy_core::{
-    config_file_path, list_sso_backend_options, load_config_file, load_local_data,
-    save_config_file, save_local_accounts, save_local_characters, ConfigFileV1, EqHostWriter,
+    config_file_path, list_sso_backend_options, load_config_file, save_config_file,
+    save_local_accounts, save_local_characters, try_load_local_data, ConfigFileV1, EqHostWriter,
     ProxyMode,
 };
 use runtime::{LogLine, RuntimeStateView};
@@ -291,11 +291,18 @@ pub async fn save_app_config(
 pub async fn save_local_data(
     accounts: Vec<LocalAccountInput>,
     characters: Vec<LocalCharacterInput>,
+    allow_empty_accounts: bool,
     state: State<'_, AppState>,
 ) -> Result<LocalDataView, String> {
     use proxy_core::characters::LocalCharacterStore;
     use proxy_core::model::LocalCharacter;
-    let existing = load_local_data();
+    let existing = try_load_local_data().map_err(|error| {
+        format!("Refusing to overwrite local data because the existing CSV could not be loaded: {error}")
+    })?;
+    if accounts.is_empty() && !existing.accounts.rows_for_csv().is_empty() && !allow_empty_accounts
+    {
+        return Err("Refusing to delete all local accounts without explicit confirmation".into());
+    }
     let account_store = replacement_account_store(accounts, &existing.accounts)?;
 
     let mut char_store = LocalCharacterStore::default();
@@ -379,7 +386,7 @@ mod local_account_tests {
 #[tauri::command]
 pub async fn reload_local_data(state: State<'_, AppState>) -> Result<LocalDataView, String> {
     let mut sup = state.supervisor.lock().await;
-    sup.reload_local_data();
+    sup.reload_local_data()?;
     drop(sup);
     get_local_data(state).await
 }

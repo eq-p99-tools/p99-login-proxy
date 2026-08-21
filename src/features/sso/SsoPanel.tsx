@@ -183,7 +183,7 @@ export function SsoPanel() {
     });
   }, [tree, search, tagSortKey, tagSortAsc]);
 
-  const localAccountRows = useMemo(() => {
+  const allLocalAccountRows = useMemo(() => {
     if (!localData) return [];
     const byUser = new Map<string, { aliases: string[]; password: string }>();
     for (const row of localData.accounts) {
@@ -198,9 +198,13 @@ export function SsoPanel() {
       password,
       aliases: aliases.join(", "),
     }));
-    const filtered = filterRows(rows, search, (r) => `${r.name} ${r.aliases}`);
+    return rows;
+  }, [localData]);
+
+  const localAccountRows = useMemo(() => {
+    const filtered = filterRows(allLocalAccountRows, search, (r) => `${r.name} ${r.aliases}`);
     return sortLocalAccounts(filtered, { key: localAccountSortKey, ascending: localAccountSortAsc });
-  }, [localData, search, localAccountSortKey, localAccountSortAsc]);
+  }, [allLocalAccountRows, search, localAccountSortKey, localAccountSortAsc]);
 
   const localCharRows = useMemo(() => {
     const rows = flattenLocalCharacters(localData?.characters ?? []);
@@ -211,8 +215,8 @@ export function SsoPanel() {
   const ssoSummary = useMemo(() => ssoAccountsSummary(tree), [tree]);
 
   const localAccountNames = useMemo(
-    () => localAccountRows.map((r) => r.name).sort((a, b) => a.localeCompare(b)),
-    [localAccountRows],
+    () => allLocalAccountRows.map((r) => r.name).sort((a, b) => a.localeCompare(b)),
+    [allLocalAccountRows],
   );
 
   const reconnect = async () => {
@@ -236,7 +240,7 @@ export function SsoPanel() {
   };
 
   const openEditAccount = (name: string) => {
-    const row = localAccountRows.find((r) => r.name === name);
+    const row = allLocalAccountRows.find((r) => r.name === name);
     setEditAccountName(name);
     setAccountPassword(row?.password ?? "");
     setAccountAliases(row?.aliases ?? "");
@@ -258,7 +262,7 @@ export function SsoPanel() {
       .split(",")
       .map((a) => a.trim())
       .filter(Boolean);
-    const accounts = localAccountRows
+    const accounts = allLocalAccountRows
       .filter((r) => r.name !== name)
       .map((r) => ({
         name: r.name,
@@ -284,7 +288,7 @@ export function SsoPanel() {
 
   const confirmDeleteAccount = async () => {
     if (!localData || !deleteAccount) return;
-    const accounts = localAccountRows
+    const accounts = allLocalAccountRows
       .filter((r) => r.name !== deleteAccount)
       .map((r) => ({
         name: r.name,
@@ -293,7 +297,7 @@ export function SsoPanel() {
       }));
     setBusy(true);
     try {
-      await client.saveLocalData(accounts, localData.characters);
+      await client.saveLocalData(accounts, localData.characters, accounts.length === 0);
       setDeleteAccount(null);
       setSelectedLocalAccount(null);
       await refresh();
@@ -357,7 +361,7 @@ export function SsoPanel() {
     });
     setBusy(true);
     try {
-      const accounts = localAccountRows.map((r) => ({
+      const accounts = allLocalAccountRows.map((r) => ({
         name: r.name,
         password: r.password,
         aliases: r.aliases.split(",").map((a) => a.trim()).filter(Boolean),
@@ -389,7 +393,7 @@ export function SsoPanel() {
       }));
     setBusy(true);
     try {
-      const accounts = localAccountRows.map((r) => ({
+      const accounts = allLocalAccountRows.map((r) => ({
         name: r.name,
         password: r.password,
         aliases: r.aliases.split(",").map((a) => a.trim()).filter(Boolean),

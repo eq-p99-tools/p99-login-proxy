@@ -11,7 +11,8 @@ use proxy_core::{
     config_file_path, detect_rustle_ui, discover_and_persist_eq_directory,
     ensure_eqclient_log_enabled, get_client_settings, load_config, load_local_data,
     resolve_sso_api_url, resolve_sso_ca_bundle, save_config_file, save_local_characters,
-    ConfigFileV1, EqConfigStatus, EqHostWriter, LocalCharacter, SsoCaBundleMode, ValidatedConfig,
+    try_load_local_data, ConfigFileV1, EqConfigStatus, EqHostWriter, LocalCharacter,
+    SsoCaBundleMode, ValidatedConfig,
 };
 
 use secrecy::ExposeSecret;
@@ -242,7 +243,11 @@ impl AppSupervisor {
     }
 
     pub fn set_local_data(&mut self, local: ProxyLocalData) {
-        self.local_data = local;
+        self.local_data = local.clone();
+        self.refresh_local_character_names();
+        if let Some(udp) = &self.udp {
+            udp.update_local_data(local);
+        }
     }
 
     pub fn proxy_config(&self) -> &ProxyRuntimeConfig {
@@ -266,14 +271,14 @@ impl AppSupervisor {
         self.rustle_checked = false;
     }
 
-    pub fn reload_local_data(&mut self) {
-        let bundle = load_local_data();
-        self.local_data = ProxyLocalData {
+    pub fn reload_local_data(&mut self) -> Result<(), String> {
+        let bundle = try_load_local_data().map_err(|error| error.to_string())?;
+        self.set_local_data(ProxyLocalData {
             accounts: bundle.accounts,
             characters: bundle.characters,
-        };
-        self.refresh_local_character_names();
+        });
         info!("local account/character data reloaded");
+        Ok(())
     }
 
     fn refresh_local_character_names(&self) {
@@ -656,6 +661,9 @@ impl AppSupervisor {
         info!(backend = %self.sso_backend, "SSO WebSocket task started");
 
         self.ws = Some(handle);
+        if let Some(udp) = &self.udp {
+            udp.update_sso_client(self.sso_client());
+        }
     }
 
     fn local_character_names(&self) -> HashSet<String> {
@@ -932,6 +940,9 @@ impl AppSupervisor {
     async fn stop_ws(&mut self) {
         if let Some(ws) = self.ws.take() {
             ws.stop().await;
+            if let Some(udp) = &self.udp {
+                udp.update_sso_client(None);
+            }
 
             let mut snap = self.snapshot_tx.borrow().clone();
 

@@ -15,7 +15,13 @@ use crate::websocket::SsoClient;
 pub struct UdpProxyHandle {
     pub listen_addr: SocketAddr,
     cancel: CancellationToken,
+    update_tx: tokio::sync::mpsc::UnboundedSender<ProxyRuntimeUpdate>,
     task: tokio::task::JoinHandle<()>,
+}
+
+enum ProxyRuntimeUpdate {
+    LocalData(ProxyLocalData),
+    SsoClient(Option<SsoClient>),
 }
 
 impl UdpProxyHandle {
@@ -57,13 +63,24 @@ impl UdpProxyHandle {
         }));
         let stats_task = stats.clone();
         let child = cancel.child_token();
+        let (update_tx, mut update_rx) = tokio::sync::mpsc::unbounded_channel();
 
         let task = tokio::spawn(async move {
-            let mut engine = LoginProxyEngine::with_sso(config, local, sso.clone());
+            let mut active_sso = sso;
+            let mut engine = LoginProxyEngine::with_sso(config, local, active_sso.clone());
             let mut buf = vec![0u8; 65535];
             loop {
                 tokio::select! {
                     _ = child.cancelled() => break,
+                    Some(update) = update_rx.recv() => {
+                        match update {
+                            ProxyRuntimeUpdate::LocalData(local) => engine.set_local_data(local),
+                            ProxyRuntimeUpdate::SsoClient(sso) => {
+                                engine.set_sso_client(sso.clone());
+                                active_sso = sso;
+                            }
+                        }
+                    }
                     recv = socket.recv_from(&mut buf) => {
                         match recv {
                             Ok((len, peer)) => {
@@ -71,7 +88,7 @@ impl UdpProxyHandle {
                                 let mut actions = engine.on_datagram(packet, peer, upstream);
 
                                 if let Some(pending) = actions.sso_pending.take() {
-                                    if let Some(ref client) = sso {
+                                    if let Some(ref client) = active_sso {
                                         let auth = client.request_login_auth(&pending.username).await;
                                         if let Some(ref reason) = auth.error {
                                             let _ = event_tx
@@ -168,8 +185,17 @@ impl UdpProxyHandle {
         Ok(Self {
             listen_addr: local_addr,
             cancel,
+            update_tx,
             task,
         })
+    }
+
+    pub fn update_local_data(&self, local: ProxyLocalData) {
+        let _ = self.update_tx.send(ProxyRuntimeUpdate::LocalData(local));
+    }
+
+    pub fn update_sso_client(&self, sso: Option<SsoClient>) {
+        let _ = self.update_tx.send(ProxyRuntimeUpdate::SsoClient(sso));
     }
 
     pub async fn stop(self) {

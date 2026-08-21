@@ -60,7 +60,11 @@ export interface DesktopClient {
   setSsoBackend(backend: string, apiUrl?: string): Promise<SsoStatus>;
   reconnectSso(): Promise<SsoStatus>;
   getLocalData(): Promise<LocalDataView>;
-  saveLocalData(accounts: LocalAccountInput[], characters: LocalCharacterInput[]): Promise<LocalDataView>;
+  saveLocalData(
+    accounts: LocalAccountInput[],
+    characters: LocalCharacterInput[],
+    allowEmptyAccounts?: boolean,
+  ): Promise<LocalDataView>;
   reloadLocalData(): Promise<LocalDataView>;
   getEqSettings(): Promise<EqSettingsView>;
   setEqDirectory(path: string): Promise<EqSettingsView>;

@@ -60,6 +60,15 @@ impl LoginProxyEngine {
         self.client
     }
 
+    pub fn set_local_data(&mut self, local: ProxyLocalData) {
+        self.local = local;
+    }
+
+    pub fn set_sso_client(&mut self, sso: Option<SsoClient>) {
+        self.sso = sso;
+        self.auth_in_flight = false;
+    }
+
     fn packet_uses_crc(data: &[u8]) -> bool {
         !matches!(
             transport_opcode(data),
@@ -478,6 +487,18 @@ mod tests {
         assert_eq!(actions.send_upstream.len(), 1);
         assert_eq!(actions.send_upstream[0], ka);
         assert!(actions.send_client.is_empty());
+    }
+
+    #[test]
+    fn local_data_can_be_hot_swapped_without_resetting_session() {
+        let mut engine =
+            LoginProxyEngine::new(ProxyRuntimeConfig::default(), ProxyLocalData::default());
+        engine.in_session = true;
+
+        engine.set_local_data(ProxyLocalData::with_account("alias", "account", "secret"));
+
+        assert!(engine.local.accounts.resolve("alias").is_some());
+        assert!(engine.in_session);
     }
 
     #[test]

@@ -1,5 +1,5 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AppProviders } from "../../app/AppProviders";
 import { SsoPanel } from "./SsoPanel";
@@ -106,5 +106,35 @@ describe("SsoPanel", () => {
     expect(await screen.findByRole("button", { name: "Add Account" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Edit Account" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Delete Account" })).toBeTruthy();
+  });
+
+  it("preserves accounts hidden by the search when saving", async () => {
+    const client = new MockClient();
+    client.setMockLocalData({
+      accounts: [
+        { alias: "alpha", username: "alpha", password: "one" },
+        { alias: "beta", username: "beta", password: "two" },
+      ],
+      characters: [],
+    });
+    const save = vi.spyOn(client, "saveLocalData");
+    render(
+      <AppProviders client={client}>
+        <SsoPanel />
+      </AppProviders>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Local Accounts" }));
+    const search = await screen.findByPlaceholderText("Type to filter...");
+    fireEvent.change(search, { target: { value: "alpha" } });
+    expect(screen.queryByText("beta")).toBeNull();
+
+    fireEvent.click(screen.getByText("alpha").closest("tr")!);
+    fireEvent.click(screen.getByRole("button", { name: "Edit Account" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    const savedNames = save.mock.calls[0][0].map((account) => account.name).sort();
+    expect(savedNames).toEqual(["alpha", "beta"]);
   });
 });

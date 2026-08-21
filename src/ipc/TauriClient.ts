@@ -94,8 +94,11 @@ export class TauriClient implements DesktopClient {
   async saveLocalData(
     accounts: LocalAccountInput[],
     characters: LocalCharacterInput[],
+    allowEmptyAccounts = false,
   ): Promise<LocalDataView> {
-    return LocalDataSchema.parse(await invoke("save_local_data", { accounts, characters }));
+    return LocalDataSchema.parse(
+      await invoke("save_local_data", { accounts, characters, allowEmptyAccounts }),
+    );
   }
 
   async reloadLocalData(): Promise<LocalDataView> {

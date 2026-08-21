@@ -1,9 +1,11 @@
 use std::collections::HashMap;
+use std::fs::File;
 use std::path::{Path, PathBuf};
 
 use csv::ReaderBuilder;
 use secrecy::SecretString;
 use serde_json::{json, Value};
+use tempfile::NamedTempFile;
 use tracing::{debug, warn};
 
 use crate::accounts::LocalAccountStore;
@@ -316,6 +318,23 @@ pub fn load_local_data() -> LocalDataBundle {
     }
 }
 
+/// Load both local CSVs without converting read or parse failures into empty data.
+pub fn try_load_local_data() -> Result<LocalDataBundle, LocalDataError> {
+    let accounts_path = default_local_accounts_path().ok_or_else(config_dir_unavailable)?;
+    let characters_path = default_local_characters_path().ok_or_else(config_dir_unavailable)?;
+    Ok(LocalDataBundle {
+        accounts: load_local_accounts(&accounts_path)?,
+        characters: load_local_characters(&characters_path)?,
+    })
+}
+
+fn config_dir_unavailable() -> LocalDataError {
+    LocalDataError::Io(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        "config dir unavailable",
+    ))
+}
+
 /// Load ``local_accounts.csv`` (Python-compatible: name,password,aliases).
 pub fn load_local_accounts(path: &Path) -> Result<LocalAccountStore, LocalDataError> {
     let mut store = LocalAccountStore::default();
@@ -354,12 +373,7 @@ pub fn load_local_accounts(path: &Path) -> Result<LocalAccountStore, LocalDataEr
 
 /// Persist local accounts to the default config path (Python-compatible CSV).
 pub fn save_local_accounts(store: &LocalAccountStore) -> Result<(), LocalDataError> {
-    let path = default_local_accounts_path().ok_or_else(|| {
-        LocalDataError::Io(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "config dir unavailable",
-        ))
-    })?;
+    let path = default_local_accounts_path().ok_or_else(config_dir_unavailable)?;
     save_local_accounts_to(&path, store)
 }
 
@@ -367,28 +381,19 @@ pub fn save_local_accounts_to(
     path: &Path,
     store: &LocalAccountStore,
 ) -> Result<(), LocalDataError> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let file = std::fs::File::create(path)?;
-    let mut wtr = csv::Writer::from_writer(file);
-    wtr.write_record(["name", "password", "aliases"])?;
-    for (name, password, aliases) in store.rows_for_csv() {
-        let alias_field = aliases.join("|");
-        wtr.write_record([&name, &password, &alias_field])?;
-    }
-    wtr.flush()?;
-    Ok(())
+    atomic_csv_write(path, |wtr| {
+        wtr.write_record(["name", "password", "aliases"])?;
+        for (name, password, aliases) in store.rows_for_csv() {
+            let alias_field = aliases.join("|");
+            wtr.write_record([&name, &password, &alias_field])?;
+        }
+        Ok(())
+    })
 }
 
 /// Persist local characters to the default config path (Python flat CSV).
 pub fn save_local_characters(store: &LocalCharacterStore) -> Result<(), LocalDataError> {
-    let path = default_local_characters_path().ok_or_else(|| {
-        LocalDataError::Io(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "config dir unavailable",
-        ))
-    })?;
+    let path = default_local_characters_path().ok_or_else(config_dir_unavailable)?;
     save_local_characters_to(&path, store)
 }
 
@@ -396,48 +401,69 @@ pub fn save_local_characters_to(
     path: &Path,
     store: &LocalCharacterStore,
 ) -> Result<(), LocalDataError> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
     let fields = local_character_csv_fields();
-    let file = std::fs::File::create(path)?;
-    let mut wtr = csv::Writer::from_writer(file);
-    wtr.write_record(fields.iter().map(String::as_str))?;
+    atomic_csv_write(path, |wtr| {
+        wtr.write_record(fields.iter().map(String::as_str))?;
 
-    let mut chars: Vec<_> = store.list();
-    chars.sort_by_key(|a| a.name.to_lowercase());
+        let mut chars: Vec<_> = store.list();
+        chars.sort_by_key(|a| a.name.to_lowercase());
 
-    for ch in chars {
-        let items = &ch.items;
-        let mut row = vec![
-            ch.account_alias.to_lowercase(),
-            ch.name.clone(),
-            ch.class.clone().unwrap_or_default(),
-            format_optional_int(ch.level),
-            ch.bind.clone().unwrap_or_default(),
-            ch.park.clone().unwrap_or_default(),
-        ];
-        for key in LOCAL_CHARACTER_BOOL_ITEMS {
-            let val = items.get(*key);
-            let parsed = val.and_then(|v| match v {
-                Value::Bool(b) => Some(*b),
-                Value::Null => None,
-                _ => None,
-            });
-            row.push(format_optional_bool(parsed));
+        for ch in chars {
+            let items = &ch.items;
+            let mut row = vec![
+                ch.account_alias.to_lowercase(),
+                ch.name.clone(),
+                ch.class.clone().unwrap_or_default(),
+                format_optional_int(ch.level),
+                ch.bind.clone().unwrap_or_default(),
+                ch.park.clone().unwrap_or_default(),
+            ];
+            for key in LOCAL_CHARACTER_BOOL_ITEMS {
+                let val = items.get(*key);
+                let parsed = val.and_then(|v| match v {
+                    Value::Bool(b) => Some(*b),
+                    Value::Null => None,
+                    _ => None,
+                });
+                row.push(format_optional_bool(parsed));
+            }
+            for key in LOCAL_CHARACTER_COUNT_ITEMS {
+                let val = items.get(*key);
+                let parsed = val.and_then(|v| match v {
+                    Value::Number(n) => n.as_i64().map(|i| i as i32),
+                    Value::Null => None,
+                    _ => None,
+                });
+                row.push(format_optional_int(parsed));
+            }
+            wtr.write_record(row.iter().map(String::as_str))?;
         }
-        for key in LOCAL_CHARACTER_COUNT_ITEMS {
-            let val = items.get(*key);
-            let parsed = val.and_then(|v| match v {
-                Value::Number(n) => n.as_i64().map(|i| i as i32),
-                Value::Null => None,
-                _ => None,
-            });
-            row.push(format_optional_int(parsed));
-        }
-        wtr.write_record(row.iter().map(String::as_str))?;
+        Ok(())
+    })
+}
+
+fn atomic_csv_write(
+    path: &Path,
+    write_records: impl FnOnce(&mut csv::Writer<&mut File>) -> Result<(), csv::Error>,
+) -> Result<(), LocalDataError> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(parent)?;
+    let mut temp = NamedTempFile::new_in(parent)?;
+    {
+        let mut writer = csv::Writer::from_writer(temp.as_file_mut());
+        write_records(&mut writer)?;
+        writer.flush()?;
     }
-    wtr.flush()?;
+    temp.as_file().sync_all()?;
+
+    if path.is_file() {
+        let extension = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("csv");
+        std::fs::copy(path, path.with_extension(format!("{extension}.bak")))?;
+    }
+    temp.persist(path).map_err(|error| error.error)?;
     Ok(())
 }
 
@@ -542,6 +568,31 @@ mod tests {
         let reloaded = load_local_accounts(&path).unwrap();
         let (_, pw) = reloaded.resolve("main").expect("account row");
         assert_eq!(pw.expose_secret(), password.as_str());
+    }
+
+    #[test]
+    fn account_save_is_atomic_and_preserves_backup() {
+        use crate::accounts::LocalAccountStore;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("local_accounts.csv");
+        let original = "name,password,aliases\nold,secret,\n";
+        std::fs::write(&path, original).unwrap();
+        let store = LocalAccountStore::from_rows([(
+            "new".into(),
+            "new".into(),
+            SecretString::from("replacement".to_string()),
+        )]);
+
+        save_local_accounts_to(&path, &store).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(path.with_extension("csv.bak")).unwrap(),
+            original
+        );
+        let reloaded = load_local_accounts(&path).unwrap();
+        assert!(reloaded.resolve("new").is_some());
+        assert!(reloaded.resolve("old").is_none());
     }
 
     #[test]
