@@ -3,7 +3,7 @@ use std::fmt::Write as _;
 use std::fs::{File, OpenOptions};
 use std::io::ErrorKind;
 #[cfg(any(windows, test))]
-use std::io::{Cursor, Read};
+use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -607,7 +607,9 @@ fn replace_portable_executable(
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or_default();
-    if !current_name.eq_ignore_ascii_case(STABLE_EXE_NAME) {
+    let current = version();
+    let is_stable_name = current_name.eq_ignore_ascii_case(STABLE_EXE_NAME);
+    if !is_stable_name && !is_versioned_portable_name(current_name, current) {
         return Err("Automatic update requires the portable P99LoginProxy.exe build.".to_string());
     }
     let expected_member = format!("P99LoginProxy-{target_version}.exe");
@@ -619,11 +621,28 @@ fn replace_portable_executable(
     if partial.exists() {
         std::fs::remove_file(&partial).map_err(|error| error.to_string())?;
     }
-    std::fs::write(&partial, executable_bytes)
-        .map_err(|error| format!("Could not write update executable: {error}"))?;
-    File::open(&partial)
-        .and_then(|file| file.sync_all())
-        .map_err(|error| format!("Could not flush update executable: {error}"))?;
+    write_update_executable(&partial, &executable_bytes)?;
+
+    if !is_stable_name {
+        let stable_exe = exe_dir.join(STABLE_EXE_NAME);
+        let displaced = exe_dir.join(".P99LoginProxy-existing.exe.bak");
+        if displaced.exists() {
+            std::fs::remove_file(&displaced).map_err(|error| error.to_string())?;
+        }
+        if stable_exe.exists() {
+            std::fs::rename(&stable_exe, &displaced).map_err(|error| {
+                format!("Failed to back up existing P99LoginProxy.exe: {error}")
+            })?;
+        }
+        if let Err(error) = std::fs::rename(&partial, &stable_exe) {
+            if displaced.exists() {
+                let _ = std::fs::rename(&displaced, &stable_exe);
+            }
+            let _ = std::fs::remove_file(&partial);
+            return Err(format!("Could not install update executable: {error}"));
+        }
+        return Ok(stable_exe);
+    }
 
     let backup = exe_dir.join(format!("P99LoginProxy-{}.exe", version_string()));
     if backup.exists() {
@@ -638,6 +657,21 @@ fn replace_portable_executable(
         return Err(format!("Could not install update executable: {error}"));
     }
     Ok(current_exe)
+}
+
+#[cfg(any(windows, test))]
+fn is_versioned_portable_name(name: &str, current_version: &Version) -> bool {
+    name.eq_ignore_ascii_case(&format!("P99LoginProxy-{current_version}.exe"))
+}
+
+#[cfg(any(windows, test))]
+fn write_update_executable(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let mut file = File::create(path)
+        .map_err(|error| format!("Could not write update executable: {error}"))?;
+    file.write_all(bytes)
+        .map_err(|error| format!("Could not write update executable: {error}"))?;
+    file.sync_all()
+        .map_err(|error| format!("Could not flush update executable: {error}"))
 }
 
 #[cfg(target_os = "linux")]
@@ -853,6 +887,30 @@ mod tests {
         let archive = zip.finish().unwrap().into_inner();
         let bytes = validated_zip_executable(&archive, "P99LoginProxy-2.0.1.exe").unwrap();
         assert_eq!(bytes, b"portable exe");
+    }
+
+    #[test]
+    fn accepts_only_the_current_versioned_portable_name() {
+        let current = Version::parse("2.0.0-rc7").unwrap();
+        assert!(is_versioned_portable_name(
+            "P99LoginProxy-2.0.0-rc7.exe",
+            &current
+        ));
+        assert!(!is_versioned_portable_name("P99LoginProxy.exe", &current));
+        assert!(!is_versioned_portable_name(
+            "P99LoginProxy-2.0.0-rc6.exe",
+            &current
+        ));
+    }
+
+    #[test]
+    fn writes_and_flushes_update_with_writable_handle() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".P99LoginProxy-update.partial.exe");
+
+        write_update_executable(&path, b"replacement").unwrap();
+
+        assert_eq!(std::fs::read(path).unwrap(), b"replacement");
     }
 
     #[test]
