@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import configparser
+import stat
 
 from p99_sso_login_proxy import config_repair
 
@@ -54,6 +55,38 @@ def test_load_config_parser_handles_duplicate_option_error(tmp_path):
 
     assert parser.get("DEFAULT", "sso_api_name") == "Good Guys"
     assert parser.get("api_tokens", "Good Guys") == EXAMPLE_TOKEN
+
+
+def test_load_config_parser_repairs_read_only_file(tmp_path):
+    ini_path = tmp_path / "proxyconfig.ini"
+    _write_config(ini_path, BROKEN_CONFIG)
+    ini_path.chmod(stat.S_IREAD)
+
+    try:
+        parser = config_repair.load_config_parser(str(ini_path))
+
+        assert parser.get("DEFAULT", "sso_api_name") == "Good Guys"
+        assert ini_path.stat().st_mode & stat.S_IWRITE
+        assert "sso_api_name = Good Guys" in ini_path.read_text(encoding="utf-8")
+    finally:
+        ini_path.chmod(stat.S_IREAD | stat.S_IWRITE)
+
+
+def test_load_config_parser_uses_memory_repair_when_replace_is_blocked(tmp_path, monkeypatch):
+    ini_path = tmp_path / "proxyconfig.ini"
+    _write_config(ini_path, BROKEN_CONFIG)
+
+    def deny_replace(_source, _destination):
+        raise PermissionError("file is locked")
+
+    monkeypatch.setattr(config_repair.os, "replace", deny_replace)
+
+    parser = config_repair.load_config_parser(str(ini_path))
+
+    assert parser.get("DEFAULT", "sso_api_name") == "Good Guys"
+    assert parser.get("api_tokens", "Good Guys") == EXAMPLE_TOKEN
+    assert ini_path.read_text(encoding="utf-8") == BROKEN_CONFIG
+    assert not ini_path.with_suffix(".ini.tmp").exists()
 
 
 def test_custom_sso_api_name_resolves_to_good_guys(tmp_path):

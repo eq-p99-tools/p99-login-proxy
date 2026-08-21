@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import configparser
+import contextlib
+import logging
 import os
 import re
+import stat
 from collections.abc import Mapping
+
+logger = logging.getLogger(__name__)
 
 _CUSTOM_LABEL_RE = re.compile(r"^Custom:\s*(.+)$", re.IGNORECASE)
 _OLD_P99_NAME = "P99 Login Proxy"
@@ -230,11 +235,11 @@ def config_text_needs_repair(text: str) -> bool:
     return False
 
 
-def write_repaired_config(path: str, repaired: Mapping[str, Mapping[str, str]]) -> None:
+def _parser_from_sections(sections: Mapping[str, Mapping[str, str]]) -> configparser.ConfigParser:
     parser = configparser.ConfigParser()
     parser.optionxform = str
 
-    for section, options in repaired.items():
+    for section, options in sections.items():
         if section == _DEFAULT_SECTION:
             for key, value in options.items():
                 parser.set(_DEFAULT_SECTION, key, value)
@@ -243,11 +248,25 @@ def write_repaired_config(path: str, repaired: Mapping[str, Mapping[str, str]]) 
                 parser.add_section(section)
             for key, value in options.items():
                 parser.set(section, key, value)
+    return parser
+
+
+def write_repaired_config(path: str, repaired: Mapping[str, Mapping[str, str]]) -> None:
+    parser = _parser_from_sections(repaired)
 
     tmp_path = f"{path}.tmp"
-    with open(tmp_path, "w", encoding="utf-8") as handle:
-        parser.write(handle)
-    os.replace(tmp_path, path)
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as handle:
+            parser.write(handle)
+        if os.path.exists(path):
+            mode = os.stat(path).st_mode
+            if not mode & stat.S_IWRITE:
+                os.chmod(path, mode | stat.S_IWRITE)
+        os.replace(tmp_path, path)
+    except OSError:
+        with contextlib.suppress(OSError):
+            os.remove(tmp_path)
+        raise
 
 
 def repair_proxyconfig_ini(path: str) -> bool:
@@ -276,19 +295,29 @@ def load_config_parser(path: str) -> configparser.ConfigParser:
         return parser
 
     try:
-        parser.read(path, encoding="utf-8")
-    except (configparser.DuplicateOptionError, configparser.DuplicateSectionError):
-        repair_proxyconfig_ini(path)
-        parser = configparser.ConfigParser()
-        parser.optionxform = str
-        parser.read(path, encoding="utf-8")
+        with open(path, encoding="utf-8") as handle:
+            text = handle.read()
+    except OSError:
+        logger.exception("Unable to read %s; using default configuration", path)
         return parser
 
-    with open(path, encoding="utf-8") as handle:
-        if config_text_needs_repair(handle.read()):
-            repair_proxyconfig_ini(path)
-            parser = configparser.ConfigParser()
-            parser.optionxform = str
-            parser.read(path, encoding="utf-8")
+    try:
+        parser.read_string(text)
+        needs_repair = config_text_needs_repair(text)
+    except configparser.Error:
+        needs_repair = True
 
-    return parser
+    if not needs_repair:
+        return parser
+
+    repaired = repair_sections(_parse_ini_text(text))
+    repaired_parser = _parser_from_sections(repaired)
+    try:
+        write_repaired_config(path, repaired)
+    except OSError:
+        logger.warning(
+            "Unable to persist repaired configuration to %s; continuing with repaired settings in memory",
+            path,
+            exc_info=True,
+        )
+    return repaired_parser
