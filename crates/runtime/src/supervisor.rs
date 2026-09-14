@@ -587,8 +587,11 @@ impl AppSupervisor {
         self.stop_ws().await;
 
         self.ensure_ws_started().await;
-        self.ensure_log_watcher();
-        self.ensure_inventory_watcher();
+        // Watchers capture an SsoClient when they start. Explicitly reconnecting
+        // replaces WsHandle (and therefore SsoClient), so leaving the watchers
+        // running would make every later heartbeat/location update target the
+        // disconnected client and get silently dropped.
+        self.restart_watchers();
     }
 
     async fn ensure_ws_started(&mut self) {
@@ -735,6 +738,17 @@ impl AppSupervisor {
         );
         info!("EQ inventory watcher started");
         self.inventory_watcher = Some(handle);
+    }
+
+    fn restart_watchers(&mut self) {
+        while let Some(watcher) = self.log_watchers.pop() {
+            watcher.stop();
+        }
+        if let Some(watcher) = self.inventory_watcher.take() {
+            watcher.stop();
+        }
+        self.ensure_log_watcher();
+        self.ensure_inventory_watcher();
     }
 
     pub fn runtime_state(&self) -> RuntimeSnapshot {
