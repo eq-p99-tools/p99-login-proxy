@@ -48,5 +48,5 @@ semver = "1"
 protocol = { path = "crates/protocol" }
 proxy-core = { path = "crates/proxy-core" }
 runtime = { path = "crates/runtime" }
-eq-network-login = { git = "https://github.com/eq-p99-tools/eq-network", rev = "47b8c7e4b0f67ccae467f76f51ac28733ba6927c", version = "0.1.0" }
-eq-network-transport = { git = "https://github.com/eq-p99-tools/eq-network", rev = "47b8c7e4b0f67ccae467f76f51ac28733ba6927c", version = "0.1.0" }
+eq-network-login = { git = "https://github.com/eq-p99-tools/eq-network", branch = "main", version = "0.1.0" }
+eq-network-transport = { git = "https://github.com/eq-p99-tools/eq-network", branch = "main", version = "0.1.0" }

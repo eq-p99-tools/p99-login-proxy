@@ -1157,7 +1157,7 @@ dependencies = [
 [[package]]
 name = "eq-network-login"
 version = "0.1.0"
-source = "git+https://github.com/eq-p99-tools/eq-network?rev=47b8c7e4b0f67ccae467f76f51ac28733ba6927c#47b8c7e4b0f67ccae467f76f51ac28733ba6927c"
+source = "git+https://github.com/eq-p99-tools/eq-network?branch=main#da7bbd01a1a6fb8f472929b90db92b689494ee92"
 dependencies = [
  "cbc",
  "cipher",
@@ -1170,7 +1170,7 @@ dependencies = [
 [[package]]
 name = "eq-network-transport"
 version = "0.1.0"
-source = "git+https://github.com/eq-p99-tools/eq-network?rev=47b8c7e4b0f67ccae467f76f51ac28733ba6927c#47b8c7e4b0f67ccae467f76f51ac28733ba6927c"
+source = "git+https://github.com/eq-p99-tools/eq-network?branch=main#da7bbd01a1a6fb8f472929b90db92b689494ee92"
 dependencies = [
  "anyhow",
  "crc32fast",
