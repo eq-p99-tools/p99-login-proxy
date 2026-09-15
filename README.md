@@ -4,7 +4,9 @@ Rust + Tauri 2 + React rewrite of the P99 SSO Login Proxy.
 
 ## Stack
 
-- **protocol** — pure SOE/EQ wire parsing (no I/O)
+- **[eq-network](https://github.com/eq-p99-tools/eq-network)** — shared SOE
+  transport and EQ login packet codecs
+- **protocol** — proxy session rewriting and P99 server-list policy
 - **proxy-core** — config, credential routing, EQ files, log patterns
 - **runtime** — UDP proxy, WebSocket, watchers, `AppSupervisor`
 - **src-tauri** — desktop shell, tray, single-instance, updater

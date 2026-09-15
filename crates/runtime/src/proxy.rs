@@ -245,37 +245,37 @@ impl LoginProxyEngine {
             characters: &self.local.characters,
             cached_names: &cache,
         };
-        let decision = router.decide(&login.username, &login.password, None);
+        let decision = router.decide(login.username(), login.password(), None);
         info!(
-            username = %login.username,
+            username = %login.username(),
             proxy_only = self.config.proxy_only,
             "login combined packet"
         );
         match decision {
             CredentialDecision::Passthrough if self.config.proxy_only => {
-                info!(username = %login.username, "credentials passthrough (proxy only)");
+                info!(username = %login.username(), "credentials passthrough (proxy only)");
                 actions.login_method = Some("proxy_only".into());
-                let alias = login.username.clone();
+                let alias = login.username().to_owned();
                 actions.login_proxied = Some((alias.clone(), alias, "proxy_only".into()));
                 packet
             }
             CredentialDecision::SkipSsoPassthrough => {
-                info!(username = %login.username, "credentials passthrough (skip SSO list)");
+                info!(username = %login.username(), "credentials passthrough (skip SSO list)");
                 actions.login_method = Some("skip_sso".into());
-                let alias = login.username.clone();
+                let alias = login.username().to_owned();
                 actions.login_proxied = Some((alias.clone(), alias, "skip_sso".into()));
                 packet
             }
             CredentialDecision::Passthrough => {
-                info!(username = %login.username, "credentials passthrough");
+                info!(username = %login.username(), "credentials passthrough");
                 actions.login_method = Some("passthrough".into());
-                let alias = login.username.clone();
+                let alias = login.username().to_owned();
                 actions.login_proxied = Some((alias.clone(), alias, "passthrough".into()));
                 packet
             }
             CredentialDecision::LocalRewrite { username, password } => {
-                info!(username = %login.username, rewrite_as = %username, "local account rewrite");
-                let alias = login.username.clone();
+                info!(username = %login.username(), rewrite_as = %username, "local account rewrite");
+                let alias = login.username().to_owned();
                 let method = if self.local.characters.contains_name(&alias)
                     && alias.to_lowercase() != username.to_lowercase()
                 {
