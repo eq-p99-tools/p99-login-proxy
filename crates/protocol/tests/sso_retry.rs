@@ -38,7 +38,7 @@ fn classifier_synthesized_failure() {
 fn cs_offset_shifts_packet_subs() {
     let mut state = ProxySessionState::default();
     state.note_injected_client_packet();
-    let mut buf = build_combined_ack_then_packet(0, 2, &[0x04, 0x00]);
+    let mut buf = build_combined_ack_then_packet(0, 2, &[0x04, 0x00]).unwrap();
     state.adjust_combined(&mut buf);
     let cp = CombinedPacket::parse(&buf, 0, None).unwrap();
     let packet_sub = cp
@@ -65,9 +65,9 @@ fn armed_bad_password_triggers_retry() {
     session.seq_to_client = 1;
     session.seq_from_server = 1;
     let mut retry = SsoRetryState::default();
-    retry.arm(build_login_combined("user", "userpass", KEY_IV));
+    retry.arm(build_login_combined("user", "userpass", KEY_IV).unwrap());
 
-    let bad = build_login_accepted_combined(27392, LOGIN_RESULT_FAILURE_STATUS, 1, KEY_IV);
+    let bad = build_login_accepted_combined(27392, LOGIN_RESULT_FAILURE_STATUS, 1, KEY_IV).unwrap();
     let outcome =
         try_intercept_bad_password_combined(&bad, 0, bad.len(), &mut retry, &mut session, KEY_IV)
             .expect("should intercept");
@@ -93,7 +93,7 @@ fn bad_password_without_original_login() {
         original_login: None,
     };
 
-    let bad = build_login_accepted_combined(27392, LOGIN_RESULT_FAILURE_STATUS, 1, KEY_IV);
+    let bad = build_login_accepted_combined(27392, LOGIN_RESULT_FAILURE_STATUS, 1, KEY_IV).unwrap();
     let outcome =
         try_intercept_bad_password_combined(&bad, 0, bad.len(), &mut retry, &mut session, KEY_IV)
             .expect("should report missing original login");
@@ -108,8 +108,8 @@ fn bad_password_without_original_login() {
 
 #[test]
 fn login_packet_roundtrip() {
-    let combined = build_login_combined("user", "userpass", KEY_IV);
+    let combined = build_login_combined("user", "userpass", KEY_IV).unwrap();
     let parsed = LoginPacket::parse(&combined, KEY_IV).expect("parse login");
-    assert_eq!(parsed.username, "user");
-    assert_eq!(parsed.password, "userpass");
+    assert_eq!(parsed.username(), "user");
+    assert_eq!(parsed.password(), "userpass");
 }

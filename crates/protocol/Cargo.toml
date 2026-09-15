@@ -6,12 +6,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-des.workspace = true
-cbc.workspace = true
-cipher.workspace = true
-thiserror.workspace = true
-serde = { workspace = true, features = ["derive"] }
-serde_json.workspace = true
+eq-network-login.workspace = true
+eq-network-transport.workspace = true
 
 [dev-dependencies]
 hex = "0.4"

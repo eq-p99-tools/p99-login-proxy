@@ -34,9 +34,6 @@ csv = "1"
 directories = "6"
 secrecy = { version = "0.10", features = ["serde"] }
 futures-util = "0.3"
-des = "0.8"
-cbc = "0.1"
-cipher = "0.4"
 notify = "8"
 notify-debouncer-mini = "0.6"
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
@@ -51,3 +48,5 @@ semver = "1"
 protocol = { path = "crates/protocol" }
 proxy-core = { path = "crates/proxy-core" }
 runtime = { path = "crates/runtime" }
+eq-network-login = { git = "https://github.com/eq-p99-tools/eq-network", rev = "47b8c7e4b0f67ccae467f76f51ac28733ba6927c", version = "0.1.0" }
+eq-network-transport = { git = "https://github.com/eq-p99-tools/eq-network", rev = "47b8c7e4b0f67ccae467f76f51ac28733ba6927c", version = "0.1.0" }
