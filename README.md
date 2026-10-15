@@ -7,4 +7,4 @@ Thanks to Zaela for a lot of the original work reverse engineering the protocol:
 https://github.com/Zaela/p99-login-middlemand
 
 SSO backend wire protocol (canonical, in the reference server repo):
-https://github.com/eq-p99-tools/robotoald/blob/master/docs/backend-protocol.md
+https://github.com/eq-p99-tools/roboToald/blob/master/docs/backend-protocol.md
