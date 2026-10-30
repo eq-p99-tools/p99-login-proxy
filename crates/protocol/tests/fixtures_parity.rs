@@ -30,6 +30,8 @@ fn oracle_cs_offset_matches_session_adjust() {
     let combined = read_fixture("combined_ack_login.hex");
     let expected = read_fixture("combined_ack_login_cs_offset.hex");
     let mut state = ProxySessionState::default();
+    // The fixture's ack names the server's packet 0, so the proxy has seen it.
+    state.seq_from_server = 1;
     state.note_injected_client_packet();
     let mut buf = combined;
     state.adjust_combined(&mut buf);
