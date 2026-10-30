@@ -43,11 +43,14 @@ fn oracle_bad_password_classifier() {
 }
 
 #[test]
-fn combined_extended_length_subpacket() {
-    let big = vec![0u8; 300];
-    let subs = [&big[..], &[0x00, 0x15, 0x00, 0x01][..]];
+fn combined_parts_of_255_bytes_keep_a_one_byte_length() {
+    let long = [7u8; 255];
+    let subs = [&long[..], &[0x00, 0x15, 0x00, 0x01][..]];
     let combined = protocol::build_combined(&subs).unwrap();
+    assert_eq!(combined[2], 255);
     let parsed = CombinedPacket::parse(&combined, 0, None).unwrap();
     assert_eq!(parsed.subs.len(), 2);
-    assert_eq!(parsed.subs[0].length, 300);
+    assert_eq!(parsed.subs[0].length, 255);
+    assert_eq!(parsed.subs[1].length, 4);
+    assert!(protocol::build_combined(&[&[0u8; 256][..]]).is_err());
 }
