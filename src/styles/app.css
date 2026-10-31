@@ -699,6 +699,13 @@ select option {
   padding-right: 2.25rem;
 }
 
+/* WebView2 (Edge) adds its own reveal button to password inputs once the user
+   types; PasswordField already draws one, so hide the native control. */
+.password-input-wrap input::-ms-reveal,
+.password-input-wrap input::-ms-clear {
+  display: none;
+}
+
 .password-toggle {
   position: absolute;
   right: 0.2rem;
