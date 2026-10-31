@@ -564,7 +564,6 @@ export function ProxyPanel() {
                 label=""
                 aria-label="API Token"
                 placeholder="Access key"
-                visibilityMode="hold"
                 holdTip="Hold to show API token"
                 tooltip="API Token for auto-authentication. When this is set, the password entered in the EQ UI will be ignored."
                 value={token}

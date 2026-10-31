@@ -6,14 +6,11 @@ import { PasswordField } from "./PasswordField";
 afterEach(() => cleanup());
 
 describe("PasswordField", () => {
-  it("toggles visibility on click in default mode", () => {
+  it("does not stay revealed after a click", () => {
     render(<PasswordField aria-label="Secret" defaultValue="hidden" />);
     const input = screen.getByLabelText("Secret") as HTMLInputElement;
-    const toggle = screen.getByRole("button", { name: "Show password" });
+    const toggle = screen.getByRole("button", { name: "Hold to show password" });
 
-    expect(input.type).toBe("password");
-    fireEvent.click(toggle);
-    expect(input.type).toBe("text");
     fireEvent.click(toggle);
     expect(input.type).toBe("password");
   });
@@ -22,7 +19,6 @@ describe("PasswordField", () => {
     render(
       <PasswordField
         aria-label="API Token"
-        visibilityMode="hold"
         holdTip="Hold to show API token"
         defaultValue="secret-token"
       />,
@@ -39,7 +35,7 @@ describe("PasswordField", () => {
 
   it("hides again when pointer leaves the hold control", () => {
     render(
-      <PasswordField aria-label="API Token" visibilityMode="hold" defaultValue="secret-token" />,
+      <PasswordField aria-label="API Token" defaultValue="secret-token" />,
     );
     const input = screen.getByLabelText("API Token") as HTMLInputElement;
     const toggle = screen.getByRole("button", { name: "Hold to show password" });
