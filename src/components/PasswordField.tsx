@@ -3,14 +3,9 @@ import { useCallback, useState, type InputHTMLAttributes, type KeyboardEvent, ty
 import { PasswordVisibilityIcon } from "./PasswordVisibilityIcon";
 import { tooltipProps } from "./tooltip";
 
-type PasswordVisibilityMode = "toggle" | "hold";
-
 interface PasswordFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "type"> {
   label?: string;
-  /** Toggle click vs press-and-hold to reveal (hold is safer for secrets on screen). */
-  visibilityMode?: PasswordVisibilityMode;
-  showTip?: string;
-  hideTip?: string;
+  /** The value shows only while the eye control is held, so a secret never stays on screen. */
   holdTip?: string;
   tooltip?: string;
 }
@@ -19,9 +14,6 @@ export function PasswordField({
   label,
   id,
   className = "",
-  visibilityMode = "toggle",
-  showTip = "Show password",
-  hideTip = "Hide password",
   holdTip = "Hold to show password",
   tooltip,
   ...rest
@@ -32,14 +24,7 @@ export function PasswordField({
   const reveal = useCallback(() => setVisible(true), []);
   const conceal = useCallback(() => setVisible(false), []);
 
-  const visibilityTip =
-    visibilityMode === "hold"
-      ? visible
-        ? "Release to hide"
-        : holdTip
-      : visible
-        ? hideTip
-        : showTip;
+  const visibilityTip = visible ? "Release to hide" : holdTip;
 
   const onHoldPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -69,20 +54,15 @@ export function PasswordField({
           type="button"
           className="password-toggle"
           aria-label={visibilityTip}
-          data-visibility-mode={visibilityMode}
           {...tooltipProps(visibilityTip)}
-          {...(visibilityMode === "toggle"
-            ? { onClick: () => setVisible((v) => !v) }
-            : {
-                onPointerDown: onHoldPointerDown,
-                onPointerUp: conceal,
-                onPointerLeave: conceal,
-                onPointerCancel: conceal,
-                onKeyDown: onHoldKeyDown,
-                onKeyUp: onHoldKeyUp,
-                onBlur: conceal,
-                onContextMenu: (event) => event.preventDefault(),
-              })}
+          onPointerDown={onHoldPointerDown}
+          onPointerUp={conceal}
+          onPointerLeave={conceal}
+          onPointerCancel={conceal}
+          onKeyDown={onHoldKeyDown}
+          onKeyUp={onHoldKeyUp}
+          onBlur={conceal}
+          onContextMenu={(event) => event.preventDefault()}
         >
           <PasswordVisibilityIcon visible={visible} />
         </button>

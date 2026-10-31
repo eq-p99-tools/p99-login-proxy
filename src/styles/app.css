@@ -723,6 +723,8 @@ select option {
   color: #c4c6cc;
   cursor: pointer;
   line-height: 0;
+  touch-action: none;
+  user-select: none;
 }
 
 .password-toggle:hover {
@@ -732,11 +734,6 @@ select option {
 .password-toggle:focus-visible {
   outline: 1px solid var(--accent-border);
   outline-offset: 1px;
-}
-
-.password-toggle[data-visibility-mode="hold"] {
-  touch-action: none;
-  user-select: none;
 }
 
 .token-saving {
