@@ -30,6 +30,8 @@ fn oracle_cs_offset_matches_session_adjust() {
     let combined = read_fixture("combined_ack_login.hex");
     let expected = read_fixture("combined_ack_login_cs_offset.hex");
     let mut state = ProxySessionState::default();
+    // The fixture's ack names the server's packet 0, so the proxy has seen it.
+    state.seq_from_server = 1;
     state.note_injected_client_packet();
     let mut buf = combined;
     state.adjust_combined(&mut buf);
@@ -43,11 +45,14 @@ fn oracle_bad_password_classifier() {
 }
 
 #[test]
-fn combined_extended_length_subpacket() {
-    let big = vec![0u8; 300];
-    let subs = [&big[..], &[0x00, 0x15, 0x00, 0x01][..]];
+fn combined_parts_of_255_bytes_keep_a_one_byte_length() {
+    let long = [7u8; 255];
+    let subs = [&long[..], &[0x00, 0x15, 0x00, 0x01][..]];
     let combined = protocol::build_combined(&subs).unwrap();
+    assert_eq!(combined[2], 255);
     let parsed = CombinedPacket::parse(&combined, 0, None).unwrap();
     assert_eq!(parsed.subs.len(), 2);
-    assert_eq!(parsed.subs[0].length, 300);
+    assert_eq!(parsed.subs[0].length, 255);
+    assert_eq!(parsed.subs[1].length, 4);
+    assert!(protocol::build_combined(&[&[0u8; 256][..]]).is_err());
 }
