@@ -18,7 +18,8 @@ const SSO_BACKEND_LOCALHOST: (&str, &str) = ("Localhost", "http://localhost:5998
 
 /// EQ log-file server names (`eqlog_<character>_<server>.txt`) whose events each
 /// guild's SSO backend receives: ToDs, FTEs, location updates and heartbeats.
-/// A backend not listed here gets `DEFAULT_SSO_REPORT_SERVERS`.
+/// A backend not listed here gets `DEFAULT_SSO_REPORT_SERVERS`; an entry with
+/// an empty list silences that backend's reports entirely.
 pub const SSO_BACKEND_REPORT_SERVERS: &[(&str, &[&str])] = &[];
 
 /// Log servers whose events go to the named SSO backend.
