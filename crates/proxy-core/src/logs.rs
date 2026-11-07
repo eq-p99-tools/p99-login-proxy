@@ -142,8 +142,8 @@ pub fn is_raid_target(name: &str) -> bool {
     RAID_TARGETS.contains(lc.as_str())
 }
 
-/// Log-file server names (`eqlog_<character>_<server>.txt`) whose events feed
-/// the SSO backend when the backend's `full_state` names none: the live P99
+/// Log-file server names (`eqlog_<character>_<server>.txt`) whose events go to
+/// an SSO backend with no entry in `SSO_BACKEND_REPORT_SERVERS`: the live P99
 /// servers. A test server such as AIH shares character names and raid mobs with
 /// them, and its kills, FTEs, locations and heartbeats must not reach a guild.
 pub const DEFAULT_SSO_REPORT_SERVERS: &[&str] = &["P1999Green", "project1999", "P1999PVP"];

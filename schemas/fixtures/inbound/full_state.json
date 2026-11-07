@@ -39,6 +39,5 @@
   },
   "count": 1,
   "dynamic_tag_zones": ["seb", "vp", "st"],
-  "dynamic_tag_classes": ["clr", "enc", "wiz"],
-  "report_servers": ["P1999Green"]
+  "dynamic_tag_classes": ["clr", "enc", "wiz"]
 }

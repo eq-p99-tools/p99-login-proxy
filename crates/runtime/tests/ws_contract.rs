@@ -75,7 +75,6 @@ fn full_state_fixture_deserializes() {
             account_tree,
             dynamic_tag_zones,
             dynamic_tag_classes,
-            report_servers,
         } => {
             let entry = account_tree
                 .get("myaccount")
@@ -86,16 +85,7 @@ fn full_state_fixture_deserializes() {
             );
             assert_eq!(dynamic_tag_zones, vec!["seb", "vp", "st"]);
             assert_eq!(dynamic_tag_classes, vec!["clr", "enc", "wiz"]);
-            assert_eq!(report_servers, Some(vec!["P1999Green".to_string()]));
         }
-        other => panic!("expected FullState, got {other:?}"),
-    }
-}
-
-#[test]
-fn full_state_without_report_servers_deserializes() {
-    match serde_json::from_value(json!({"type": "full_state", "account_tree": {}})).unwrap() {
-        WsInbound::FullState { report_servers, .. } => assert_eq!(report_servers, None),
         other => panic!("expected FullState, got {other:?}"),
     }
 }

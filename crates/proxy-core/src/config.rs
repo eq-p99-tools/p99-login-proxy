@@ -16,6 +16,21 @@ pub const SSO_BACKENDS: &[(&str, &str)] = &[
 
 const SSO_BACKEND_LOCALHOST: (&str, &str) = ("Localhost", "http://localhost:5998");
 
+/// EQ log-file server names (`eqlog_<character>_<server>.txt`) whose events each
+/// guild's SSO backend receives: ToDs, FTEs, location updates and heartbeats.
+/// A backend not listed here gets `DEFAULT_SSO_REPORT_SERVERS`.
+pub const SSO_BACKEND_REPORT_SERVERS: &[(&str, &[&str])] = &[];
+
+/// Log servers whose events go to the named SSO backend.
+pub fn sso_report_servers(backend_name: &str) -> &'static [&'static str] {
+    SSO_BACKEND_REPORT_SERVERS
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(backend_name))
+        .map_or(crate::logs::DEFAULT_SSO_REPORT_SERVERS, |(_, servers)| {
+            servers
+        })
+}
+
 /// Built-in backends for the running app version (Localhost only on prerelease builds).
 pub fn builtin_sso_backends() -> Vec<(&'static str, &'static str)> {
     let mut options: Vec<(&str, &str)> = SSO_BACKENDS.to_vec();
@@ -444,6 +459,18 @@ pub fn save_config_file(path: &Path, file: &ConfigFileV1) -> Result<(), ConfigEr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn report_servers_default_to_the_live_p99_servers() {
+        assert_eq!(
+            sso_report_servers("Custom Backend"),
+            crate::logs::DEFAULT_SSO_REPORT_SERVERS
+        );
+        for (name, servers) in SSO_BACKEND_REPORT_SERVERS {
+            assert_eq!(sso_report_servers(name), *servers);
+            assert_eq!(sso_report_servers(&name.to_uppercase()), *servers);
+        }
+    }
 
     #[test]
     fn localhost_backend_follows_app_prerelease() {

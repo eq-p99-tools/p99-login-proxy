@@ -25,7 +25,8 @@ pub use class_translate::resolve_class;
 pub use config::{
     builtin_sso_backends, config_file_path, list_sso_backend_options, load_config,
     load_config_file, parse_skip_sso_accounts, resolve_sso_api_url, resolve_sso_ca_bundle,
-    save_config_file, ConfigFileV1, SsoCaBundleMode, ValidatedConfig, SSO_BACKENDS,
+    save_config_file, sso_report_servers, ConfigFileV1, SsoCaBundleMode, ValidatedConfig,
+    SSO_BACKENDS, SSO_BACKEND_REPORT_SERVERS,
 };
 pub use decision::{CredentialDecision, CredentialRouter};
 pub use eq_config::{
