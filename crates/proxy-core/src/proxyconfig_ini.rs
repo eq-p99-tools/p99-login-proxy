@@ -373,7 +373,7 @@ fn normalize_backend_name(name: &str) -> String {
     }
 }
 
-/// When legacy INI used ``P99 Login Proxy`` as the backend, seed Good Guys + Marginal Threat tokens.
+/// When legacy INI used ``P99 Login Proxy`` as the backend, seed the Good Guys token.
 fn seed_p99_proxy_legacy_tokens(
     api_tokens: &mut HashMap<String, String>,
     ini_path: &Path,
@@ -403,11 +403,7 @@ fn seed_p99_proxy_legacy_tokens(
     let Some(token) = legacy_token else {
         return;
     };
-    for backend in ["Good Guys", "Marginal Threat"] {
-        api_tokens
-            .entry(backend.to_string())
-            .or_insert_with(|| token.clone());
-    }
+    api_tokens.entry("Good Guys".to_string()).or_insert(token);
 }
 
 fn get_str(section: Option<&ini::Properties>, key: &str, default: &str) -> String {
