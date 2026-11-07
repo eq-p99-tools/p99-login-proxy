@@ -11,8 +11,8 @@ use std::time::Duration;
 use chrono::{Local, NaiveTime, TimeZone};
 use futures_util::StreamExt;
 use proxy_core::{
-    cmp_release_versions, expected_linux_appimage_asset_name, expected_windows_zip_asset_name,
-    load_config, version, version_string,
+    expected_linux_appimage_asset_name, expected_windows_zip_asset_name, load_config, version,
+    version_string,
 };
 use pulldown_cmark::{html, Options, Parser};
 use semver::Version;
@@ -228,7 +228,7 @@ pub async fn check_for_updates(notify_no_update: bool) -> UpdateCheckResult {
         );
     };
 
-    if cmp_release_versions(&latest.version, &current).is_gt() {
+    if latest.version > current {
         info!(latest = %latest.version, "update available");
         update_check_result(
             true,
@@ -300,7 +300,7 @@ async fn fetch_releases() -> Result<Vec<ParsedRelease>, String> {
             assets: release.assets,
         });
     }
-    releases.sort_by(|a, b| cmp_release_versions(&b.version, &a.version));
+    releases.sort_by(|a, b| b.version.cmp(&a.version));
     Ok(releases)
 }
 
@@ -346,7 +346,7 @@ fn validate_update_target(
             current.major, target.major
         ));
     }
-    if cmp_release_versions(target, current).is_le() {
+    if target <= current {
         return Err(format!(
             "Update target v{target} must be newer than v{current}"
         ));
@@ -988,13 +988,13 @@ mod tests {
             validate_update_target(&Version::parse("2.0.0").unwrap(), &current, false, true)
                 .is_err()
         );
-        let rc9 = Version::parse("2.0.0-rc9").unwrap();
+        let rc9 = Version::parse("2.0.1-rc.9").unwrap();
         assert!(
-            validate_update_target(&Version::parse("2.0.0-rc10").unwrap(), &rc9, true, true)
+            validate_update_target(&Version::parse("2.0.1-rc.10").unwrap(), &rc9, true, true)
                 .is_ok()
         );
         assert!(
-            validate_update_target(&rc9, &Version::parse("2.0.0-rc10").unwrap(), true, true)
+            validate_update_target(&rc9, &Version::parse("2.0.1-rc.10").unwrap(), true, true)
                 .is_err()
         );
         assert!(validate_update_target(

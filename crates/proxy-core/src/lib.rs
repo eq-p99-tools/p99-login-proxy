@@ -52,7 +52,7 @@ pub use net_util::split_host_port;
 pub use proxy_mode::ProxyMode;
 pub use proxyconfig_ini::{parse_proxyconfig_ini, scrub_proxyconfig_tokens, write_proxyconfig_ini};
 pub use release::{
-    cmp_release_versions, expected_linux_appimage_asset_name, expected_portable_exe_name,
+    expected_linux_appimage_asset_name, expected_portable_exe_name,
     expected_windows_zip_asset_name, parse_v2_release_tag, release_tag_is_prerelease,
     validate_update_zip, ReleaseTagError,
 };
