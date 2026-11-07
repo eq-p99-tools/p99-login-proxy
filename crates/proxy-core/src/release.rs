@@ -1,5 +1,6 @@
 //! Release tag parsing and portable update archive validation.
 
+use std::cmp::Ordering;
 use std::io::Cursor;
 
 use semver::Version;
@@ -31,6 +32,78 @@ pub fn release_tag_is_prerelease(tag: &str) -> bool {
     parse_v2_release_tag(tag)
         .ok()
         .is_some_and(|version| !version.pre.is_empty())
+}
+
+/// Order release versions as the release tags mean them.
+///
+/// Semver compares a prerelease identifier such as `rc10` as plain text, so
+/// `2.0.0-rc10` sorts before `2.0.0-rc9`. This compares runs of digits inside
+/// each prerelease identifier as numbers instead; everything else (core
+/// version first, a release above its prereleases, more identifiers above
+/// fewer) follows semver. Build metadata is ignored.
+pub fn cmp_release_versions(a: &Version, b: &Version) -> Ordering {
+    (a.major, a.minor, a.patch)
+        .cmp(&(b.major, b.minor, b.patch))
+        .then_with(|| match (a.pre.is_empty(), b.pre.is_empty()) {
+            (true, true) => Ordering::Equal,
+            (true, false) => Ordering::Greater,
+            (false, true) => Ordering::Less,
+            (false, false) => {
+                let mut left = a.pre.as_str().split('.');
+                let mut right = b.pre.as_str().split('.');
+                loop {
+                    match (left.next(), right.next()) {
+                        (None, None) => return Ordering::Equal,
+                        (None, Some(_)) => return Ordering::Less,
+                        (Some(_), None) => return Ordering::Greater,
+                        (Some(l), Some(r)) => match cmp_identifier(l, r) {
+                            Ordering::Equal => {}
+                            other => return other,
+                        },
+                    }
+                }
+            }
+        })
+}
+
+/// Compare one prerelease identifier, digit runs numerically.
+fn cmp_identifier(a: &str, b: &str) -> Ordering {
+    let (mut a, mut b) = (a, b);
+    loop {
+        match (a.is_empty(), b.is_empty()) {
+            (true, true) => return Ordering::Equal,
+            (true, false) => return Ordering::Less,
+            (false, true) => return Ordering::Greater,
+            (false, false) => {}
+        }
+        let a_digits = a.starts_with(|c: char| c.is_ascii_digit());
+        let b_digits = b.starts_with(|c: char| c.is_ascii_digit());
+        let (a_run, a_rest) = split_run(a, a_digits);
+        let (b_run, b_rest) = split_run(b, b_digits);
+        let order = match (a_digits, b_digits) {
+            // Semver: numeric identifiers sort below alphanumeric ones.
+            (true, false) => Ordering::Less,
+            (false, true) => Ordering::Greater,
+            (true, true) => {
+                let a_num = a_run.trim_start_matches('0');
+                let b_num = b_run.trim_start_matches('0');
+                a_num.len().cmp(&b_num.len()).then_with(|| a_num.cmp(b_num))
+            }
+            (false, false) => a_run.cmp(b_run),
+        };
+        if order != Ordering::Equal {
+            return order;
+        }
+        (a, b) = (a_rest, b_rest);
+    }
+}
+
+/// Split off the leading run of digits (or of non-digits).
+fn split_run(text: &str, digits: bool) -> (&str, &str) {
+    let end = text
+        .find(|c: char| c.is_ascii_digit() != digits)
+        .unwrap_or(text.len());
+    text.split_at(end)
 }
 
 /// Portable executable member name inside the update zip.
@@ -82,6 +155,35 @@ mod tests {
             .unwrap();
         zip.write_all(payload).unwrap();
         zip.finish().unwrap().into_inner()
+    }
+
+    fn release_cmp(a: &str, b: &str) -> Ordering {
+        cmp_release_versions(&Version::parse(a).unwrap(), &Version::parse(b).unwrap())
+    }
+
+    #[test]
+    fn release_candidates_order_by_number() {
+        assert_eq!(release_cmp("2.0.0-rc10", "2.0.0-rc9"), Ordering::Greater);
+        assert_eq!(release_cmp("2.0.0-rc9", "2.0.0-rc10"), Ordering::Less);
+        assert_eq!(release_cmp("2.0.0-rc10", "2.0.0-rc10"), Ordering::Equal);
+        assert_eq!(release_cmp("2.0.0-rc.10", "2.0.0-rc.9"), Ordering::Greater);
+        assert_eq!(release_cmp("2.0.0-rc010", "2.0.0-rc9"), Ordering::Greater);
+    }
+
+    #[test]
+    fn release_order_otherwise_follows_semver() {
+        assert_eq!(release_cmp("2.0.0", "2.0.0-rc10"), Ordering::Greater);
+        assert_eq!(release_cmp("2.0.1-rc1", "2.0.0-rc10"), Ordering::Greater);
+        assert_eq!(release_cmp("2.0.1-rc1", "2.0.0"), Ordering::Greater);
+        assert_eq!(
+            release_cmp("2.0.0-beta1", "2.0.0-alpha2"),
+            Ordering::Greater
+        );
+        assert_eq!(release_cmp("2.0.0-rc", "2.0.0-rc1"), Ordering::Less);
+        assert_eq!(release_cmp("2.0.0-rc.1", "2.0.0-rc"), Ordering::Greater);
+        assert_eq!(release_cmp("2.0.0-1", "2.0.0-rc"), Ordering::Less);
+        assert_eq!(release_cmp("2.0.0-rc1", "2.0.0-rc1.1"), Ordering::Less);
+        assert_eq!(release_cmp("2.0.0+b1", "2.0.0+b2"), Ordering::Equal);
     }
 
     #[test]
