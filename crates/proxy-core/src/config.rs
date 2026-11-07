@@ -32,7 +32,7 @@ pub const SSO_BACKEND_REPORT_SERVERS: &[(&str, &[&str])] = &[
 pub fn sso_report_servers(backend_name: &str) -> &'static [&'static str] {
     SSO_BACKEND_REPORT_SERVERS
         .iter()
-        .find(|(name, _)| name.eq_ignore_ascii_case(backend_name))
+        .find(|(name, _)| *name == backend_name)
         .map_or(crate::logs::DEFAULT_SSO_REPORT_SERVERS, |(_, servers)| {
             servers
         })
@@ -474,7 +474,6 @@ mod tests {
         );
         for (name, servers) in SSO_BACKEND_REPORT_SERVERS {
             assert_eq!(sso_report_servers(name), *servers);
-            assert_eq!(sso_report_servers(&name.to_uppercase()), *servers);
         }
     }
 
@@ -500,12 +499,12 @@ mod tests {
             };
             assert_eq!(resolve_sso_api_url(&file), *url, "{name}");
         }
-        let gone = ConfigFileV1 {
-            sso_backend: "Marginal Threat".to_string(),
+        let unknown = ConfigFileV1 {
+            sso_backend: "No Such Guild".to_string(),
             sso_api_url: None,
             ..ConfigFileV1::default()
         };
-        assert_eq!(resolve_sso_api_url(&gone), "");
+        assert_eq!(resolve_sso_api_url(&unknown), "");
     }
 
     #[test]

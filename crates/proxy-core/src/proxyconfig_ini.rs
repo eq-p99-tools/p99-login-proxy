@@ -30,9 +30,8 @@ pub fn parse_proxyconfig_ini(path: &Path) -> Result<ConfigFileV1, ConfigError> {
     if api_tokens.is_empty() {
         if let Some(section) = ini.section(Some("api_tokens")) {
             for (key, value) in section.iter() {
-                let name = normalize_backend_name(key);
                 if !value.trim().is_empty() {
-                    api_tokens.insert(name, value.trim().to_string());
+                    insert_backend_value(&mut api_tokens, key, value.trim().to_string());
                 }
             }
         }
@@ -46,9 +45,8 @@ pub fn parse_proxyconfig_ini(path: &Path) -> Result<ConfigFileV1, ConfigError> {
     let mut sso_backends = HashMap::new();
     if let Some(section) = ini.section(Some("sso_backends")) {
         for (key, value) in section.iter() {
-            let name = normalize_backend_name(key);
             if !value.trim().is_empty() {
-                sso_backends.insert(name, value.trim().to_string());
+                insert_backend_value(&mut sso_backends, key, value.trim().to_string());
             }
         }
     }
@@ -360,16 +358,31 @@ fn read_raw_api_tokens_section(ini_path: &Path) -> HashMap<String, String> {
     let mut tokens = HashMap::new();
     for_each_raw_assignment(ini_path, |section, key, value| {
         if section.eq_ignore_ascii_case("api_tokens") && !value.is_empty() {
-            tokens.insert(normalize_backend_name(key), value.to_string());
+            insert_backend_value(&mut tokens, key, value.to_string());
         }
     });
     tokens
 }
 
+/// Map retired backend names onto the built-in backend that took them over:
+/// the old ``P99 Login Proxy`` names and the removed Marginal Threat entry all
+/// used the Good Guys endpoint.
 fn normalize_backend_name(name: &str) -> String {
     match name.trim() {
-        "P99 Login Proxy" | "P99 Login Proxy (GG)" => "Good Guys".to_string(),
+        "P99 Login Proxy" | "P99 Login Proxy (GG)" | "Marginal Threat" => "Good Guys".to_string(),
         other => other.to_string(),
+    }
+}
+
+/// Insert a value read under `key`. A value under the removed Marginal Threat
+/// name never replaces one already stored for Good Guys (the legacy
+/// ``P99 Login Proxy`` keys keep their v1 precedence).
+fn insert_backend_value(map: &mut HashMap<String, String>, key: &str, value: String) {
+    let name = normalize_backend_name(key);
+    if key.trim() == "Marginal Threat" {
+        map.entry(name).or_insert(value);
+    } else {
+        map.insert(name, value);
     }
 }
 
@@ -668,10 +681,50 @@ Marginal Threat = SealNonchalantSide
             cfg.api_tokens.get("Good Guys").map(String::as_str),
             Some("SealNonchalantSide")
         );
+        assert_eq!(cfg.api_tokens.get("Marginal Threat"), None);
+    }
+
+    #[test]
+    fn marginal_threat_loads_as_good_guys() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("proxyconfig.ini");
+        std::fs::write(
+            &path,
+            "[DEFAULT]\nsso_api_name = Marginal Threat\n\n[api_tokens]\nMarginal Threat = MtToken\n",
+        )
+        .unwrap();
+        let cfg = parse_proxyconfig_ini(&path).unwrap();
+        assert_eq!(cfg.sso_backend, "Good Guys");
         assert_eq!(
-            cfg.api_tokens.get("Marginal Threat").map(String::as_str),
-            Some("SealNonchalantSide")
+            cfg.api_tokens.get("Good Guys").map(String::as_str),
+            Some("MtToken")
         );
+        assert_eq!(
+            crate::resolve_sso_api_url(&cfg),
+            "https://proxy.p99loginproxy.net"
+        );
+    }
+
+    #[test]
+    fn a_good_guys_token_wins_over_a_marginal_threat_one() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("proxyconfig.ini");
+        for body in [
+            "[api_tokens]\nGood Guys = GgToken\nMarginal Threat = MtToken\n",
+            "[api_tokens]\nMarginal Threat = MtToken\nGood Guys = GgToken\n",
+        ] {
+            std::fs::write(
+                &path,
+                format!("[DEFAULT]\nsso_api_name = Good Guys\n\n{body}"),
+            )
+            .unwrap();
+            let cfg = parse_proxyconfig_ini(&path).unwrap();
+            assert_eq!(
+                cfg.api_tokens.get("Good Guys").map(String::as_str),
+                Some("GgToken"),
+                "{body}"
+            );
+        }
     }
 
     #[test]
