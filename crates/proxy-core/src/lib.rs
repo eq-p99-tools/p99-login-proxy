@@ -42,7 +42,10 @@ pub use local_data::{
     load_local_accounts, load_local_characters, load_local_data, save_local_accounts,
     save_local_characters, try_load_local_data, LocalDataBundle, LocalDataError,
 };
-pub use logs::{character_from_log_path, is_raid_target, LogEvent, LogEventKind, LogPatterns};
+pub use logs::{
+    character_from_log_path, is_raid_target, log_reports_to_sso, server_from_log_path, LogEvent,
+    LogEventKind, LogPatterns, SSO_REPORT_SERVERS,
+};
 pub use model::*;
 pub use net_util::split_host_port;
 pub use proxy_mode::ProxyMode;

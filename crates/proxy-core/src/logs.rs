@@ -142,6 +142,12 @@ pub fn is_raid_target(name: &str) -> bool {
     RAID_TARGETS.contains(lc.as_str())
 }
 
+/// Log-file server names (`eqlog_<character>_<server>.txt`) of the live P99
+/// servers. Only logs from these feed the SSO backend: a test server such as
+/// AIH shares character names and raid mobs with the live servers, and its
+/// kills, FTEs and locations must not reach a live guild's tracker.
+pub const SSO_REPORT_SERVERS: &[&str] = &["P1999Green", "project1999", "P1999PVP"];
+
 pub fn character_from_log_path(path: &std::path::Path) -> Option<String> {
     let name = path.file_name()?.to_str()?;
     let stem = name.strip_suffix(".txt")?;
@@ -151,6 +157,26 @@ pub fn character_from_log_path(path: &std::path::Path) -> Option<String> {
     } else {
         None
     }
+}
+
+/// Server name from an `eqlog_<character>_<server>.txt` path.
+pub fn server_from_log_path(path: &std::path::Path) -> Option<String> {
+    let name = path.file_name()?.to_str()?;
+    let stem = name.strip_suffix(".txt")?;
+    let mut parts = stem.splitn(3, '_');
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some("eqlog"), Some(_), Some(server)) if !server.is_empty() => Some(server.to_string()),
+        _ => None,
+    }
+}
+
+/// Whether events read from this log may be reported to the SSO backend.
+pub fn log_reports_to_sso(path: &std::path::Path) -> bool {
+    server_from_log_path(path).is_some_and(|server| {
+        SSO_REPORT_SERVERS
+            .iter()
+            .any(|allowed| allowed.eq_ignore_ascii_case(&server))
+    })
 }
 
 impl Default for LogPatterns {
@@ -362,6 +388,38 @@ mod tests {
     use super::*;
 
     const TS: &str = "[Wed Jul 30 12:00:00 2026] ";
+
+    #[test]
+    fn server_from_log_path_reads_the_last_part() {
+        use std::path::Path;
+        assert_eq!(
+            server_from_log_path(Path::new("Logs/eqlog_Hero_P1999Green.txt")).as_deref(),
+            Some("P1999Green")
+        );
+        assert_eq!(server_from_log_path(Path::new("eqlog_Hero.txt")), None);
+        assert_eq!(server_from_log_path(Path::new("eqlog_Hero_.txt")), None);
+        assert_eq!(server_from_log_path(Path::new("dbg.txt")), None);
+    }
+
+    #[test]
+    fn only_live_p99_logs_report_to_sso() {
+        use std::path::Path;
+        for live in [
+            "eqlog_Hero_P1999Green.txt",
+            "eqlog_Hero_project1999.txt",
+            "eqlog_Hero_P1999PVP.txt",
+            "eqlog_Hero_p1999green.txt",
+        ] {
+            assert!(log_reports_to_sso(Path::new(live)), "{live}");
+        }
+        for other in [
+            "eqlog_Hero_aih.txt",
+            "eqlog_Hero_test.txt",
+            "eqlog_Hero.txt",
+        ] {
+            assert!(!log_reports_to_sso(Path::new(other)), "{other}");
+        }
+    }
 
     #[test]
     fn classify_bind_confirm() {

@@ -4,8 +4,8 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime};
 
 use proxy_core::{
-    character_from_log_path, class_translate, is_raid_target, zone_to_zonekey, LogEventKind,
-    LogPatterns,
+    character_from_log_path, class_translate, is_raid_target, log_reports_to_sso, zone_to_zonekey,
+    LogEventKind, LogPatterns,
 };
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
@@ -176,13 +176,14 @@ async fn read_new_lines(path: &Path, position: u64, mut ctx: LineContext<'_>) ->
     let text = String::from_utf8_lossy(&buf);
     let character = character_from_log_path(path).unwrap_or_default();
     let char_lc = character.to_lowercase();
+    let reports_to_sso = log_reports_to_sso(path);
 
     for line in text.lines() {
         let line = line.trim_end();
         if line.is_empty() {
             continue;
         }
-        handle_line(line, &character, &char_lc, &mut ctx).await;
+        handle_line(line, &character, &char_lc, reports_to_sso, &mut ctx).await;
     }
     position + buf.len() as u64
 }
@@ -254,18 +255,22 @@ fn character_is_tracked(
     (in_sso, in_local)
 }
 
-async fn handle_line(line: &str, character: &str, char_lc: &str, ctx: &mut LineContext<'_>) {
-    let (in_sso, in_local) = character_is_tracked(
-        char_lc,
-        ctx.watcher.sso.as_ref(),
-        &ctx.watcher.local_character_names,
-    );
+async fn handle_line(
+    line: &str,
+    character: &str,
+    char_lc: &str,
+    reports_to_sso: bool,
+    ctx: &mut LineContext<'_>,
+) {
+    // Logs from servers outside SSO_REPORT_SERVERS (e.g. a test server) still
+    // update local characters but send nothing to the SSO backend.
+    let sso = ctx.watcher.sso.as_ref().filter(|_| reports_to_sso);
+    let (in_sso, in_local) = character_is_tracked(char_lc, sso, &ctx.watcher.local_character_names);
     if !in_sso && !in_local {
         return;
     }
 
     let event = ctx.patterns.classify(line);
-    let sso = ctx.watcher.sso.as_ref();
     let event_tx = &ctx.watcher.event_tx;
 
     match event.kind {
