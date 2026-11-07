@@ -11,10 +11,32 @@ use tracing::warn;
 pub const SSO_BACKENDS: &[(&str, &str)] = &[
     ("Good Guys", "https://proxy.p99loginproxy.net"),
     ("Kingdom", "https://bot.kingdomdkp.com"),
-    ("Marginal Threat", "https://proxy.p99loginproxy.net"),
+    ("Snipe Team", "https://proxy.p99loginproxy.net"),
+    ("EFB&T", "https://proxy.p99loginproxy.net"),
 ];
 
 const SSO_BACKEND_LOCALHOST: (&str, &str) = ("Localhost", "http://localhost:5998");
+
+/// EQ log-file server names (`eqlog_<character>_<server>.txt`) whose events each
+/// guild's SSO backend receives: ToDs, FTEs, location updates and heartbeats.
+/// A backend not listed here gets `DEFAULT_SSO_REPORT_SERVERS`; an entry with
+/// an empty list silences that backend's reports entirely.
+pub const SSO_BACKEND_REPORT_SERVERS: &[(&str, &[&str])] = &[
+    ("Good Guys", &["P1999Green"]),
+    ("Kingdom", &["P1999Green"]),
+    ("Snipe Team", &["project1999"]),
+    ("EFB&T", &["P1999Green"]),
+];
+
+/// Log servers whose events go to the named SSO backend.
+pub fn sso_report_servers(backend_name: &str) -> &'static [&'static str] {
+    SSO_BACKEND_REPORT_SERVERS
+        .iter()
+        .find(|(name, _)| *name == backend_name)
+        .map_or(crate::logs::DEFAULT_SSO_REPORT_SERVERS, |(_, servers)| {
+            servers
+        })
+}
 
 /// Built-in backends for the running app version (Localhost only on prerelease builds).
 pub fn builtin_sso_backends() -> Vec<(&'static str, &'static str)> {
@@ -371,12 +393,11 @@ pub fn resolve_sso_api_url(file: &ConfigFileV1) -> String {
             return url.trim().to_string();
         }
     }
-    match file.sso_backend.as_str() {
-        "Good Guys" | "Marginal Threat" => "https://proxy.p99loginproxy.net".to_string(),
-        "Kingdom" => "https://bot.kingdomdkp.com".to_string(),
-        "Localhost" => "http://localhost:5998".to_string(),
-        _ => String::new(),
-    }
+    SSO_BACKENDS
+        .iter()
+        .chain(std::iter::once(&SSO_BACKEND_LOCALHOST))
+        .find(|(name, _)| *name == file.sso_backend)
+        .map_or_else(String::new, |(_, url)| url.to_string())
 }
 
 /// Built-in SSO backends merged with legacy ``[sso_backends]`` entries.
@@ -444,6 +465,47 @@ pub fn save_config_file(path: &Path, file: &ConfigFileV1) -> Result<(), ConfigEr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn report_servers_default_to_the_live_p99_servers() {
+        assert_eq!(
+            sso_report_servers("Custom Backend"),
+            crate::logs::DEFAULT_SSO_REPORT_SERVERS
+        );
+        for (name, servers) in SSO_BACKEND_REPORT_SERVERS {
+            assert_eq!(sso_report_servers(name), *servers);
+        }
+    }
+
+    #[test]
+    fn every_builtin_backend_names_its_report_servers() {
+        for (name, _) in SSO_BACKENDS {
+            assert!(
+                SSO_BACKEND_REPORT_SERVERS.iter().any(|(n, _)| n == name),
+                "{name} has no SSO_BACKEND_REPORT_SERVERS entry"
+            );
+        }
+        assert_eq!(sso_report_servers("Snipe Team"), &["project1999"]);
+        assert_eq!(sso_report_servers("Good Guys"), &["P1999Green"]);
+    }
+
+    #[test]
+    fn builtin_backend_names_resolve_to_their_urls() {
+        for (name, url) in SSO_BACKENDS {
+            let file = ConfigFileV1 {
+                sso_backend: name.to_string(),
+                sso_api_url: None,
+                ..ConfigFileV1::default()
+            };
+            assert_eq!(resolve_sso_api_url(&file), *url, "{name}");
+        }
+        let unknown = ConfigFileV1 {
+            sso_backend: "No Such Guild".to_string(),
+            sso_api_url: None,
+            ..ConfigFileV1::default()
+        };
+        assert_eq!(resolve_sso_api_url(&unknown), "");
+    }
 
     #[test]
     fn localhost_backend_follows_app_prerelease() {

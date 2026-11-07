@@ -37,7 +37,10 @@ order on the release no longer matters.
 ## Prerelease RCs before stable cutover
 
 1. Push tested native history to `origin/rust`.
-2. Create `v2.0.0-rcN` on a `rust` commit.
+2. Create `v2.<minor>.<patch>-rc.N` (for example `v2.0.1-rc.1`) on a `rust` commit. The dot
+   matters: semver compares `rc.10` above `rc.9` but `rc10` as text, below `rc9`, so the
+   release workflow rejects identifiers that mix letters and digits. The old `v2.0.0-rcN`
+   tags all sort below any 2.0.1 release.
 3. CI creates a **draft** release with both assets. Inspect it before publishing.
 4. Confirm:
    - GitHub marks the release **prerelease** (tag contains `-`).
@@ -59,7 +62,7 @@ and not required for the updater migration itself.
 
 ## Draft inspection checklist
 
-- [ ] Tag matches `v2.<minor>.<patch>[-prerelease]`
+- [ ] Tag matches `v2.<minor>.<patch>[-prerelease]`, prerelease like `rc.N`
 - [ ] Tagged commit is on `origin/rust`
 - [ ] Draft is marked prerelease when the tag suffix is present
 - [ ] Windows zip, Linux AppImage, and `SHA256SUMS` assets present with expected names

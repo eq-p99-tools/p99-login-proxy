@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
-use proxy_core::AccountCache;
 use proxy_core::SsoCaBundleMode;
+use proxy_core::{log_reports_to_sso, sso_report_servers, AccountCache};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -78,6 +78,12 @@ impl SsoClient {
 
     pub fn cache(&self) -> Arc<RwLock<AccountCache>> {
         self.inner.cache.clone()
+    }
+
+    /// Whether events read from this EQ log go to the backend: only logs from
+    /// the backend's report servers (see `proxy_core::sso_report_servers`) do.
+    pub fn reports_from_log(&self, path: &std::path::Path) -> bool {
+        log_reports_to_sso(path, sso_report_servers(&self.inner.config.backend_name))
     }
 
     pub fn is_connected(&self) -> bool {
@@ -839,6 +845,26 @@ mod tests {
 
     fn fields(value: Value) -> serde_json::Map<String, Value> {
         value.as_object().cloned().unwrap()
+    }
+
+    #[test]
+    fn reports_only_from_the_backends_report_servers() {
+        use std::path::Path;
+        let client = SsoClient::new(
+            SsoClientConfig {
+                api_url: "https://example.test".into(),
+                backend_name: "Custom Backend".into(),
+                client_version: "1".into(),
+                verify_tls: true,
+                ca_bundle: proxy_core::SsoCaBundleMode::System,
+                timeout_secs: 5,
+                client_settings: json!({}),
+            },
+            SecretString::from("token"),
+        );
+        assert!(client.reports_from_log(Path::new("eqlog_Hero_P1999Green.txt")));
+        assert!(client.reports_from_log(Path::new("eqlog_Hero_project1999.txt")));
+        assert!(!client.reports_from_log(Path::new("eqlog_Hero_aih.txt")));
     }
 
     #[test]

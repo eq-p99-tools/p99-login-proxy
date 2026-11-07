@@ -15,8 +15,10 @@ jobs:
       - name: Validate v2 tag and rust branch
         run: |
           tag="${{ github.ref_name }}"
-          if ! echo "$tag" | grep -Eq '^v2\.[0-9]+\.[0-9]+(-[0-9A-Za-z\.-]+)?$'; then
-            echo "Release tag must match v2.<minor>.<patch>[-prerelease], got: $tag" >&2
+          # Each prerelease identifier is all digits or has no digits (rc.10, not rc10):
+          # semver compares rc10 as text, below rc9.
+          if ! echo "$tag" | grep -Eq '^v2\.[0-9]+\.[0-9]+(-([0-9]+|[A-Za-z-]+)(\.([0-9]+|[A-Za-z-]+))*)?$'; then
+            echo "Release tag must match v2.<minor>.<patch>[-prerelease] with identifiers like rc.1, got: $tag" >&2
             exit 1
           fi
           git fetch origin rust --depth=1

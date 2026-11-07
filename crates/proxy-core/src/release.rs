@@ -13,7 +13,11 @@ pub enum ReleaseTagError {
     InvalidFormat(String),
 }
 
-/// Parse a strict v2 release tag (`v2.0.0`, `v2.0.0-rc1`, …).
+/// Parse a strict v2 release tag (`v2.0.1`, `v2.0.1-rc.1`, …).
+///
+/// Each prerelease identifier must be all digits or contain no digits, so
+/// semver orders release candidates by number: it compares `rc.10` above
+/// `rc.9`, but compares `rc10` as text, below `rc9`.
 pub fn parse_v2_release_tag(tag: &str) -> Result<Version, ReleaseTagError> {
     let version_text = tag
         .strip_prefix('v')
@@ -23,7 +27,18 @@ pub fn parse_v2_release_tag(tag: &str) -> Result<Version, ReleaseTagError> {
             "major version must be 2".into(),
         ));
     }
-    Version::parse(version_text).map_err(|error| ReleaseTagError::InvalidFormat(error.to_string()))
+    let version = Version::parse(version_text)
+        .map_err(|error| ReleaseTagError::InvalidFormat(error.to_string()))?;
+    let mixed = version.pre.as_str().split('.').find(|identifier| {
+        let digits = identifier.bytes().filter(u8::is_ascii_digit).count();
+        digits != 0 && digits != identifier.len()
+    });
+    if let Some(identifier) = mixed {
+        return Err(ReleaseTagError::InvalidFormat(format!(
+            "prerelease identifier '{identifier}' mixes letters and digits; use e.g. rc.1"
+        )));
+    }
+    Ok(version)
 }
 
 /// True when the tag suffix denotes a GitHub prerelease (e.g. `-rc1`).
@@ -93,9 +108,28 @@ mod tests {
 
     #[test]
     fn accepts_prerelease_v2_tag() {
-        let version = parse_v2_release_tag("v2.0.0-rc1").unwrap();
-        assert_eq!(version.pre.as_str(), "rc1");
-        assert!(release_tag_is_prerelease("v2.0.0-rc1"));
+        let version = parse_v2_release_tag("v2.0.1-rc.1").unwrap();
+        assert_eq!(version.pre.as_str(), "rc.1");
+        assert!(release_tag_is_prerelease("v2.0.1-rc.1"));
+    }
+
+    #[test]
+    fn rejects_prerelease_identifiers_mixing_letters_and_digits() {
+        assert!(parse_v2_release_tag("v2.0.0-rc10").is_err());
+        assert!(parse_v2_release_tag("v2.0.1-rc.1a").is_err());
+        assert!(!release_tag_is_prerelease("v2.0.0-rc10"));
+        parse_v2_release_tag("v2.0.1-beta.2.rc.3").unwrap();
+    }
+
+    #[test]
+    fn accepted_release_candidates_order_by_number() {
+        let rc9 = parse_v2_release_tag("v2.0.1-rc.9").unwrap();
+        let rc10 = parse_v2_release_tag("v2.0.1-rc.10").unwrap();
+        let stable = parse_v2_release_tag("v2.0.1").unwrap();
+        let old_rc10 = Version::parse("2.0.0-rc10").unwrap();
+        assert!(rc10 > rc9);
+        assert!(stable > rc10);
+        assert!(Version::parse("2.0.1-rc.1").unwrap() > old_rc10);
     }
 
     #[test]

@@ -225,11 +225,11 @@ mod tests {
     #[test]
     fn scrubs_tokens_from_ini_after_bootstrap() {
         let raw = r#"[DEFAULT]
-sso_api_name = Marginal Threat
+sso_api_name = Kingdom
 user_api_token = SealNonchalantSide
 
 [api_tokens]
-Marginal Threat = SealNonchalantSide
+Kingdom = SealNonchalantSide
 Localhost = ReportFrailTrailSticky
 "#;
         let dir = tempfile::tempdir().unwrap();
@@ -278,10 +278,7 @@ Localhost = ReportFrailTrailSticky
     #[test]
     fn bootstrap_from_config_marks_backend_as_having_token() {
         let mut api_tokens = HashMap::new();
-        api_tokens.insert(
-            "Marginal Threat".to_string(),
-            "SealNonchalantSide".to_string(),
-        );
+        api_tokens.insert("Kingdom".to_string(), "SealNonchalantSide".to_string());
         api_tokens.insert(
             "Localhost".to_string(),
             "ReportFrailTrailSticky".to_string(),
@@ -291,17 +288,17 @@ Localhost = ReportFrailTrailSticky
         let migration_store = SessionSecretStore::default();
         store.migrate_from_config_with(&api_tokens, &migration_store);
 
-        assert!(store.has_token("Marginal Threat"));
+        assert!(store.has_token("Kingdom"));
         assert!(store.has_token("Localhost"));
     }
 
     #[test]
     fn does_not_scrub_ini_when_keyring_migration_partially_fails() {
         let raw = r#"[DEFAULT]
-sso_api_name = Marginal Threat
+sso_api_name = Kingdom
 
 [api_tokens]
-Marginal Threat = SealNonchalantSide
+Kingdom = SealNonchalantSide
 Localhost = ReportFrailTrailSticky
 "#;
         let dir = tempfile::tempdir().unwrap();
@@ -316,7 +313,7 @@ Localhost = ReportFrailTrailSticky
         };
         store.migrate_from_config_with(&file.api_tokens, &migration_store);
 
-        assert!(store.has_token("Marginal Threat"));
+        assert!(store.has_token("Kingdom"));
         let written = std::fs::read_to_string(path).unwrap();
         assert!(written.contains("SealNonchalantSide"));
         assert!(written.contains("ReportFrailTrailSticky"));

@@ -25,7 +25,8 @@ pub use class_translate::resolve_class;
 pub use config::{
     builtin_sso_backends, config_file_path, list_sso_backend_options, load_config,
     load_config_file, parse_skip_sso_accounts, resolve_sso_api_url, resolve_sso_ca_bundle,
-    save_config_file, ConfigFileV1, SsoCaBundleMode, ValidatedConfig, SSO_BACKENDS,
+    save_config_file, sso_report_servers, ConfigFileV1, SsoCaBundleMode, ValidatedConfig,
+    SSO_BACKENDS, SSO_BACKEND_REPORT_SERVERS,
 };
 pub use decision::{CredentialDecision, CredentialRouter};
 pub use eq_config::{
@@ -42,7 +43,10 @@ pub use local_data::{
     load_local_accounts, load_local_characters, load_local_data, save_local_accounts,
     save_local_characters, try_load_local_data, LocalDataBundle, LocalDataError,
 };
-pub use logs::{character_from_log_path, is_raid_target, LogEvent, LogEventKind, LogPatterns};
+pub use logs::{
+    character_from_log_path, is_raid_target, log_reports_to_sso, server_from_log_path, LogEvent,
+    LogEventKind, LogPatterns, DEFAULT_SSO_REPORT_SERVERS,
+};
 pub use model::*;
 pub use net_util::split_host_port;
 pub use proxy_mode::ProxyMode;

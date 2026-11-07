@@ -290,18 +290,31 @@ async fn fetch_releases() -> Result<Vec<ParsedRelease>, String> {
         return Err(format!("GitHub API returned {}", resp.status()));
     }
     let raw: Vec<GitHubRelease> = resp.json().await.map_err(|e| e.to_string())?;
-    let mut releases = Vec::new();
-    for release in raw {
-        let version = parse_version(release.tag_name.trim_start_matches('v'))?;
-        releases.push(ParsedRelease {
-            version,
-            body: release.body.unwrap_or_default(),
-            prerelease: release.prerelease,
-            assets: release.assets,
-        });
-    }
+    Ok(parse_releases(raw))
+}
+
+/// Releases newest first. A release whose tag is not semver is skipped with a
+/// warning, so one stray tag cannot stop every install's update check.
+fn parse_releases(raw: Vec<GitHubRelease>) -> Vec<ParsedRelease> {
+    let mut releases: Vec<ParsedRelease> = raw
+        .into_iter()
+        .filter_map(
+            |release| match parse_version(release.tag_name.trim_start_matches('v')) {
+                Ok(version) => Some(ParsedRelease {
+                    version,
+                    body: release.body.unwrap_or_default(),
+                    prerelease: release.prerelease,
+                    assets: release.assets,
+                }),
+                Err(error) => {
+                    warn!(tag = %release.tag_name, %error, "skipping release with non-semver tag");
+                    None
+                }
+            },
+        )
+        .collect();
     releases.sort_by(|a, b| b.version.cmp(&a.version));
-    Ok(releases)
+    releases
 }
 
 fn github_client() -> Result<reqwest::Client, String> {
@@ -974,6 +987,22 @@ mod tests {
     }
 
     #[test]
+    fn non_semver_release_tags_are_skipped() {
+        let raw: Vec<GitHubRelease> = serde_json::from_value(serde_json::json!([
+            { "tag_name": "v2.0.1-rc.1", "body": null, "prerelease": true },
+            { "tag_name": "nightly", "body": null, "prerelease": true },
+            { "tag_name": "v2.0.1-rc.2", "body": null, "prerelease": true },
+            { "tag_name": "v1.4", "body": null, "prerelease": false },
+        ]))
+        .unwrap();
+        let versions: Vec<String> = parse_releases(raw)
+            .iter()
+            .map(|release| release.version.to_string())
+            .collect();
+        assert_eq!(versions, ["2.0.1-rc.2", "2.0.1-rc.1"]);
+    }
+
+    #[test]
     fn update_target_must_be_newer_same_major_and_allowed() {
         let current = Version::parse("2.0.0").unwrap();
         assert!(
@@ -986,6 +1015,15 @@ mod tests {
         );
         assert!(
             validate_update_target(&Version::parse("2.0.0").unwrap(), &current, false, true)
+                .is_err()
+        );
+        let rc9 = Version::parse("2.0.1-rc.9").unwrap();
+        assert!(
+            validate_update_target(&Version::parse("2.0.1-rc.10").unwrap(), &rc9, true, true)
+                .is_ok()
+        );
+        assert!(
+            validate_update_target(&rc9, &Version::parse("2.0.1-rc.10").unwrap(), true, true)
                 .is_err()
         );
         assert!(validate_update_target(
