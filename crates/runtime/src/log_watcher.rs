@@ -4,8 +4,8 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime};
 
 use proxy_core::{
-    character_from_log_path, class_translate, is_raid_target, log_reports_to_sso, zone_to_zonekey,
-    LogEventKind, LogPatterns,
+    character_from_log_path, class_translate, is_raid_target, log_reports_to_sso,
+    server_from_log_path, zone_to_zonekey, LogEventKind, LogPatterns,
 };
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
@@ -82,7 +82,12 @@ async fn run_watcher_loop(
     let mut heartbeat = tokio::time::interval(HEARTBEAT_INTERVAL);
 
     if let Some(path) = find_latest_log(&logs_dir) {
-        info!(path = %path.display(), "EQ log watcher tracking");
+        info!(
+            path = %path.display(),
+            server = server_from_log_path(&path).as_deref().unwrap_or("?"),
+            sso_reporting = log_reports_to_sso(&path),
+            "EQ log watcher tracking"
+        );
         position = seek_to_tail(&path);
         latest_log = Some(path.clone());
         maybe_send_heartbeat(&path, ctx.sso.as_ref(), ctx.stats.as_ref(), &ctx.event_tx).await;
@@ -104,7 +109,12 @@ async fn run_watcher_loop(
                         let new_latest = find_latest_log(&logs_dir);
                         if new_latest.as_ref() != latest_log.as_ref() {
                             if let Some(ref p) = new_latest {
-                                info!(path = %p.display(), "switched EQ log file");
+                                info!(
+                                    path = %p.display(),
+                                    server = server_from_log_path(p).as_deref().unwrap_or("?"),
+                                    sso_reporting = log_reports_to_sso(p),
+                                    "switched EQ log file"
+                                );
                                 position = seek_to_tail(p);
                                 if let Some(character) = character_from_log_path(p) {
                                     let _ = ctx.event_tx
