@@ -4,8 +4,8 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime};
 
 use proxy_core::{
-    character_from_log_path, class_translate, is_raid_target, log_reports_to_sso,
-    server_from_log_path, zone_to_zonekey, LogEventKind, LogPatterns,
+    character_from_log_path, class_translate, is_raid_target, server_from_log_path,
+    zone_to_zonekey, LogEventKind, LogPatterns,
 };
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
@@ -85,7 +85,7 @@ async fn run_watcher_loop(
         info!(
             path = %path.display(),
             server = server_from_log_path(&path).as_deref().unwrap_or("?"),
-            sso_reporting = log_reports_to_sso(&path),
+            sso_reporting = ctx.sso.as_ref().is_some_and(|c| c.reports_from_log(&path)),
             "EQ log watcher tracking"
         );
         position = seek_to_tail(&path);
@@ -112,7 +112,7 @@ async fn run_watcher_loop(
                                 info!(
                                     path = %p.display(),
                                     server = server_from_log_path(p).as_deref().unwrap_or("?"),
-                                    sso_reporting = log_reports_to_sso(p),
+                                    sso_reporting = ctx.sso.as_ref().is_some_and(|c| c.reports_from_log(p)),
                                     "switched EQ log file"
                                 );
                                 position = seek_to_tail(p);
@@ -186,7 +186,11 @@ async fn read_new_lines(path: &Path, position: u64, mut ctx: LineContext<'_>) ->
     let text = String::from_utf8_lossy(&buf);
     let character = character_from_log_path(path).unwrap_or_default();
     let char_lc = character.to_lowercase();
-    let reports_to_sso = log_reports_to_sso(path);
+    let reports_to_sso = ctx
+        .watcher
+        .sso
+        .as_ref()
+        .is_some_and(|client| client.reports_from_log(path));
 
     for line in text.lines() {
         let line = line.trim_end();
@@ -272,8 +276,8 @@ async fn handle_line(
     reports_to_sso: bool,
     ctx: &mut LineContext<'_>,
 ) {
-    // Logs from servers outside SSO_REPORT_SERVERS (e.g. a test server) still
-    // update local characters but send nothing to the SSO backend.
+    // Logs from servers outside the guild's report servers (e.g. a test
+    // server) still update local characters but send nothing to the SSO backend.
     let sso = ctx.watcher.sso.as_ref().filter(|_| reports_to_sso);
     let (in_sso, in_local) = character_is_tracked(char_lc, sso, &ctx.watcher.local_character_names);
     if !in_sso && !in_local {
@@ -500,7 +504,7 @@ async fn maybe_send_heartbeat(
     let Some(client) = sso else {
         return;
     };
-    if !client.is_connected() {
+    if !client.is_connected() || !client.reports_from_log(path) {
         return;
     }
     let Some(character) = character_from_log_path(path) else {

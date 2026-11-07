@@ -142,11 +142,11 @@ pub fn is_raid_target(name: &str) -> bool {
     RAID_TARGETS.contains(lc.as_str())
 }
 
-/// Log-file server names (`eqlog_<character>_<server>.txt`) of the live P99
-/// servers. Only logs from these feed the SSO backend: a test server such as
-/// AIH shares character names and raid mobs with the live servers, and its
-/// kills, FTEs and locations must not reach a live guild's tracker.
-pub const SSO_REPORT_SERVERS: &[&str] = &["P1999Green", "project1999", "P1999PVP"];
+/// Log-file server names (`eqlog_<character>_<server>.txt`) whose events feed
+/// the SSO backend when the backend's `full_state` names none: the live P99
+/// servers. A test server such as AIH shares character names and raid mobs with
+/// them, and its kills, FTEs, locations and heartbeats must not reach a guild.
+pub const DEFAULT_SSO_REPORT_SERVERS: &[&str] = &["P1999Green", "project1999", "P1999PVP"];
 
 pub fn character_from_log_path(path: &std::path::Path) -> Option<String> {
     let name = path.file_name()?.to_str()?;
@@ -170,12 +170,13 @@ pub fn server_from_log_path(path: &std::path::Path) -> Option<String> {
     }
 }
 
-/// Whether events read from this log may be reported to the SSO backend.
-pub fn log_reports_to_sso(path: &std::path::Path) -> bool {
+/// Whether events read from this log may be reported to an SSO backend that
+/// accepts `report_servers` (matched case-insensitively).
+pub fn log_reports_to_sso<S: AsRef<str>>(path: &std::path::Path, report_servers: &[S]) -> bool {
     server_from_log_path(path).is_some_and(|server| {
-        SSO_REPORT_SERVERS
+        report_servers
             .iter()
-            .any(|allowed| allowed.eq_ignore_ascii_case(&server))
+            .any(|allowed| allowed.as_ref().eq_ignore_ascii_case(&server))
     })
 }
 
@@ -402,7 +403,7 @@ mod tests {
     }
 
     #[test]
-    fn only_live_p99_logs_report_to_sso() {
+    fn default_report_servers_are_the_live_p99_servers() {
         use std::path::Path;
         for live in [
             "eqlog_Hero_P1999Green.txt",
@@ -410,15 +411,39 @@ mod tests {
             "eqlog_Hero_P1999PVP.txt",
             "eqlog_Hero_p1999green.txt",
         ] {
-            assert!(log_reports_to_sso(Path::new(live)), "{live}");
+            assert!(
+                log_reports_to_sso(Path::new(live), DEFAULT_SSO_REPORT_SERVERS),
+                "{live}"
+            );
         }
         for other in [
             "eqlog_Hero_aih.txt",
             "eqlog_Hero_test.txt",
             "eqlog_Hero.txt",
         ] {
-            assert!(!log_reports_to_sso(Path::new(other)), "{other}");
+            assert!(
+                !log_reports_to_sso(Path::new(other), DEFAULT_SSO_REPORT_SERVERS),
+                "{other}"
+            );
         }
+    }
+
+    #[test]
+    fn a_guild_list_replaces_the_default() {
+        use std::path::Path;
+        let green_only = ["P1999Green".to_string()];
+        assert!(log_reports_to_sso(
+            Path::new("eqlog_Hero_P1999Green.txt"),
+            &green_only
+        ));
+        assert!(!log_reports_to_sso(
+            Path::new("eqlog_Hero_project1999.txt"),
+            &green_only
+        ));
+        assert!(!log_reports_to_sso(
+            Path::new("eqlog_Hero_P1999Green.txt"),
+            &[] as &[String]
+        ));
     }
 
     #[test]

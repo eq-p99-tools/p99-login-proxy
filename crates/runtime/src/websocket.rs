@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
-use proxy_core::AccountCache;
 use proxy_core::SsoCaBundleMode;
+use proxy_core::{log_reports_to_sso, AccountCache, DEFAULT_SSO_REPORT_SERVERS};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -53,6 +53,9 @@ struct SsoClientInner {
     /// Last `update_location` payload sent per lowercased character name, used to
     /// suppress redundant sends (Python `ws_client._last_sent_location`).
     last_location: Mutex<HashMap<String, serde_json::Map<String, Value>>>,
+    /// The guild's `report_servers` from the last `full_state`; `None` when the
+    /// backend sent none, which means `DEFAULT_SSO_REPORT_SERVERS`.
+    report_servers: std::sync::RwLock<Option<Vec<String>>>,
 }
 
 /// Shared SSO WebSocket client used by the UDP proxy for ``login_auth``.
@@ -72,12 +75,28 @@ impl SsoClient {
                 cache: Arc::new(RwLock::new(AccountCache::default())),
                 write: Mutex::new(None),
                 last_location: Mutex::new(HashMap::new()),
+                report_servers: std::sync::RwLock::new(None),
             }),
         }
     }
 
     pub fn cache(&self) -> Arc<RwLock<AccountCache>> {
         self.inner.cache.clone()
+    }
+
+    /// Whether events read from this EQ log go to the backend: only logs from
+    /// the guild's `report_servers` (default: the live P99 servers) do.
+    pub fn reports_from_log(&self, path: &std::path::Path) -> bool {
+        match self.inner.report_servers.read().ok().as_deref() {
+            Some(Some(servers)) => log_reports_to_sso(path, servers),
+            _ => log_reports_to_sso(path, DEFAULT_SSO_REPORT_SERVERS),
+        }
+    }
+
+    fn set_report_servers(&self, servers: Option<Vec<String>>) {
+        if let Ok(mut guard) = self.inner.report_servers.write() {
+            *guard = servers;
+        }
     }
 
     pub fn is_connected(&self) -> bool {
@@ -355,6 +374,9 @@ pub enum WsInbound {
         dynamic_tag_zones: Vec<String>,
         #[serde(default)]
         dynamic_tag_classes: Vec<String>,
+        /// EQ log server names whose events this guild accepts.
+        #[serde(default)]
+        report_servers: Option<Vec<String>>,
     },
     Delta {
         #[serde(default)]
@@ -738,11 +760,17 @@ async fn handle_inbound(
             account_tree,
             dynamic_tag_zones,
             dynamic_tag_classes,
+            report_servers,
         } => {
             let cache =
                 AccountCache::from_parts(&account_tree, &dynamic_tag_zones, &dynamic_tag_classes);
             let count = cache.account_count;
             *client.cache().write().await = cache;
+            info!(
+                ?report_servers,
+                "SSO report servers (None = default live P99 servers)"
+            );
+            client.set_report_servers(report_servers);
             client.inner.connected.store(true, Ordering::Relaxed);
             notify_state(
                 on_state,
@@ -839,6 +867,38 @@ mod tests {
 
     fn fields(value: Value) -> serde_json::Map<String, Value> {
         value.as_object().cloned().unwrap()
+    }
+
+    #[test]
+    fn report_servers_from_full_state_replace_the_default() {
+        use std::path::Path;
+        let client = SsoClient::new(
+            SsoClientConfig {
+                api_url: "https://example.test".into(),
+                backend_name: "test".into(),
+                client_version: "1".into(),
+                verify_tls: true,
+                ca_bundle: proxy_core::SsoCaBundleMode::System,
+                timeout_secs: 5,
+                client_settings: json!({}),
+            },
+            SecretString::from("token"),
+        );
+        let green = Path::new("eqlog_Hero_P1999Green.txt");
+        let blue = Path::new("eqlog_Hero_project1999.txt");
+        let test_server = Path::new("eqlog_Hero_aih.txt");
+
+        assert!(client.reports_from_log(green));
+        assert!(client.reports_from_log(blue));
+        assert!(!client.reports_from_log(test_server));
+
+        client.set_report_servers(Some(vec!["P1999Green".into()]));
+        assert!(client.reports_from_log(green));
+        assert!(!client.reports_from_log(blue));
+        assert!(!client.reports_from_log(test_server));
+
+        client.set_report_servers(None);
+        assert!(client.reports_from_log(blue));
     }
 
     #[test]

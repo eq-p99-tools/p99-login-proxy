@@ -27,7 +27,12 @@
         "account_tree": { "type": "object" },
         "count": { "type": "integer" },
         "dynamic_tag_zones": { "type": "array", "items": { "type": "string" } },
-        "dynamic_tag_classes": { "type": "array", "items": { "type": "string" } }
+        "dynamic_tag_classes": { "type": "array", "items": { "type": "string" } },
+        "report_servers": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "EQ log-file server names (the <server> in eqlog_<character>_<server>.txt, matched case-insensitively) whose events the client reports for this guild: heartbeat, update_location, fte, mob_death. Optional; a client that receives none uses the live P99 servers (P1999Green, project1999, P1999PVP)."
+        }
       }
     },
     "delta": {
