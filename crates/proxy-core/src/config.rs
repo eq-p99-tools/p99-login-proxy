@@ -12,7 +12,7 @@ pub const SSO_BACKENDS: &[(&str, &str)] = &[
     ("Good Guys", "https://proxy.p99loginproxy.net"),
     ("Kingdom", "https://bot.kingdomdkp.com"),
     ("Snipe Team", "https://proxy.p99loginproxy.net"),
-    ("EFB&T", "https://proxy.p99loginproxy.net"),
+    ("EFB&T", "https://eqbot.duckdns.org"),
 ];
 
 const SSO_BACKEND_LOCALHOST: (&str, &str) = ("Localhost", "http://localhost:5998");
@@ -381,23 +381,33 @@ pub fn load_config_file(path: &Path) -> Result<ConfigFileV1, ConfigError> {
     crate::proxyconfig_ini::parse_proxyconfig_ini(path)
 }
 
+fn builtin_sso_api_url(backend_name: &str) -> Option<&'static str> {
+    SSO_BACKENDS
+        .iter()
+        .chain(std::iter::once(&SSO_BACKEND_LOCALHOST))
+        .find(|(name, _)| *name == backend_name)
+        .map(|(_, url)| *url)
+}
+
 /// Resolve the HTTP(S) SSO API base URL from config (matches Python ``SSO_API_OPTIONS``).
+///
+/// A built-in backend always uses its built-in URL: selecting a backend saves its
+/// URL as `sso_api`, and that saved copy must not keep an install on an endpoint
+/// the guild has moved away from. `sso_api` and `[sso_backends]` name the URL only
+/// for other backends.
 pub fn resolve_sso_api_url(file: &ConfigFileV1) -> String {
+    if let Some(url) = builtin_sso_api_url(&file.sso_backend) {
+        return url.to_string();
+    }
     if let Some(url) = file.sso_api_url.as_ref() {
         if !url.trim().is_empty() {
             return url.trim().to_string();
         }
     }
-    if let Some(url) = file.sso_backends.get(&file.sso_backend) {
-        if !url.trim().is_empty() {
-            return url.trim().to_string();
-        }
-    }
-    SSO_BACKENDS
-        .iter()
-        .chain(std::iter::once(&SSO_BACKEND_LOCALHOST))
-        .find(|(name, _)| *name == file.sso_backend)
-        .map_or_else(String::new, |(_, url)| url.to_string())
+    file.sso_backends
+        .get(&file.sso_backend)
+        .map(|url| url.trim().to_string())
+        .unwrap_or_default()
 }
 
 /// Built-in SSO backends merged with legacy ``[sso_backends]`` entries.
@@ -408,7 +418,7 @@ pub fn list_sso_backend_options(file: &ConfigFileV1) -> Vec<(String, String)> {
         .collect();
 
     for (name, url) in &file.sso_backends {
-        if url.trim().is_empty() {
+        if url.trim().is_empty() || builtin_sso_api_url(name).is_some() {
             continue;
         }
         if let Some(existing) = options
@@ -505,6 +515,31 @@ mod tests {
             ..ConfigFileV1::default()
         };
         assert_eq!(resolve_sso_api_url(&unknown), "");
+    }
+
+    #[test]
+    fn a_saved_url_does_not_override_a_builtin_backend() {
+        let mut file = ConfigFileV1 {
+            sso_backend: "EFB&T".to_string(),
+            sso_api_url: Some("https://proxy.p99loginproxy.net".to_string()),
+            ..ConfigFileV1::default()
+        };
+        file.sso_backends.insert(
+            "EFB&T".to_string(),
+            "https://proxy.p99loginproxy.net".to_string(),
+        );
+        assert_eq!(resolve_sso_api_url(&file), "https://eqbot.duckdns.org");
+        let options = list_sso_backend_options(&file);
+        let efbt: Vec<_> = options.iter().filter(|(name, _)| name == "EFB&T").collect();
+        assert_eq!(efbt.len(), 1);
+        assert_eq!(efbt[0].1, "https://eqbot.duckdns.org");
+
+        let custom = ConfigFileV1 {
+            sso_backend: "Custom Backend".to_string(),
+            sso_api_url: Some("https://custom.example.com".to_string()),
+            ..ConfigFileV1::default()
+        };
+        assert_eq!(resolve_sso_api_url(&custom), "https://custom.example.com");
     }
 
     #[test]
