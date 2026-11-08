@@ -20,8 +20,8 @@ The native app matches the Python PySide6 reference for user-visible behavior:
 
 | Area | Python | Native |
 |------|--------|--------|
-| Bind address | `0.0.0.0` default | `127.0.0.1` default; non-loopback requires explicit opt-in |
-| TLS | `sso_verify_tls=False` allowed | Verified TLS required in production builds |
+| Bind address | `0.0.0.0` default | `127.0.0.1` (a v1 `0.0.0.0` is narrowed to loopback); non-loopback requires `allow_non_loopback = True` |
+| TLS | `sso_verify_tls=False` allowed | Verified by default; only an explicit `sso_verify_tls = False` disables it |
 | Secrets | Plaintext INI/CSV | API tokens migrate to the OS credential store and are scrubbed from INI |
 | Config path | CWD-relative `proxyconfig.ini` | Beside the Windows EXE or Linux `$APPIMAGE`, with unknown settings preserved |
 | Client endpoint | Any non-upstream sender | Single tracked client; last non-upstream sender wins (Python parity) |

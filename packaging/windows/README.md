@@ -3,18 +3,16 @@
 Windows distribution is portable-only. Build with:
 
 ```powershell
-Invoke-WebRequest `
-  -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" `
-  -OutFile "src-tauri/resources/webview2/MicrosoftEdgeWebview2Setup.exe"
 npm run tauri build -- --target x86_64-pc-windows-msvc --no-bundle
 ```
 
 The result is `target/x86_64-pc-windows-msvc/release/P99LoginProxy.exe`. Keep
 `proxyconfig.ini`, local CSVs, and `proxy.log` beside that executable.
 
-The portable executable embeds Microsoft’s Evergreen WebView2 bootstrapper. On first
-launch, if WebView2 is missing, the app installs it silently before opening the UI.
-Internet access is required for that first install.
+The executable requires the Microsoft Edge WebView2 Runtime (preinstalled on Windows 11
+and current Windows 10). If it is missing, the app shows an error and opens Microsoft's
+download page; it does not embed or run the installer itself, because a binary that
+drops and silently runs another executable trips antivirus heuristics.
 
 Tagged CI builds copy the binary to `P99LoginProxy-{version}.exe` and publish one Windows
 asset: `P99LoginProxy-{version}.zip` with MIME type `application/zip`. Both Python 1.x
@@ -29,8 +27,7 @@ ignored by legacy v1 updaters.
 ## Beta checklist
 
 - [x] Portable zip updater and release workflow configured
-- [x] Embedded WebView2 bootstrapper for missing-runtime installs
-- [x] CI pins and verifies the WebView2 bootstrapper SHA-256
+- [x] Missing WebView2 runtime directs the user to Microsoft's download page
 - [ ] RC migration matrix passed — see [`docs/RELEASE.md`](../docs/RELEASE.md)
 - [ ] Smoke test on Windows 11
 - [ ] Verify single-instance focuses existing window

@@ -22,8 +22,8 @@ fn loads_v1_portable_fixture_ini() {
     let cfg = parse_proxyconfig_ini(&ini_path).expect("fixture INI should parse");
 
     assert_eq!(cfg.listen_port, 6790);
-    assert_eq!(cfg.listen_host, "0.0.0.0");
-    assert!(cfg.allow_non_loopback);
+    assert_eq!(cfg.listen_host, "127.0.0.1");
+    assert!(!cfg.allow_non_loopback);
     assert_eq!(cfg.sso_backend, "Localhost");
     assert_eq!(cfg.sso_api_url.as_deref(), Some("http://localhost:5998"));
     assert_eq!(cfg.login_timeout_secs, 12);
@@ -45,6 +45,25 @@ fn loads_v1_portable_fixture_ini() {
         cfg.sso_backends.get("Custom Backend").map(String::as_str),
         Some("https://custom.example.com")
     );
+}
+
+#[test]
+fn non_loopback_listen_host_requires_explicit_opt_in() {
+    let dir = TempDir::new().unwrap();
+    let ini = dir.path().join("proxyconfig.ini");
+
+    std::fs::write(&ini, "[DEFAULT]\nlisten_host = 192.168.1.12\n").unwrap();
+    let cfg = parse_proxyconfig_ini(&ini).unwrap();
+    assert_eq!(cfg.listen_host, "127.0.0.1");
+
+    std::fs::write(
+        &ini,
+        "[DEFAULT]\nlisten_host = 0.0.0.0\nallow_non_loopback = True\n",
+    )
+    .unwrap();
+    let cfg = parse_proxyconfig_ini(&ini).unwrap();
+    assert_eq!(cfg.listen_host, "0.0.0.0");
+    assert!(cfg.allow_non_loopback);
 }
 
 #[test]

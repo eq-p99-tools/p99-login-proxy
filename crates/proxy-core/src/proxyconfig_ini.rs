@@ -14,10 +14,13 @@ pub fn parse_proxyconfig_ini(path: &Path) -> Result<ConfigFileV1, ConfigError> {
         .section(Some("DEFAULT"))
         .or_else(|| Some(ini.general_section()));
 
+    // v1 wrote `listen_host = 0.0.0.0` by default, which exposes the proxy to the LAN.
+    // Bind loopback unless the user explicitly opts in with `allow_non_loopback = True`.
+    let allow_non_loopback = get_bool(default, "allow_non_loopback", false);
     let listen_host = read_raw_default_value(path, "listen_host")
         .or_else(|| optional_str(default, "listen_host"))
-        .unwrap_or_else(|| "0.0.0.0".to_string());
-    let allow_non_loopback = listen_host == "0.0.0.0";
+        .filter(|host| allow_non_loopback || crate::config::is_loopback(host))
+        .unwrap_or_else(|| "127.0.0.1".to_string());
 
     let mut sso_backend = read_raw_default_value(path, "sso_api_name")
         .unwrap_or_else(|| get_str(default, "sso_api_name", "Good Guys"));

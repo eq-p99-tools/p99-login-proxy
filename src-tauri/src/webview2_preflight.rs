@@ -1,101 +1,74 @@
-//! Install WebView2 from an embedded Evergreen bootstrapper when missing.
+//! Check for the WebView2 runtime before Tauri starts.
+//!
+//! The app deliberately does not embed or run Microsoft's installer itself: an
+//! executable that drops and silently runs another executable looks like a
+//! dropper to antivirus heuristics. When WebView2 is missing, the user is sent
+//! to Microsoft's download page instead.
 #![allow(unsafe_code)]
 
 #[cfg(windows)]
-mod embedded {
-    include!(concat!(env!("OUT_DIR"), "/webview2_bytes.rs"));
-    pub use WEBVIEW2_BOOTSTRAPPER as BOOTSTRAPPER_BYTES;
-}
+const WEBVIEW2_DOWNLOAD_URL: &str = "https://developer.microsoft.com/microsoft-edge/webview2/";
 
 #[cfg(windows)]
-use embedded::BOOTSTRAPPER_BYTES;
-
-/// True when the WebView2 runtime is available to Tauri.
-#[cfg(windows)]
-pub fn webview_runtime_available() -> bool {
-    tauri::webview_version().is_ok()
-}
-
-/// Install WebView2 when absent, using the embedded Microsoft bootstrapper.
-#[cfg(windows)]
-pub fn ensure_webview2_runtime() -> Result<(), String> {
-    if webview_runtime_available() {
-        return Ok(());
+pub fn run_preflight_or_exit() {
+    if tauri::webview_version().is_ok() {
+        return;
     }
-    if BOOTSTRAPPER_BYTES.is_empty() {
-        return Err(
-            "WebView2 bootstrapper was not embedded in this build. Rebuild with \
-             src-tauri/resources/webview2/MicrosoftEdgeWebview2Setup.exe present."
-                .into(),
+    show_startup_error(&format!(
+        "P99 Login Proxy needs the Microsoft Edge WebView2 Runtime, which is not installed.\n\n\
+         After you click OK, Microsoft's download page will open. Install the \
+         \"Evergreen Bootstrapper\", then start P99 Login Proxy again.\n\n\
+         {WEBVIEW2_DOWNLOAD_URL}"
+    ));
+    open_in_browser(WEBVIEW2_DOWNLOAD_URL);
+    std::process::exit(1);
+}
+
+#[cfg(not(windows))]
+pub fn run_preflight_or_exit() {}
+
+#[cfg(windows)]
+fn to_wide(value: &str) -> Vec<u16> {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+
+    OsStr::new(value)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect()
+}
+
+#[cfg(windows)]
+fn open_in_browser(url: &str) {
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    let verb = to_wide("open");
+    let target = to_wide(url);
+    unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            verb.as_ptr(),
+            target.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
         );
     }
-    run_embedded_bootstrapper()?;
-    if webview_runtime_available() {
-        Ok(())
-    } else {
-        Err(
-            "WebView2 Runtime is required but could not be installed automatically. \
-             Install the Evergreen WebView2 Runtime from Microsoft, then restart the app."
-                .into(),
-        )
-    }
-}
-
-#[cfg(windows)]
-fn run_embedded_bootstrapper() -> Result<(), String> {
-    use std::io::Write;
-    use std::os::windows::process::CommandExt;
-    use std::process::Command;
-
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
-    let temp_dir = std::env::temp_dir().join("P99LoginProxy-webview2");
-    std::fs::create_dir_all(&temp_dir)
-        .map_err(|error| format!("Could not create WebView2 install temp dir: {error}"))?;
-    let installer = temp_dir.join("MicrosoftEdgeWebview2Setup.exe");
-    {
-        let mut file = std::fs::File::create(&installer)
-            .map_err(|error| format!("Could not write WebView2 bootstrapper: {error}"))?;
-        file.write_all(BOOTSTRAPPER_BYTES)
-            .map_err(|error| format!("Could not write WebView2 bootstrapper: {error}"))?;
-    }
-
-    let status = Command::new(&installer)
-        .arg("/silent")
-        .arg("/install")
-        .creation_flags(CREATE_NO_WINDOW)
-        .status()
-        .map_err(|error| format!("Failed to launch WebView2 bootstrapper: {error}"))?;
-    if !status.success() {
-        return Err(format!(
-            "WebView2 bootstrapper exited with status {}",
-            status
-        ));
-    }
-    Ok(())
 }
 
 #[cfg(windows)]
 pub fn show_startup_error(message: &str) {
-    use std::ffi::OsStr;
-    use std::os::windows::ffi::OsStrExt;
-    use std::ptr;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
 
-    let title: Vec<u16> = OsStr::new("P99 Login Proxy")
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
-    let body: Vec<u16> = OsStr::new(message)
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
+    let title = to_wide("P99 Login Proxy");
+    let body = to_wide(message);
     unsafe {
-        windows_sys::Win32::UI::WindowsAndMessaging::MessageBoxW(
-            ptr::null_mut(),
+        MessageBoxW(
+            std::ptr::null_mut(),
             body.as_ptr(),
             title.as_ptr(),
-            windows_sys::Win32::UI::WindowsAndMessaging::MB_OK
-                | windows_sys::Win32::UI::WindowsAndMessaging::MB_ICONERROR,
+            MB_OK | MB_ICONERROR,
         );
     }
 }
@@ -103,29 +76,4 @@ pub fn show_startup_error(message: &str) {
 #[cfg(not(windows))]
 pub fn show_startup_error(message: &str) {
     eprintln!("{message}");
-}
-
-#[cfg(windows)]
-pub fn run_preflight_or_exit() {
-    if let Err(error) = ensure_webview2_runtime() {
-        show_startup_error(&error);
-        std::process::exit(1);
-    }
-}
-
-#[cfg(not(windows))]
-pub fn run_preflight_or_exit() {}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    #[cfg(windows)]
-    fn bootstrapper_is_embedded_on_release_builds() {
-        if option_env!("PROFILE") == Some("release") {
-            assert!(
-                !super::BOOTSTRAPPER_BYTES.is_empty(),
-                "Release Windows builds must embed the WebView2 bootstrapper"
-            );
-        }
-    }
 }

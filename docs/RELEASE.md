@@ -67,7 +67,7 @@ and not required for the updater migration itself.
 - [ ] Draft is marked prerelease when the tag suffix is present
 - [ ] Windows zip, Linux AppImage, and `SHA256SUMS` assets present with expected names
 - [ ] `sha256sum --check SHA256SUMS` succeeds
-- [ ] Release notes mention WebView2 bootstrap, stable exe, token backup, and rollback
+- [ ] Release notes mention the WebView2 requirement, stable exe, token backup, and rollback
 
 ## Portable update contract
 
@@ -94,13 +94,10 @@ after migration — old Start Menu/desktop shortcuts may still point at
 
 ### WebView2 (Windows 10)
 
-Native v2 embeds Microsoft’s Evergreen WebView2 bootstrapper (~2 MB). On first launch,
-if WebView2 is missing, the app installs it silently and then continues. Internet access
-is required for that first install. Windows 10 1809+ is required; Windows 11 usually
-already has WebView2.
-
-If bootstrap installation fails, install the Evergreen WebView2 Runtime manually from
-Microsoft and retry.
+Native v2 requires the Microsoft Edge WebView2 Runtime. Windows 11 and current Windows 10
+already have it. If it is missing, the app shows an error and opens Microsoft's
+download page; install the Evergreen Bootstrapper from there and start the app again.
+Windows 10 1809+ is required.
 
 ### Config and CSV files
 
@@ -148,14 +145,9 @@ npm run build
 npm test
 ```
 
-Windows portable build also requires the WebView2 bootstrapper. Use the same pinned
-SHA-256 enforced in `.github/workflows/release.yml`; a changed Microsoft payload must be
-reviewed and deliberately repinned:
+Windows portable build:
 
 ```powershell
-Invoke-WebRequest `
-  -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" `
-  -OutFile "src-tauri/resources/webview2/MicrosoftEdgeWebview2Setup.exe"
 npm run tauri build -- --target x86_64-pc-windows-msvc --no-bundle
 ```
 

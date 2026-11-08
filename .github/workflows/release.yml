@@ -73,17 +73,6 @@ jobs:
         run: |
           $version = "${{ github.ref_name }}".TrimStart("v")
           node scripts/stamp-release-version.mjs $version
-      - name: Download WebView2 bootstrapper
-        shell: pwsh
-        run: |
-          $dest = "src-tauri/resources/webview2/MicrosoftEdgeWebview2Setup.exe"
-          New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
-          Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile $dest
-          $signature = Get-AuthenticodeSignature $dest
-          $subject = $signature.SignerCertificate.Subject
-          if ($signature.Status -ne "Valid" -or $subject -notmatch '(^|,\s*)CN=Microsoft Corporation(,|$)') {
-            throw "WebView2 bootstrapper signature is not valid Microsoft code: status=$($signature.Status), subject=$subject"
-          }
       - run: npm ci
       - name: Windows read-only regression test
         run: cargo test -p proxy-core clears_readonly_without_spawning_a_console_process
