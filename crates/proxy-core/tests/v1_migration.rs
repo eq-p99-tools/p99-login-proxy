@@ -17,13 +17,27 @@ fn fixture_dir() -> PathBuf {
 }
 
 #[test]
+fn legacy_wildcard_bind_requires_explicit_opt_in() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("proxyconfig.ini");
+    std::fs::write(
+        &path,
+        "[DEFAULT]\nlisten_host = 0.0.0.0\nallow_non_loopback = True\n",
+    )
+    .unwrap();
+    let cfg = parse_proxyconfig_ini(&path).unwrap();
+    assert_eq!(cfg.listen_host, "0.0.0.0");
+    assert!(cfg.allow_non_loopback);
+}
+
+#[test]
 fn loads_v1_portable_fixture_ini() {
     let ini_path = fixture_dir().join("proxyconfig.ini");
     let cfg = parse_proxyconfig_ini(&ini_path).expect("fixture INI should parse");
 
     assert_eq!(cfg.listen_port, 6790);
-    assert_eq!(cfg.listen_host, "0.0.0.0");
-    assert!(cfg.allow_non_loopback);
+    assert_eq!(cfg.listen_host, "127.0.0.1");
+    assert!(!cfg.allow_non_loopback);
     assert_eq!(cfg.sso_backend, "Localhost");
     assert_eq!(cfg.sso_api_url.as_deref(), Some("http://localhost:5998"));
     assert_eq!(cfg.login_timeout_secs, 12);

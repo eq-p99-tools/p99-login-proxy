@@ -1018,9 +1018,14 @@ impl AppSupervisor {
         Ok(())
     }
 
+    /// True while the UDP login listener is bound.
+    pub fn udp_listener_running(&self) -> bool {
+        self.udp.is_some()
+    }
+
     /// Restart the UDP listener socket without changing the persisted proxy
     /// mode. Used to recover the transport after the machine resumes from sleep
-    /// (parity with the Python ``WM_POWERBROADCAST`` handler).
+    /// (parity with the Python ``PBT_APMRESUMEAUTOMATIC`` handler).
     pub async fn bounce_proxy_transport(&mut self) -> Result<(), String> {
         if self.udp.is_none() {
             return Ok(());

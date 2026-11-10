@@ -132,7 +132,7 @@ pub struct ConfigFileV1 {
     pub sso_backend: String,
     #[serde(default)]
     pub sso_api_url: Option<String>,
-    #[serde(default)]
+    #[serde(default = "default_sso_verify_tls")]
     pub sso_verify_tls: bool,
     #[serde(default)]
     pub eq_directory: Option<String>,
@@ -187,6 +187,10 @@ fn default_proxy_enabled() -> bool {
 }
 
 fn default_launch_admin() -> bool {
+    true
+}
+
+fn default_sso_verify_tls() -> bool {
     true
 }
 
@@ -275,7 +279,7 @@ impl Default for ConfigFileV1 {
             skip_sso_accounts: String::new(),
             sso_backend: "Good Guys".to_string(),
             sso_api_url: None,
-            sso_verify_tls: true,
+            sso_verify_tls: default_sso_verify_tls(),
             eq_directory: None,
             eq_directory_secondary: None,
             local_accounts_file: default_local_accounts_file(),
@@ -540,6 +544,13 @@ mod tests {
             ..ConfigFileV1::default()
         };
         assert_eq!(resolve_sso_api_url(&custom), "https://custom.example.com");
+    }
+
+    #[test]
+    fn sso_verify_tls_defaults_on_when_key_missing() {
+        let file: ConfigFileV1 = toml::from_str("version = 1").unwrap();
+        assert!(file.sso_verify_tls);
+        assert!(ConfigFileV1::default().sso_verify_tls);
     }
 
     #[test]

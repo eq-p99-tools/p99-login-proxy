@@ -2,6 +2,7 @@ mod commands;
 mod icons;
 mod logging;
 mod notifications;
+mod resume;
 mod state;
 mod tray;
 mod updater;
@@ -42,13 +43,9 @@ pub fn portable_app_directory() -> Option<std::path::PathBuf> {
         .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf))
 }
 
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-
 use proxy_core::window_title;
-use runtime::{AppSupervisor, LogStore};
+use runtime::LogStore;
 use tauri::Manager;
-use tokio::sync::Mutex;
 
 use crate::logging::init as init_logging;
 use crate::state::AppState;
@@ -58,25 +55,6 @@ fn apply_main_window_title(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.set_title(&window_title());
     }
-}
-
-/// Detect a system suspend/resume by watching for wall-clock jumps and bounce
-/// the UDP transport so the proxy keeps working after the machine wakes.
-fn spawn_resume_monitor(supervisor: Arc<Mutex<AppSupervisor>>) {
-    const TICK: Duration = Duration::from_secs(10);
-    const RESUME_GAP: Duration = Duration::from_secs(30);
-    tauri::async_runtime::spawn(async move {
-        loop {
-            let before = Instant::now();
-            tokio::time::sleep(TICK).await;
-            if before.elapsed() > TICK + RESUME_GAP {
-                let mut sup = supervisor.lock().await;
-                if let Err(e) = sup.bounce_proxy_transport().await {
-                    tracing::warn!(error = %e, "resume proxy restart failed");
-                }
-            }
-        }
-    });
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -142,7 +120,7 @@ pub fn run() {
             });
 
             if let Some(state) = app.try_state::<AppState>() {
-                spawn_resume_monitor(state.supervisor.clone());
+                resume::spawn_resume_monitor(state.supervisor.clone());
             }
             Ok(())
         })

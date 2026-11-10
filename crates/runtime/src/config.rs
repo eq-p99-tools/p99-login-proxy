@@ -1,4 +1,4 @@
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 
 use std::collections::HashSet;
 
@@ -54,23 +54,6 @@ impl ProxyRuntimeConfig {
 /// True when the configured listen host is loopback-only (`127.0.0.1` / `localhost`).
 pub use proxy_core::config::is_loopback as is_loopback_host;
 
-/// Pick a bind address that can reach *upstream*.
-///
-/// A socket bound to loopback cannot send UDP to an external login server on Windows
-/// (WSAENETUNREACH / os error 10051). Python defaults to `0.0.0.0`; EQ still connects via
-/// `127.0.0.1` in `eqhost.txt`.
-pub fn effective_bind_host(listen_host: &str, upstream: SocketAddr) -> String {
-    let upstream_loopback = match upstream.ip() {
-        IpAddr::V4(v4) => v4.is_loopback(),
-        IpAddr::V6(v6) => v6.is_loopback(),
-    };
-    if upstream_loopback || !is_loopback_host(listen_host) {
-        listen_host.to_string()
-    } else {
-        "0.0.0.0".to_string()
-    }
-}
-
 /// Address written to `eqhost.txt`. Wildcard bind addresses accept local
 /// connections but are not valid destinations, so advertise IPv4 loopback.
 pub fn eqhost_connect_host(listen_host: &str) -> &str {
@@ -88,7 +71,7 @@ pub fn eqhost_connect_host(listen_host: &str) -> &str {
 impl Default for ProxyRuntimeConfig {
     fn default() -> Self {
         Self {
-            listen_host: "0.0.0.0".to_string(),
+            listen_host: "127.0.0.1".to_string(),
             listen_port: 6998,
             upstream_host: "login.eqemulator.net".to_string(),
             upstream_port: 5998,
@@ -146,26 +129,13 @@ impl ProxyLocalData {
 
 #[cfg(test)]
 mod tests {
-    use std::net::{Ipv4Addr, SocketAddr};
-
-    use super::{effective_bind_host, eqhost_connect_host, is_loopback_host};
+    use super::{eqhost_connect_host, is_loopback_host};
 
     #[test]
-    fn loopback_listen_upgraded_for_external_upstream() {
-        let upstream: SocketAddr = (Ipv4Addr::new(70, 35, 159, 39), 5998).into();
-        assert_eq!(effective_bind_host("127.0.0.1", upstream), "0.0.0.0");
-    }
-
-    #[test]
-    fn loopback_listen_kept_for_loopback_upstream() {
-        let upstream: SocketAddr = (Ipv4Addr::LOCALHOST, 5998).into();
-        assert_eq!(effective_bind_host("127.0.0.1", upstream), "127.0.0.1");
-    }
-
-    #[test]
-    fn non_loopback_listen_unchanged() {
-        let upstream: SocketAddr = (Ipv4Addr::new(70, 35, 159, 39), 5998).into();
-        assert_eq!(effective_bind_host("0.0.0.0", upstream), "0.0.0.0");
+    fn default_listen_host_is_loopback() {
+        assert!(is_loopback_host(
+            &super::ProxyRuntimeConfig::default().listen_host
+        ));
     }
 
     #[test]
