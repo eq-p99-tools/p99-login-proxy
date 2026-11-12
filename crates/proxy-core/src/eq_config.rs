@@ -55,7 +55,24 @@ fn available_drives() -> Vec<PathBuf> {
     Vec::new()
 }
 
-/// Locate EverQuest using legacy v1 heuristics (configured override, CWD, default paths).
+/// Folders that can hold a portable EverQuest install next to this process.
+///
+/// An AppImage's working directory stays inside its mount so WebKit can spawn
+/// helper processes. The install beside the AppImage file is checked first.
+fn launch_neighbor_directories(cwd: Option<&Path>, appimage: Option<&Path>) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(parent) = appimage.and_then(Path::parent) {
+        dirs.push(parent.to_path_buf());
+    }
+    if let Some(cwd) = cwd {
+        if !dirs.iter().any(|dir| dir == cwd) {
+            dirs.push(cwd.to_path_buf());
+        }
+    }
+    dirs
+}
+
+/// Locate EverQuest using legacy v1 heuristics (configured override, beside the app, default paths).
 pub fn find_eq_directory(configured: Option<&str>) -> Option<PathBuf> {
     if let Some(dir) = configured.filter(|value| !value.trim().is_empty()) {
         let path = PathBuf::from(dir);
@@ -64,10 +81,12 @@ pub fn find_eq_directory(configured: Option<&str>) -> Option<PathBuf> {
         }
     }
 
-    if let Ok(cwd) = std::env::current_dir() {
-        if is_valid_eq_directory(&cwd) {
-            info!(path = %cwd.display(), "found EverQuest in the current directory");
-            return Some(cwd);
+    let cwd = std::env::current_dir().ok();
+    let appimage = std::env::var_os("APPIMAGE").map(PathBuf::from);
+    for dir in launch_neighbor_directories(cwd.as_deref(), appimage.as_deref()) {
+        if is_valid_eq_directory(&dir) {
+            info!(path = %dir.display(), "found EverQuest beside the running app");
+            return Some(dir);
         }
     }
 
@@ -462,6 +481,23 @@ mod tests {
         let dir = TempDir::new().unwrap();
         std::fs::write(dir.path().join("eqgame.exe"), b"stub").unwrap();
         assert!(find_eq_directory(Some(dir.path().to_str().unwrap())).is_some());
+    }
+
+    #[test]
+    fn an_appimage_still_finds_everquest_beside_the_file() {
+        let root = TempDir::new().unwrap();
+        let app_dir = root.path().join("eq");
+        let mount = root.path().join("mount").join("usr");
+        std::fs::create_dir_all(&app_dir).unwrap();
+        std::fs::create_dir_all(&mount).unwrap();
+        std::fs::write(app_dir.join("eqgame.exe"), b"stub").unwrap();
+        let appimage = app_dir.join("P99LoginProxy.AppImage");
+
+        let neighbors = launch_neighbor_directories(Some(&mount), Some(&appimage));
+
+        assert_eq!(neighbors[0], app_dir);
+        assert!(is_valid_eq_directory(&neighbors[0]));
+        assert!(!is_valid_eq_directory(&neighbors[1]));
     }
 
     #[cfg(windows)]
