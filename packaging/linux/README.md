@@ -8,12 +8,13 @@
 - Auto-update verifies the AppImage against `SHA256SUMS`, preserves executable mode,
   replaces `$APPIMAGE` with rollback backup, and waits for the old process before relaunch.
 - A fully static musl binary is not feasible because Tauri links system WebKitGTK.
-- **Validation targets:** Ubuntu 24.04 LTS (GNOME Wayland/X11), current Fedora KDE
+- **Validation targets:** Ubuntu 24.04 LTS (GNOME Wayland), current Arch and Fedora KDE (Wayland). XWayland is a fallback, not the session the AppImage targets.
+- The AppImage does not ship Wayland, xkbcommon, or the X11 client libraries (`libxcb`, `libXau`, `libXdmcp`). Those come from the desktop, so they match that machine's Mesa. Ubuntu 24.04 and a current KDE install already have them.
 
 Build the AppImage with:
 
 ```bash
-npm run tauri build -- --target x86_64-unknown-linux-gnu --config src-tauri/tauri.linux.bundle.json
+bash scripts/build-appimage.sh
 ```
 
 The bundle lands under `target/x86_64-unknown-linux-gnu/release/bundle/appimage/`
