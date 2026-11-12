@@ -22,10 +22,20 @@ pub fn wait_for_update_parent_if_requested() -> Result<(), String> {
 }
 
 pub fn normalize_release_working_directory() {
+    // AppRun starts an AppImage in `$APPDIR/usr`. Bundled WebKitGTK resolves
+    // `WebKitNetworkProcess` relative to that directory, so moving away from it
+    // aborts startup. Config, logs, and CSVs already use `$APPIMAGE`.
     #[cfg(not(debug_assertions))]
-    if let Some(dir) = portable_app_directory() {
-        let _ = std::env::set_current_dir(dir);
+    if !release_keeps_process_cwd(std::env::var_os("APPIMAGE").as_deref()) {
+        if let Some(dir) = portable_app_directory() {
+            let _ = std::env::set_current_dir(dir);
+        }
     }
+}
+
+#[cfg(any(not(debug_assertions), test))]
+fn release_keeps_process_cwd(appimage: Option<&std::ffi::OsStr>) -> bool {
+    cfg!(target_os = "linux") && appimage.is_some()
 }
 
 pub fn portable_app_directory() -> Option<std::path::PathBuf> {
@@ -178,12 +188,24 @@ pub fn run() {
 
 #[cfg(test)]
 mod startup_tests {
-    use super::portable_app_directory;
+    use std::ffi::OsStr;
+
+    use super::{portable_app_directory, release_keeps_process_cwd};
 
     #[test]
     fn portable_app_directory_prefers_current_exe_parent() {
         let exe = std::env::current_exe().expect("current_exe");
         let expected = exe.parent().expect("exe parent");
         assert_eq!(portable_app_directory().as_deref(), Some(expected));
+    }
+
+    #[test]
+    fn an_appimage_keeps_the_process_working_directory() {
+        let appimage = OsStr::new("/home/player/P99LoginProxy.AppImage");
+        assert_eq!(
+            release_keeps_process_cwd(Some(appimage)),
+            cfg!(target_os = "linux")
+        );
+        assert!(!release_keeps_process_cwd(None));
     }
 }
