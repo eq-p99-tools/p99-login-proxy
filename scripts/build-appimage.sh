@@ -12,11 +12,15 @@ export LINUXDEPLOY_EXCLUDED_LIBRARIES="${LINUXDEPLOY_EXCLUDED_LIBRARIES:-libwayl
 
 npm run tauri build -- --target x86_64-unknown-linux-gnu --config src-tauri/tauri.linux.bundle.json "$@"
 
-appdir="target/x86_64-unknown-linux-gnu/release/bundle/appimage/P99 Login Proxy.AppDir"
-if [ ! -d "$appdir" ]; then
-  echo "AppDir not found: $appdir" >&2
+appimage_dir="target/x86_64-unknown-linux-gnu/release/bundle/appimage"
+shopt -s nullglob
+appdirs=("$appimage_dir"/*.AppDir)
+if [ "${#appdirs[@]}" -ne 1 ]; then
+  echo "Expected one AppDir under $appimage_dir, found ${#appdirs[@]}" >&2
+  ls -la "$appimage_dir" >&2 || true
   exit 1
 fi
+appdir="${appdirs[0]}"
 
 found="$(find "$appdir" \( -type f -o -type l \) -printf '%f\n' | grep -E '^(libwayland-|libxkbcommon|libxcb|libXau|libXdmcp)' || true)"
 if [ -n "$found" ]; then
