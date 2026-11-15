@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/toald/roboToald/schemas/ws-protocol.schema.json",
   "title": "P99 SSO WebSocket Protocol",
-  "description": "Canonical message contract for the WebSocket channel between the P99 login proxy (client) and the roboToald SSO server. Each message is a JSON object discriminated by its `type`. Bulk payloads (account_tree, changes) are loosely typed so the server can evolve their internals without breaking clients; unknown extra fields are permitted everywhere for the same reason.",
+  "description": "Normative machine-readable wire contract for the WebSocket channel between the P99 login proxy (client) and the roboToald SSO server. Each message is a JSON object discriminated by its `type`. Bulk payloads (account_tree, changes) are loosely typed so the server can evolve their internals without breaking clients; unknown extra fields are permitted everywhere for the same reason. For flows, crypto, RBAC, and implementer checklists see docs/backend-protocol.md (additive guide; must not diverge from this schema).",
   "oneOf": [
     { "$ref": "#/$defs/full_state" },
     { "$ref": "#/$defs/delta" },
@@ -20,8 +20,8 @@
   "$defs": {
     "full_state": {
       "type": "object",
-      "description": "Server -> client. Full snapshot of the accessible account tree.",
-      "required": ["type"],
+      "description": "Server -> client. Full snapshot of the accessible account tree. Working server and proxy always exchange account_tree, count, and dynamic tag lists.",
+      "required": ["type", "account_tree", "count", "dynamic_tag_zones", "dynamic_tag_classes"],
       "properties": {
         "type": { "const": "full_state" },
         "account_tree": { "type": "object" },
@@ -54,7 +54,7 @@
     },
     "ping": {
       "type": "object",
-      "description": "Keepalive. Server -> client.",
+      "description": "Keepalive. Either direction (server typically sends; client may also send).",
       "required": ["type"],
       "properties": { "type": { "const": "ping" } }
     },
@@ -66,8 +66,8 @@
     },
     "error": {
       "type": "object",
-      "description": "Server -> client. Terminal error / auth rejection. The human-readable reason may arrive under `detail`, `message`, or `reason`.",
-      "required": ["type"],
+      "description": "Server -> client. Terminal error / auth rejection. Working server always sets `detail`; proxy UI reads `detail` only. `message` / `reason` are optional aliases.",
+      "required": ["type", "detail"],
       "properties": {
         "type": { "const": "error" },
         "detail": { "type": "string" },
@@ -107,7 +107,7 @@
     },
     "update_location": {
       "type": "object",
-      "description": "Client -> server. Character park/bind/level/item updates. All fields besides character_name are optional.",
+      "description": "Client -> server. Character park/bind/level/item updates. All fields besides character_name are optional. A non-empty `inventory` string is the raw EQ *-Inventory.txt export; the server parses tracked items from it and ignores `items` and `keys` on that message. Text longer than 524288 bytes is ignored. When `inventory` is absent, legacy clients may send `keys`; the server merges those with `items` (`items` wins on conflict).",
       "required": ["type", "character_name"],
       "properties": {
         "type": { "const": "update_location" },
@@ -115,7 +115,9 @@
         "park_location": { "type": "string" },
         "bind_location": { "type": "string" },
         "level": { "type": "integer" },
-        "items": { "type": "object" }
+        "items": { "type": "object" },
+        "keys": { "type": "object" },
+        "inventory": { "type": "string" }
       }
     },
     "fte": {

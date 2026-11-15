@@ -235,8 +235,21 @@ fn outbound_values_match_fixtures() {
             bind_location: Some("Toxxulia Forest"),
             level: Some(60),
             items: items.as_object(),
+            inventory: None,
         },
         "outbound/update_location.json",
+    );
+
+    assert_outbound_matches(
+        &WsOutbound::UpdateLocation {
+            character_name: "Zzzz",
+            park_location: None,
+            bind_location: None,
+            level: None,
+            items: None,
+            inventory: Some("Location\tName\tID\tCount\tSlots\nPrimary\tTrakanon Idol\t1\t1\t5\n"),
+        },
+        "outbound/update_location_inventory.json",
     );
 
     assert_outbound_matches(
@@ -271,6 +284,7 @@ fn update_location_omits_absent_optionals() {
         bind_location: None,
         level: None,
         items: None,
+        inventory: None,
     };
     let value = serde_json::to_value(&msg).unwrap();
     assert_eq!(
@@ -320,6 +334,7 @@ fn serialized_outbound_validates_against_schema() {
             bind_location: Some("Toxxulia Forest"),
             level: Some(60),
             items: items.as_object(),
+            inventory: None,
         })
         .unwrap(),
         serde_json::to_value(WsOutbound::UpdateLocation {
@@ -328,6 +343,7 @@ fn serialized_outbound_validates_against_schema() {
             bind_location: None,
             level: None,
             items: None,
+            inventory: Some("Location\tName\tID\tCount\tSlots\nPrimary\tPearl\t1\t4\t5\n"),
         })
         .unwrap(),
         serde_json::to_value(WsOutbound::Fte {

@@ -220,6 +220,41 @@ impl SsoClient {
             bind_location,
             level,
             items: items.as_ref(),
+            inventory: None,
+        };
+        if self.send_json(&msg).await.is_ok() {
+            self.inner.last_location.lock().await.insert(key, merged);
+        }
+    }
+
+    /// Send a raw inventory export. The server parses whatever it cares about,
+    /// so the client sends the whole file and only skips an identical resend.
+    /// The wire message carries `inventory` and not `items`.
+    pub async fn send_inventory_export(&self, character_name: &str, inventory: &str) {
+        if !self.is_connected() || inventory.is_empty() {
+            return;
+        }
+
+        let mut fields = serde_json::Map::new();
+        fields.insert("inventory".into(), Value::from(inventory));
+
+        let key = character_name.to_lowercase();
+        let merged = {
+            let last = self.inner.last_location.lock().await;
+            let prev = last.get(&key).cloned().unwrap_or_default();
+            match next_location_state(&prev, &fields) {
+                Some(merged) => merged,
+                None => return,
+            }
+        };
+
+        let msg = WsOutbound::UpdateLocation {
+            character_name,
+            park_location: None,
+            bind_location: None,
+            level: None,
+            items: None,
+            inventory: Some(inventory),
         };
         if self.send_json(&msg).await.is_ok() {
             self.inner.last_location.lock().await.insert(key, merged);
@@ -327,6 +362,10 @@ pub enum WsOutbound<'a> {
         level: Option<u32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         items: Option<&'a serde_json::Map<String, Value>>,
+        /// Raw `*-Inventory.txt` contents. The server parses tracked items from
+        /// this and ignores `items` on the same message.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        inventory: Option<&'a str>,
     },
     Fte {
         mob: &'a str,
@@ -900,6 +939,29 @@ mod tests {
         assert_eq!(
             next,
             Some(fields(json!({ "items": { "seb": true, "vp": true } })))
+        );
+    }
+
+    #[test]
+    fn repeated_inventory_text_is_suppressed() {
+        let text = "Name\tCount\nPearl\t1\n";
+        let prev = fields(json!({ "inventory": text }));
+        assert_eq!(
+            next_location_state(&prev, &fields(json!({ "inventory": text }))),
+            None
+        );
+    }
+
+    #[test]
+    fn changed_inventory_text_is_sent() {
+        let prev = fields(json!({ "inventory": "Name\tCount\nPearl\t1\n" }));
+        let next = next_location_state(
+            &prev,
+            &fields(json!({ "inventory": "Name\tCount\nPearl\t2\n" })),
+        );
+        assert_eq!(
+            next,
+            Some(fields(json!({ "inventory": "Name\tCount\nPearl\t2\n" })))
         );
     }
 

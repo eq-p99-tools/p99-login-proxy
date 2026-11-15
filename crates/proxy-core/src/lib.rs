@@ -36,8 +36,8 @@ pub use eq_config::{
 };
 pub use eqhost::EqHostWriter;
 pub use inventory_parser::{
-    character_name_from_inventory_path, inventory_items_json, is_inventory_file,
-    parse_inventory_file,
+    character_name_from_inventory_path, inventory_export_to_send, inventory_items_json,
+    is_inventory_file, parse_inventory_file,
 };
 pub use local_data::{
     load_local_accounts, load_local_characters, load_local_data, save_local_accounts,

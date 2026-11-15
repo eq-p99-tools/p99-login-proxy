@@ -45,6 +45,21 @@ pub fn is_inventory_file(path: &Path) -> bool {
         .is_some_and(|n| n.to_ascii_lowercase().ends_with("-inventory.txt"))
 }
 
+/// Server drops inventory text larger than this. Matches
+/// `MAX_INVENTORY_TEXT_BYTES` in roboToald.
+pub const MAX_INVENTORY_TEXT_BYTES: usize = 512 * 1024;
+
+/// Raw export text to put on `update_location`, or `None` when there is nothing
+/// to send. Blank and oversized files are skipped so stored server items stay
+/// as they were.
+pub fn inventory_export_to_send(text: &str) -> Option<&str> {
+    if text.trim().is_empty() || text.len() > MAX_INVENTORY_TEXT_BYTES {
+        None
+    } else {
+        Some(text)
+    }
+}
+
 pub fn default_inventory_result() -> HashMap<String, Value> {
     let mut out = HashMap::new();
     for (_, wire) in TRACKED_ITEMS {
@@ -123,5 +138,16 @@ mod tests {
         std::fs::write(&path, "Name\tCount\nTrakanon Idol\t1\n").unwrap();
         let flags = parse_inventory_file(&path);
         assert_eq!(flags.get("seb"), Some(&Value::Bool(true)));
+    }
+
+    #[test]
+    fn blank_or_oversized_exports_are_not_sent() {
+        assert_eq!(inventory_export_to_send("  \n"), None);
+        let huge = "x".repeat(MAX_INVENTORY_TEXT_BYTES + 1);
+        assert_eq!(inventory_export_to_send(&huge), None);
+        assert_eq!(
+            inventory_export_to_send("Name\tCount\n"),
+            Some("Name\tCount\n")
+        );
     }
 }
