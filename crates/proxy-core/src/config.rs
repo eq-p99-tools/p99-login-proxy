@@ -532,7 +532,10 @@ mod tests {
         );
         assert_eq!(resolve_sso_api_url(&file), "https://bot.kingdomdkp.com");
         let options = list_sso_backend_options(&file);
-        let kingdom: Vec<_> = options.iter().filter(|(name, _)| name == "Kingdom").collect();
+        let kingdom: Vec<_> = options
+            .iter()
+            .filter(|(name, _)| name == "Kingdom")
+            .collect();
         assert_eq!(kingdom.len(), 1);
         assert_eq!(kingdom[0].1, "https://bot.kingdomdkp.com");
 
