@@ -12,7 +12,6 @@ pub const SSO_BACKENDS: &[(&str, &str)] = &[
     ("Good Guys", "https://proxy.p99loginproxy.net"),
     ("Kingdom", "https://bot.kingdomdkp.com"),
     ("Snipe Team", "https://proxy.p99loginproxy.net"),
-    ("EFB&T", "https://eqbot.duckdns.org"),
 ];
 
 const SSO_BACKEND_LOCALHOST: (&str, &str) = ("Localhost", "http://localhost:5998");
@@ -25,7 +24,6 @@ pub const SSO_BACKEND_REPORT_SERVERS: &[(&str, &[&str])] = &[
     ("Good Guys", &["P1999Green"]),
     ("Kingdom", &["P1999Green"]),
     ("Snipe Team", &["project1999"]),
-    ("EFB&T", &["P1999Green"]),
 ];
 
 /// Log servers whose events go to the named SSO backend.
@@ -524,19 +522,19 @@ mod tests {
     #[test]
     fn a_saved_url_does_not_override_a_builtin_backend() {
         let mut file = ConfigFileV1 {
-            sso_backend: "EFB&T".to_string(),
+            sso_backend: "Kingdom".to_string(),
             sso_api_url: Some("https://proxy.p99loginproxy.net".to_string()),
             ..ConfigFileV1::default()
         };
         file.sso_backends.insert(
-            "EFB&T".to_string(),
+            "Kingdom".to_string(),
             "https://proxy.p99loginproxy.net".to_string(),
         );
-        assert_eq!(resolve_sso_api_url(&file), "https://eqbot.duckdns.org");
+        assert_eq!(resolve_sso_api_url(&file), "https://bot.kingdomdkp.com");
         let options = list_sso_backend_options(&file);
-        let efbt: Vec<_> = options.iter().filter(|(name, _)| name == "EFB&T").collect();
-        assert_eq!(efbt.len(), 1);
-        assert_eq!(efbt[0].1, "https://eqbot.duckdns.org");
+        let kingdom: Vec<_> = options.iter().filter(|(name, _)| name == "Kingdom").collect();
+        assert_eq!(kingdom.len(), 1);
+        assert_eq!(kingdom[0].1, "https://bot.kingdomdkp.com");
 
         let custom = ConfigFileV1 {
             sso_backend: "Custom Backend".to_string(),
