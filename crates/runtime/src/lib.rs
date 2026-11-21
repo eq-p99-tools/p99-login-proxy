@@ -17,7 +17,7 @@ pub mod watchers;
 pub mod websocket;
 
 pub use config::{ProxyLocalData, ProxyRuntimeConfig};
-pub use events::{AppEvent, ProxyStatus};
+pub use events::{AppEvent, LoginNotes, ProxyStatus};
 pub use log_store::{format_app_event, LogLine, LogStore};
 pub use proxy::{LoginProxyEngine, ProxyActions, SsoAuthPending};
 pub use proxy_stats::{ProxyStatsTracker, ProxyStatsView};

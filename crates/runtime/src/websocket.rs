@@ -7,6 +7,8 @@ use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
 use proxy_core::SsoCaBundleMode;
 use proxy_core::{log_reports_to_sso, sso_report_servers, AccountCache};
+
+use crate::events::LoginNotes;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -36,6 +38,19 @@ pub struct LoginAuthResult {
     pub real_user: Option<String>,
     pub encrypted_credentials: Option<Vec<u8>>,
     pub error: Option<String>,
+    /// Notes for the server-resolved account; `None` when it has none.
+    pub notes: Option<LoginNotes>,
+}
+
+impl LoginAuthResult {
+    fn failed(error: impl Into<String>) -> Self {
+        Self {
+            real_user: None,
+            encrypted_credentials: None,
+            error: Some(error.into()),
+            notes: None,
+        }
+    }
 }
 
 type WsSender = futures_util::stream::SplitSink<
@@ -119,11 +134,7 @@ impl SsoClient {
 
     pub async fn request_login_auth(&self, username: &str) -> LoginAuthResult {
         if !self.is_connected() {
-            return LoginAuthResult {
-                real_user: None,
-                encrypted_credentials: None,
-                error: Some("WebSocket not connected".into()),
-            };
+            return LoginAuthResult::failed("WebSocket not connected");
         }
 
         let request_id = Uuid::new_v4().simple().to_string();
@@ -140,29 +151,17 @@ impl SsoClient {
         };
         if let Err(e) = self.send_json(&outbound).await {
             self.inner.pending.lock().await.remove(&request_id);
-            return LoginAuthResult {
-                real_user: None,
-                encrypted_credentials: None,
-                error: Some(format!("send failed: {e}")),
-            };
+            return LoginAuthResult::failed(format!("send failed: {e}"));
         }
 
         let timeout = Duration::from_secs(self.inner.config.timeout_secs.max(1));
         match tokio::time::timeout(timeout, rx).await {
             Ok(Ok(result)) => result,
-            Ok(Err(_)) => LoginAuthResult {
-                real_user: None,
-                encrypted_credentials: None,
-                error: Some("login_auth channel closed".into()),
-            },
+            Ok(Err(_)) => LoginAuthResult::failed("login_auth channel closed"),
             Err(_) => {
                 warn!(username = %username, "login_auth request timed out");
                 self.inner.pending.lock().await.remove(&request_id);
-                LoginAuthResult {
-                    real_user: None,
-                    encrypted_credentials: None,
-                    error: Some("Login auth request timed out".into()),
-                }
+                LoginAuthResult::failed("Login auth request timed out")
             }
         }
     }
@@ -415,6 +414,8 @@ pub enum WsInbound {
         encrypted_credentials: Option<String>,
         #[serde(default)]
         error: Option<String>,
+        #[serde(default, deserialize_with = "lenient_login_notes")]
+        notes: Option<LoginNotes>,
     },
     Ping,
     Pong,
@@ -675,11 +676,7 @@ fn notify_state(tx: &Option<tokio::sync::mpsc::Sender<WsStateEvent>>, event: WsS
 async fn cancel_pending(client: &SsoClient) {
     let mut pending = client.inner.pending.lock().await;
     for (_, tx) in pending.drain() {
-        let _ = tx.send(LoginAuthResult {
-            real_user: None,
-            encrypted_credentials: None,
-            error: Some("WebSocket disconnected".into()),
-        });
+        let _ = tx.send(LoginAuthResult::failed("WebSocket disconnected"));
     }
 }
 
@@ -819,6 +816,7 @@ async fn handle_inbound(
             real_user,
             encrypted_credentials,
             error,
+            notes,
         } => {
             resolve_login_auth_response(
                 client,
@@ -826,6 +824,7 @@ async fn handle_inbound(
                 real_user,
                 encrypted_credentials,
                 error,
+                notes,
             )
             .await;
         }
@@ -852,6 +851,7 @@ async fn resolve_login_auth_response(
     real_user: Option<String>,
     encrypted_credentials: Option<String>,
     error: Option<String>,
+    notes: Option<LoginNotes>,
 ) {
     let tx = client.inner.pending.lock().await.remove(&request_id);
     let Some(tx) = tx else {
@@ -859,11 +859,7 @@ async fn resolve_login_auth_response(
     };
 
     let result = if let Some(error) = error {
-        LoginAuthResult {
-            real_user: None,
-            encrypted_credentials: None,
-            error: Some(error),
-        }
+        LoginAuthResult::failed(error)
     } else {
         let encrypted = encrypted_credentials
             .filter(|b64| !b64.is_empty())
@@ -872,9 +868,28 @@ async fn resolve_login_auth_response(
             real_user,
             encrypted_credentials: encrypted,
             error: None,
+            notes: notes.filter(|n| !n.is_empty()),
         }
     };
     let _ = tx.send(result);
+}
+
+/// Decode `login_auth_response.notes`, treating a malformed value as absent so a
+/// bad notes payload can never fail the login it rides on.
+fn lenient_login_notes<'de, D>(deserializer: D) -> Result<Option<LoginNotes>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(
+        value.and_then(|v| match serde_json::from_value::<LoginNotes>(v) {
+            Ok(notes) => Some(notes),
+            Err(e) => {
+                warn!("ignoring malformed login_auth_response.notes: {e}");
+                None
+            }
+        }),
+    )
 }
 
 #[cfg(test)]
@@ -1050,6 +1065,73 @@ mod tests {
             timeout_secs: 5,
             client_settings: json!({}),
         }
+    }
+
+    async fn resolve(raw: Value) -> LoginAuthResult {
+        let client = SsoClient::new(test_client_config(), SecretString::from("token"));
+        let (tx, rx) = oneshot::channel();
+        client.inner.pending.lock().await.insert("req-1".into(), tx);
+        let WsInbound::LoginAuthResponse {
+            request_id,
+            real_user,
+            encrypted_credentials,
+            error,
+            notes,
+        } = serde_json::from_value(raw).expect("login_auth_response")
+        else {
+            panic!("expected LoginAuthResponse");
+        };
+        resolve_login_auth_response(
+            &client,
+            request_id,
+            real_user,
+            encrypted_credentials,
+            error,
+            notes,
+        )
+        .await;
+        rx.await.expect("result")
+    }
+
+    #[tokio::test]
+    async fn login_auth_response_carries_notes() {
+        let result = resolve(json!({
+            "type": "login_auth_response",
+            "request_id": "req-1",
+            "real_user": "realbot01",
+            "encrypted_credentials": "AQID",
+            "notes": { "account": "Shared bot", "characters": { "Zzzz": "Kael factioned" } }
+        }))
+        .await;
+        assert_eq!(result.real_user.as_deref(), Some("realbot01"));
+        let notes = result.notes.expect("notes");
+        assert_eq!(notes.account.as_deref(), Some("Shared bot"));
+        assert_eq!(notes.characters["Zzzz"], "Kael factioned");
+    }
+
+    #[tokio::test]
+    async fn malformed_or_empty_notes_do_not_fail_login() {
+        let malformed = resolve(json!({
+            "type": "login_auth_response",
+            "request_id": "req-1",
+            "real_user": "realbot01",
+            "encrypted_credentials": "AQID",
+            "notes": "not an object"
+        }))
+        .await;
+        assert!(malformed.error.is_none());
+        assert_eq!(malformed.encrypted_credentials, Some(vec![1, 2, 3]));
+        assert!(malformed.notes.is_none());
+
+        let empty = resolve(json!({
+            "type": "login_auth_response",
+            "request_id": "req-1",
+            "real_user": "realbot01",
+            "encrypted_credentials": "AQID",
+            "notes": { "account": null, "characters": {} }
+        }))
+        .await;
+        assert!(empty.notes.is_none());
     }
 
     #[tokio::test]

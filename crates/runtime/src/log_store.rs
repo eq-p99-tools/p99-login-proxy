@@ -143,6 +143,12 @@ pub fn format_app_event(event: &crate::events::AppEvent) -> (tracing::Level, Str
             Level::INFO,
             format!("login proxied alias={alias} account={account} method={method}"),
         ),
+        AppEvent::LoginNotes {
+            username, account, ..
+        } => (
+            Level::INFO,
+            format!("login notes for account={account} (logged in as {username})"),
+        ),
         AppEvent::LocalCharacterUpdate { name, .. } => {
             (Level::DEBUG, format!("local character update for {name}"))
         }

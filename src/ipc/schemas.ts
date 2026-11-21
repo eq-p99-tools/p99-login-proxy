@@ -194,6 +194,21 @@ export const LogSnapshotSchema = z.object({
   file_path: z.string().nullable().optional().transform((v) => v ?? null),
 });
 
+export const CharacterNoteSchema = z.object({
+  name: z.string(),
+  notes: z.string(),
+  typed: z.boolean().default(false),
+});
+
+export const LoginNotesEntrySchema = z.object({
+  id: z.number(),
+  username: z.string(),
+  account: z.string(),
+  account_notes: z.string().nullable().optional().transform((v) => v ?? null),
+  characters: z.array(CharacterNoteSchema).default([]),
+  received_at_ms: z.number(),
+});
+
 export type BootstrapState = z.infer<typeof BootstrapStateSchema>;
 export type ProxyLifecycle = z.infer<typeof ProxyLifecycleSchema>;
 export type WsConnectionState = z.infer<typeof WsConnectionStateSchema>;
@@ -222,6 +237,8 @@ export type LocalDataView = z.infer<typeof LocalDataSchema>;
 export type EqSettingsView = z.infer<typeof EqSettingsSchema>;
 export type LogLine = z.infer<typeof LogLineSchema>;
 export type LogSnapshot = z.infer<typeof LogSnapshotSchema>;
+export type CharacterNote = z.infer<typeof CharacterNoteSchema>;
+export type LoginNotesEntry = z.infer<typeof LoginNotesEntrySchema>;
 
 export function parseRuntimeState(raw: unknown): RuntimeState {
   return RuntimeStateSchema.parse(raw);

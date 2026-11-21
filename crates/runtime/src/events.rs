@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use proxy_core::model::ProxyLifecycle;
 use serde::{Deserialize, Serialize};
@@ -20,6 +20,23 @@ impl Default for ProxyStatus {
             client_connected: false,
             packets_forwarded: 0,
         }
+    }
+}
+
+/// Login notes the server returned for the account a `login_auth` resolved to
+/// (`login_auth_response.notes`). Plain text; never render as markup.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LoginNotes {
+    #[serde(default)]
+    pub account: Option<String>,
+    #[serde(default)]
+    pub characters: BTreeMap<String, String>,
+}
+
+impl LoginNotes {
+    pub fn is_empty(&self) -> bool {
+        self.account.as_deref().is_none_or(|s| s.trim().is_empty())
+            && self.characters.values().all(|s| s.trim().is_empty())
     }
 }
 
@@ -49,6 +66,13 @@ pub enum AppEvent {
         alias: String,
         account: String,
         method: String,
+    },
+    /// An SSO login whose resolved account has notes. Emitted after the login
+    /// packet is forwarded; the login is never held for it.
+    LoginNotes {
+        username: String,
+        account: String,
+        notes: LoginNotes,
     },
     LocalCharacterUpdate {
         name: String,
