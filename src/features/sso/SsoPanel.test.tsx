@@ -61,6 +61,36 @@ describe("SsoPanel", () => {
     }
   });
 
+  it("shows and searches SSO character names on the aliases and tags subtabs", async () => {
+    const client = new MockClient();
+    client.setMockAccounts({
+      account_tree: {
+        main: { aliases: ["Bank"], tags: ["raid"], characters: { Zed: {}, Abe: {} } },
+        alt: { aliases: ["Port"], tags: ["raid"], characters: { Cleo: {} } },
+      },
+      account_count: 2,
+    });
+    render(
+      <AppProviders client={client}>
+        <SsoPanel />
+      </AppProviders>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Aliases" }));
+    const aliasTable = await screen.findByRole("table");
+    expect(within(aliasTable).getByRole("button", { name: "Characters" })).toBeTruthy();
+    const search = screen.getByPlaceholderText("Type to filter...");
+    fireEvent.change(search, { target: { value: "cleo" } });
+    const aliasRows = within(aliasTable).getAllByRole("row").slice(1);
+    expect(aliasRows).toHaveLength(1);
+    expect(aliasRows[0].textContent).toContain("Port");
+
+    fireEvent.click(screen.getByRole("button", { name: "Tags" }));
+    const tagTable = await screen.findByRole("table");
+    const tagCell = within(tagTable).getByText("alt (Cleo); main (Abe, Zed)");
+    expect(tagCell).toBeTruthy();
+  });
+
   it("flags cached SSO data as stale, but not on the local subtabs", async () => {
     const client = new MockClient();
     client.setMockAccounts({

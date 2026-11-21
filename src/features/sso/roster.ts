@@ -347,6 +347,79 @@ export function sortLocalAccounts(
   return sorted;
 }
 
+function compareNoCase(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { sensitivity: "base" }) || a.localeCompare(b);
+}
+
+/** SSO character names on one account, alphabetical (case-insensitive). */
+export function accountCharacterNames(entry: AccountTreeEntry): string[] {
+  return Object.keys(entry.characters ?? {}).sort(compareNoCase);
+}
+
+export interface SsoAccountRow {
+  name: string;
+  aliases: string;
+  tags: string;
+  roles: string;
+  characters: string;
+}
+
+export interface SsoAliasRow {
+  alias: string;
+  account: string;
+  characters: string;
+}
+
+export interface SsoTagRow {
+  tag: string;
+  accounts: string;
+  /** Grouped per account: ``acct1 (CharA, CharB); acct2 (CharC)``. Accounts without characters are omitted. */
+  characters: string;
+}
+
+/** Rows for the SSO Accounts tab, in tree order. */
+export function ssoAccountRows(tree: AccountTree): SsoAccountRow[] {
+  return Object.entries(tree).map(([name, entry]) => ({
+    name,
+    aliases: (entry.aliases ?? []).join(", "),
+    tags: (entry.tags ?? []).join(", "),
+    roles: (entry.group_roles ?? []).join(", "),
+    characters: accountCharacterNames(entry).join(", "),
+  }));
+}
+
+/** Rows for the SSO Aliases tab (one per alias), in tree order. */
+export function ssoAliasRows(tree: AccountTree): SsoAliasRow[] {
+  const rows: SsoAliasRow[] = [];
+  for (const [account, entry] of Object.entries(tree)) {
+    const characters = accountCharacterNames(entry).join(", ");
+    for (const alias of entry.aliases ?? []) {
+      rows.push({ alias, account, characters });
+    }
+  }
+  return rows;
+}
+
+/** Rows for the SSO Tags tab (one per tag); accounts within a tag are alphabetical. */
+export function ssoTagRows(tree: AccountTree): SsoTagRow[] {
+  const byTag = new Map<string, string[]>();
+  for (const [account, entry] of Object.entries(tree)) {
+    for (const tag of entry.tags ?? []) {
+      const list = byTag.get(tag) ?? [];
+      list.push(account);
+      byTag.set(tag, list);
+    }
+  }
+  return [...byTag.entries()].map(([tag, accounts]) => {
+    const sortedAccounts = [...accounts].sort(compareNoCase);
+    const groups = sortedAccounts.flatMap((account) => {
+      const names = accountCharacterNames(tree[account]);
+      return names.length > 0 ? [`${account} (${names.join(", ")})`] : [];
+    });
+    return { tag, accounts: sortedAccounts.join(", "), characters: groups.join("; ") };
+  });
+}
+
 /** Coerce wire account_tree JSON to a safe in-memory shape (null/missing → empty tree). */
 export function normalizeAccountTree(raw: unknown): AccountTree {
   if (raw == null || typeof raw !== "object" || Array.isArray(raw)) {

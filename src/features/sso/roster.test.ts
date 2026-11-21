@@ -20,8 +20,12 @@ import {
   searchCharacters,
   sortCharacters,
   sortLocalAccounts,
+  accountCharacterNames,
+  ssoAccountRows,
   ssoAccountsSummary,
+  ssoAliasRows,
   ssoLoggedInSummary,
+  ssoTagRows,
   stackCountTierEmoji,
   type CharacterRow,
 } from "./roster";
@@ -459,6 +463,61 @@ describe("ssoAccountsSummary", () => {
 
   it("returns None when the cache tree is empty", () => {
     expect(ssoAccountsSummary({})).toEqual({ text: "None", tone: "muted" });
+  });
+});
+
+describe("SSO account/alias/tag rows with characters", () => {
+  const tree = normalizeAccountTree({
+    zeta: {
+      aliases: ["z1"],
+      tags: ["raid"],
+      group_roles: ["Member"],
+      characters: { bravo: { class: "Cleric", level: 60 }, Alpha: {}, Charlie: {} },
+    },
+    alpha: {
+      aliases: ["a1", "a2"],
+      tags: ["raid", "solo"],
+      characters: { Delta: {} },
+    },
+    empty: { tags: ["raid"] },
+  });
+
+  it("sorts character names alphabetically, case-insensitively", () => {
+    expect(accountCharacterNames(tree.zeta)).toEqual(["Alpha", "bravo", "Charlie"]);
+    expect(accountCharacterNames(tree.empty)).toEqual([]);
+  });
+
+  it("adds a characters cell to account rows", () => {
+    expect(ssoAccountRows(tree)).toEqual([
+      { name: "zeta", aliases: "z1", tags: "raid", roles: "Member", characters: "Alpha, bravo, Charlie" },
+      { name: "alpha", aliases: "a1, a2", tags: "raid, solo", roles: "", characters: "Delta" },
+      { name: "empty", aliases: "", tags: "raid", roles: "", characters: "" },
+    ]);
+  });
+
+  it("repeats the account's characters on each alias row", () => {
+    expect(ssoAliasRows(tree)).toEqual([
+      { alias: "z1", account: "zeta", characters: "Alpha, bravo, Charlie" },
+      { alias: "a1", account: "alpha", characters: "Delta" },
+      { alias: "a2", account: "alpha", characters: "Delta" },
+    ]);
+  });
+
+  it("groups tag characters by account and omits accounts without characters", () => {
+    expect(ssoTagRows(tree)).toEqual([
+      {
+        tag: "raid",
+        accounts: "alpha, empty, zeta",
+        characters: "alpha (Delta); zeta (Alpha, bravo, Charlie)",
+      },
+      { tag: "solo", accounts: "alpha", characters: "alpha (Delta)" },
+    ]);
+  });
+
+  it("returns no rows for an empty tree", () => {
+    expect(ssoAccountRows({})).toEqual([]);
+    expect(ssoAliasRows({})).toEqual([]);
+    expect(ssoTagRows({})).toEqual([]);
   });
 });
 

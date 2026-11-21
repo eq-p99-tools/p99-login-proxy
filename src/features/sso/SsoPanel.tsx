@@ -28,7 +28,10 @@ import {
   searchCharacters,
   sortCharacters,
   sortLocalAccounts,
+  ssoAccountRows,
   ssoAccountsSummary,
+  ssoAliasRows,
+  ssoTagRows,
   type AccountTree,
   type CharacterRow,
   type CharacterSortKey,
@@ -44,6 +47,8 @@ import {
   SSO_CHARACTER_GROUP_HEADER,
   SSO_CHARACTER_HEADER_TOOLTIPS,
   SSO_CHARACTER_WIDTHS,
+  SSO_CHARACTERS_COLUMN_TOOLTIP,
+  SSO_TAG_CHARACTERS_COLUMN_TOOLTIP,
   SSO_TAG_WIDTHS,
 } from "./tableConfig";
 
@@ -63,9 +68,9 @@ function characterRowClass(row: CharacterRow): string | undefined {
   return undefined;
 }
 
-type SsoAccountSortKey = "name" | "aliases" | "tags" | "roles";
-type AliasSortKey = "alias" | "account";
-type TagSortKey = "tag" | "accounts";
+type SsoAccountSortKey = "name" | "aliases" | "tags" | "roles" | "characters";
+type AliasSortKey = "alias" | "account" | "characters";
+type TagSortKey = "tag" | "accounts" | "characters";
 
 export function SsoPanel() {
   const client = useDesktopClient();
@@ -133,13 +138,11 @@ export function SsoPanel() {
   }, [tree, search, sortKey, sortAsc]);
 
   const accountRows = useMemo(() => {
-    const rows = Object.entries(tree).map(([name, entry]) => ({
-      name,
-      aliases: (entry.aliases ?? []).join(", "),
-      tags: (entry.tags ?? []).join(", "),
-      roles: (entry.group_roles ?? []).join(", "),
-    }));
-    const filtered = filterRows(rows, search, (r) => `${r.name} ${r.aliases} ${r.tags} ${r.roles}`);
+    const filtered = filterRows(
+      ssoAccountRows(tree),
+      search,
+      (r) => `${r.name} ${r.aliases} ${r.tags} ${r.roles} ${r.characters}`,
+    );
     return filtered.sort((a, b) => {
       const comparison =
         a[accountSortKey].localeCompare(b[accountSortKey], undefined, { sensitivity: "base" }) ||
@@ -149,13 +152,11 @@ export function SsoPanel() {
   }, [tree, search, accountSortKey, accountSortAsc]);
 
   const aliasRows = useMemo(() => {
-    const out: { alias: string; account: string }[] = [];
-    for (const [acct, entry] of Object.entries(tree)) {
-      for (const alias of entry.aliases ?? []) {
-        out.push({ alias, account: acct });
-      }
-    }
-    const filtered = filterRows(out, search, (r) => `${r.alias} ${r.account}`);
+    const filtered = filterRows(
+      ssoAliasRows(tree),
+      search,
+      (r) => `${r.alias} ${r.account} ${r.characters}`,
+    );
     return filtered.sort((a, b) => {
       const comparison =
         a[aliasSortKey].localeCompare(b[aliasSortKey], undefined, { sensitivity: "base" }) ||
@@ -165,16 +166,11 @@ export function SsoPanel() {
   }, [tree, search, aliasSortKey, aliasSortAsc]);
 
   const tagRows = useMemo(() => {
-    const map = new Map<string, string[]>();
-    for (const [acct, entry] of Object.entries(tree)) {
-      for (const tag of entry.tags ?? []) {
-        const list = map.get(tag) ?? [];
-        list.push(acct);
-        map.set(tag, list);
-      }
-    }
-    const rows = [...map.entries()].map(([tag, accounts]) => ({ tag, accounts: accounts.join(", ") }));
-    const filtered = filterRows(rows, search, (r) => `${r.tag} ${r.accounts}`);
+    const filtered = filterRows(
+      ssoTagRows(tree),
+      search,
+      (r) => `${r.tag} ${r.accounts} ${r.characters}`,
+    );
     return filtered.sort((a, b) => {
       const comparison =
         a[tagSortKey].localeCompare(b[tagSortKey], undefined, { sensitivity: "base" }) ||
@@ -574,6 +570,15 @@ export function SsoPanel() {
                 sortable: true,
                 render: (r) => r.roles,
               },
+              {
+                key: "characters",
+                header: "Characters",
+                headerTitle: SSO_CHARACTERS_COLUMN_TOOLTIP,
+                width: SSO_ACCOUNT_WIDTHS.characters,
+                sortable: true,
+                render: (r) => r.characters,
+                cellTitle: (r) => r.characters || undefined,
+              },
             ]}
             rows={accountRows}
             rowKey={(r) => r.name}
@@ -590,6 +595,15 @@ export function SsoPanel() {
             columns={[
               { key: "alias", header: "Alias", width: SSO_ALIAS_WIDTHS.alias, sortable: true, render: (r) => r.alias },
               { key: "account", header: "Account Name", width: SSO_ALIAS_WIDTHS.account, sortable: true, render: (r) => r.account },
+              {
+                key: "characters",
+                header: "Characters",
+                headerTitle: SSO_CHARACTERS_COLUMN_TOOLTIP,
+                width: SSO_ALIAS_WIDTHS.characters,
+                sortable: true,
+                render: (r) => r.characters,
+                cellTitle: (r) => r.characters || undefined,
+              },
             ]}
             rows={aliasRows}
             rowKey={(r) => `${r.account}:${r.alias}`}
@@ -605,7 +619,23 @@ export function SsoPanel() {
             fill
             columns={[
               { key: "tag", header: "Tag", width: SSO_TAG_WIDTHS.tag, sortable: true, render: (r) => r.tag },
-              { key: "accounts", header: "Account Names", width: SSO_TAG_WIDTHS.accounts, sortable: true, render: (r) => r.accounts },
+              {
+                key: "accounts",
+                header: "Account Names",
+                width: SSO_TAG_WIDTHS.accounts,
+                sortable: true,
+                render: (r) => r.accounts,
+                cellTitle: (r) => r.accounts || undefined,
+              },
+              {
+                key: "characters",
+                header: "Characters",
+                headerTitle: SSO_TAG_CHARACTERS_COLUMN_TOOLTIP,
+                width: SSO_TAG_WIDTHS.characters,
+                sortable: true,
+                render: (r) => r.characters,
+                cellTitle: (r) => r.characters || undefined,
+              },
             ]}
             rows={tagRows}
             rowKey={(r) => r.tag}
