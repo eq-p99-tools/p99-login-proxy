@@ -81,9 +81,13 @@ export const SSO_CHARACTER_GROUP_HEADER = [
   { label: "", colSpan: 6 },
 ] as const;
 
-export const SSO_ACCOUNT_WIDTHS = { name: 114, aliases: 220, tags: 140, roles: 160 } as const;
-export const SSO_ALIAS_WIDTHS = { alias: 100, account: 114 } as const;
-export const SSO_TAG_WIDTHS = { tag: 100, accounts: 514 } as const;
+export const SSO_ACCOUNT_WIDTHS = { name: 114, aliases: 220, tags: 140, roles: 160, characters: 300 } as const;
+export const SSO_ALIAS_WIDTHS = { alias: 100, account: 114, characters: 400 } as const;
+export const SSO_TAG_WIDTHS = { tag: 100, accounts: 250, characters: 400 } as const;
+
+export const SSO_CHARACTERS_COLUMN_TOOLTIP = "SSO characters on this account (hover a cell for the full list)";
+export const SSO_TAG_CHARACTERS_COLUMN_TOOLTIP =
+  "SSO characters per tagged account: account (Char, Char); … (hover a cell for the full list)";
 export const LOCAL_ACCOUNT_WIDTHS = { name: 114, aliases: 500 } as const;
 export const LOCAL_CHARACTER_WIDTHS = {
   readiness: 26,
