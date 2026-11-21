@@ -8,6 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
+use proxy_core::{FactionDirection, FactionHit};
 use runtime::websocket::{WsInbound, WsOutbound};
 use serde_json::{json, Value};
 
@@ -217,6 +218,21 @@ fn tolerates_error_aliases() {
     }
 }
 
+fn sample_faction_hits() -> Vec<FactionHit> {
+    [
+        ("Coldain", FactionDirection::Better),
+        ("Kromrif", FactionDirection::Worse),
+        ("Claws of Veeshan", FactionDirection::Max),
+        ("Kael Drakkel", FactionDirection::Min),
+    ]
+    .into_iter()
+    .map(|(faction, direction)| FactionHit {
+        faction: faction.into(),
+        direction,
+    })
+    .collect()
+}
+
 fn assert_outbound_matches(msg: &WsOutbound, rel: &str) {
     let (_, expected) = load(rel);
     let actual = serde_json::to_value(msg).unwrap();
@@ -287,6 +303,15 @@ fn outbound_values_match_fixtures() {
             character_name: "Zzzz",
         },
         "outbound/mob_death.json",
+    );
+
+    assert_outbound_matches(
+        &WsOutbound::FactionHits {
+            character_name: "Zzzz",
+            eq_log_time: "Sat Nov 21 09:55:01 2026",
+            hits: &sample_faction_hits(),
+        },
+        "outbound/faction_hits.json",
     );
 
     assert_outbound_matches(&WsOutbound::Pong, "outbound/pong.json");
@@ -369,6 +394,12 @@ fn serialized_outbound_validates_against_schema() {
             mob: "Lord Nagafen",
             eq_log_time: "Wed Jul 15 22:19:41 2026",
             character_name: "Zzzz",
+        })
+        .unwrap(),
+        serde_json::to_value(WsOutbound::FactionHits {
+            character_name: "Zzzz",
+            eq_log_time: "Sat Nov 21 09:55:01 2026",
+            hits: &sample_faction_hits(),
         })
         .unwrap(),
         serde_json::to_value(WsOutbound::Pong).unwrap(),
