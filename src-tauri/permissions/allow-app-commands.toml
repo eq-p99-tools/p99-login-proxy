@@ -37,4 +37,15 @@ commands.allow = [
   "show_window",
   "hide_window",
   "request_shutdown",
+  "get_login_notes",
+  "acknowledge_login_notes",
+]
+
+[[permission]]
+identifier = "allow-login-notes-commands"
+description = "Commands the login notes window needs"
+commands.allow = [
+  "get_login_notes",
+  "acknowledge_login_notes",
+  "get_app_config",
 ]

@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use crate::icons::update_tray_and_window_icons;
+use crate::login_notes::{now_ms, show_login_notes_window, LoginNotesQueue};
 use crate::notifications::notify_login_proxied;
 use crate::tray::{refresh_tray_tooltip, update_toggle_menu_label};
 use proxy_core::model::ProxyLifecycle;
@@ -19,6 +20,7 @@ pub struct AppState {
     pub log_store: LogStore,
     pub log_file: Option<PathBuf>,
     pub tray_available: Arc<AtomicBool>,
+    pub login_notes: Arc<StdMutex<LoginNotesQueue>>,
     event_rx: StdMutex<Option<mpsc::Receiver<AppEvent>>>,
 }
 
@@ -31,6 +33,7 @@ impl AppState {
             log_store,
             log_file,
             tray_available: Arc::new(AtomicBool::new(false)),
+            login_notes: Arc::new(StdMutex::new(LoginNotesQueue::default())),
             event_rx: StdMutex::new(Some(event_rx)),
         }
     }
@@ -40,7 +43,7 @@ impl AppState {
         spawn_snapshot_emitter(app.clone(), self.snapshot_rx.clone(), supervisor.clone());
         spawn_uptime_ticker(supervisor.clone());
         if let Some(event_rx) = self.event_rx.lock().expect("event_rx lock").take() {
-            spawn_event_loop(app.clone(), event_rx, supervisor);
+            spawn_event_loop(app.clone(), event_rx, supervisor, self.login_notes.clone());
         }
         tauri::async_runtime::spawn({
             let app = app.clone();
@@ -76,6 +79,7 @@ fn spawn_event_loop(
     app: AppHandle,
     mut event_rx: mpsc::Receiver<AppEvent>,
     supervisor: Arc<Mutex<AppSupervisor>>,
+    login_notes: Arc<StdMutex<LoginNotesQueue>>,
 ) {
     tauri::async_runtime::spawn(async move {
         while let Some(event) = event_rx.recv().await {
@@ -136,6 +140,18 @@ fn spawn_event_loop(
                         "login-rejected",
                         serde_json::json!({ "username": username, "reason": reason }),
                     );
+                }
+                AppEvent::LoginNotes {
+                    username,
+                    account,
+                    notes,
+                } => {
+                    let entry = login_notes
+                        .lock()
+                        .expect("login_notes lock")
+                        .push(username, account, notes, now_ms())
+                        .clone();
+                    show_login_notes_window(&app, &entry);
                 }
                 AppEvent::RustleWarning { message } => {
                     let _ = app.emit("rustle-warning", serde_json::json!({ "message": message }));

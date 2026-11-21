@@ -10,6 +10,7 @@ import type {
   LocalAccountInput,
   LocalCharacterInput,
   LocalDataView,
+  LoginNotesEntry,
   LogSnapshot,
   ProxySettings,
   SsoAccountsView,
@@ -54,6 +55,26 @@ const MOCK_CONFIG: AppConfig = {
   warn_rustle: false,
   auto_add_local_characters: false,
 };
+
+/** Browser preview of the notes window (`?view=login-notes`) starts with a sample login. */
+function initialMockLoginNotes(): LoginNotesEntry[] {
+  if (typeof window === "undefined" || !window.location.search.includes("view=login-notes")) {
+    return [];
+  }
+  return [
+    {
+      id: 1,
+      username: "kaelclr",
+      account: "guildcleric7",
+      account_notes: "Shared with the raid team. Log out at the bind point when done.",
+      characters: [
+        { name: "Zzzz", notes: "Kael factioned. Do not zone into Kael Drakkel.", typed: false },
+        { name: "Yyyy", notes: "Bound in Skyshrine", typed: false },
+      ],
+      received_at_ms: Date.now(),
+    },
+  ];
+}
 
 const MOCK_SSO: SsoStatus = {
   backend: "Good Guys",
@@ -112,6 +133,7 @@ export class MockClient implements DesktopClient {
   private localCharacters: LocalDataView["characters"] = [];
   private eqDir: string | null = null;
   private passwordStore = new Map<string, string>();
+  private loginNotes: LoginNotesEntry[] = initialMockLoginNotes();
   private launchAtLogin = false;
 
   async getRuntimeState(): Promise<RuntimeState> {
@@ -340,6 +362,22 @@ export class MockClient implements DesktopClient {
   async setLaunchAtLogin(enabled: boolean): Promise<boolean> {
     this.launchAtLogin = enabled;
     return enabled;
+  }
+
+  async getLoginNotes(): Promise<LoginNotesEntry[]> {
+    return this.loginNotes.map((entry) => ({
+      ...entry,
+      characters: entry.characters.map((c) => ({ ...c })),
+    }));
+  }
+
+  async acknowledgeLoginNotes(): Promise<void> {
+    this.loginNotes = [];
+  }
+
+  /** Test helper: queue login notes as if SSO logins had returned them (newest first). */
+  setMockLoginNotes(entries: LoginNotesEntry[]) {
+    this.loginNotes = entries;
   }
 
   /** Test helper: inject malformed SSO data */

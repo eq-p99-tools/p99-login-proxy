@@ -10,7 +10,7 @@ use crate::config::{ProxyLocalData, ProxyRuntimeConfig};
 use crate::events::{AppEvent, ProxyStatus};
 use crate::proxy::LoginProxyEngine;
 use crate::upstream::{is_upstream_peer, resolve_upstream};
-use crate::websocket::SsoClient;
+use crate::websocket::{LoginAuthResult, SsoClient};
 
 pub struct UdpProxyHandle {
     pub listen_addr: SocketAddr,
@@ -100,10 +100,12 @@ impl UdpProxyHandle {
                     }
                 };
                 let mut actions = engine.on_datagram(packet, peer, upstream);
+                let mut login_notes = None;
 
                 if let Some(pending) = actions.sso_pending.take() {
                     if let Some(ref client) = active_sso {
                         let auth = client.request_login_auth(&pending.username).await;
+                        login_notes = login_notes_event(&pending.username, &auth);
                         if let Some(ref reason) = auth.error {
                             let _ = event_tx
                                 .send(AppEvent::AuthRejected {
@@ -147,6 +149,12 @@ impl UdpProxyHandle {
                 for out in actions.send_upstream {
                     if let Err(e) = upstream_socket.send(&out).await {
                         error!(%e, "send to upstream failed");
+                    }
+                }
+                // After the forward above, so showing notes never delays the login.
+                if let Some(event) = login_notes {
+                    if event_tx.try_send(event).is_err() {
+                        warn!("event channel full; dropped login notes event");
                     }
                 }
                 if actions.client_disconnected {
@@ -217,6 +225,22 @@ impl UdpProxyHandle {
     }
 }
 
+/// The `LoginNotes` event for a successful SSO auth whose account has notes.
+fn login_notes_event(username: &str, auth: &LoginAuthResult) -> Option<AppEvent> {
+    if auth.error.is_some() {
+        return None;
+    }
+    let notes = auth.notes.clone().filter(|n| !n.is_empty())?;
+    Some(AppEvent::LoginNotes {
+        username: username.to_string(),
+        account: auth
+            .real_user
+            .clone()
+            .unwrap_or_else(|| username.to_string()),
+        notes,
+    })
+}
+
 /// Ephemeral wildcard address in the upstream's family, so the OS picks the route.
 fn upstream_bind_addr(upstream: SocketAddr) -> SocketAddr {
     let ip = match upstream {
@@ -224,4 +248,49 @@ fn upstream_bind_addr(upstream: SocketAddr) -> SocketAddr {
         SocketAddr::V6(_) => IpAddr::V6(Ipv6Addr::UNSPECIFIED),
     };
     SocketAddr::new(ip, 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::events::LoginNotes;
+
+    fn auth(notes: Option<LoginNotes>, error: Option<&str>) -> LoginAuthResult {
+        LoginAuthResult {
+            real_user: Some("realbot01".into()),
+            encrypted_credentials: Some(vec![1, 2, 3]),
+            error: error.map(str::to_string),
+            notes,
+        }
+    }
+
+    fn notes() -> LoginNotes {
+        LoginNotes {
+            account: Some("Kael factioned".into()),
+            characters: [("Zzzz".to_string(), "Bound in Kael".to_string())].into(),
+        }
+    }
+
+    #[test]
+    fn login_notes_event_for_successful_auth_with_notes() {
+        match login_notes_event("mytag", &auth(Some(notes()), None)) {
+            Some(AppEvent::LoginNotes {
+                username,
+                account,
+                notes: got,
+            }) => {
+                assert_eq!(username, "mytag");
+                assert_eq!(account, "realbot01");
+                assert_eq!(got, notes());
+            }
+            other => panic!("expected LoginNotes, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn no_login_notes_event_without_notes_or_on_error() {
+        assert!(login_notes_event("mytag", &auth(None, None)).is_none());
+        assert!(login_notes_event("mytag", &auth(Some(LoginNotes::default()), None)).is_none());
+        assert!(login_notes_event("mytag", &auth(Some(notes()), Some("denied"))).is_none());
+    }
 }

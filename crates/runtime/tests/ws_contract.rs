@@ -126,11 +126,34 @@ fn login_auth_response_ok_fixture_deserializes() {
             real_user,
             encrypted_credentials,
             error,
+            notes,
         } => {
             assert!(!request_id.is_empty());
             assert_eq!(real_user.as_deref(), Some("realbot01"));
             assert!(encrypted_credentials.is_some());
             assert!(error.is_none());
+            assert!(notes.is_none());
+        }
+        other => panic!("expected LoginAuthResponse, got {other:?}"),
+    }
+}
+
+#[test]
+fn login_auth_response_notes_fixture_deserializes() {
+    match parse_inbound("inbound/login_auth_response_ok_notes.json") {
+        WsInbound::LoginAuthResponse {
+            real_user, notes, ..
+        } => {
+            assert_eq!(real_user.as_deref(), Some("realbot01"));
+            let notes = notes.expect("notes");
+            assert_eq!(
+                notes.account.as_deref(),
+                Some("Shared with the raid team; log out after use.")
+            );
+            assert_eq!(
+                notes.characters.get("Zzzz").map(String::as_str),
+                Some("Kael factioned")
+            );
         }
         other => panic!("expected LoginAuthResponse, got {other:?}"),
     }

@@ -954,3 +954,21 @@ pub async fn request_shutdown(app: AppHandle, _state: State<'_, AppState>) -> Re
     crate::tray::shutdown_and_exit(app).await;
     Ok(())
 }
+
+#[tauri::command]
+pub fn get_login_notes(state: State<'_, AppState>) -> Vec<crate::login_notes::LoginNotesEntry> {
+    state
+        .login_notes
+        .lock()
+        .expect("login_notes lock")
+        .entries()
+}
+
+#[tauri::command]
+pub fn acknowledge_login_notes(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    state.login_notes.lock().expect("login_notes lock").clear();
+    if let Some(window) = app.get_webview_window(crate::login_notes::LOGIN_NOTES_WINDOW) {
+        window.destroy().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}

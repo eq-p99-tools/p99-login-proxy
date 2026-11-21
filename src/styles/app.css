@@ -1451,3 +1451,89 @@ code {
 .app-tooltip[data-ready="false"] {
   visibility: hidden;
 }
+
+/* Login notes window (separate always-on-top webview, label "login-notes"). */
+.login-notes-window {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+}
+
+.login-notes-header {
+  padding: var(--space-3) var(--space-4) var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.login-notes-header h1 {
+  margin: 0 0 var(--space-1);
+  font-size: 1.1rem;
+}
+
+.login-notes-header p {
+  margin: 0;
+}
+
+.login-notes-body {
+  flex: 1;
+  overflow: auto;
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.login-notes-entry {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--warning);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+}
+
+.login-notes-entry-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.login-notes-time {
+  margin-left: auto;
+}
+
+.login-notes-muted {
+  color: var(--text-muted);
+}
+
+.login-notes-text {
+  margin: var(--space-1) 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.95rem;
+}
+
+.login-notes-characters {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.login-notes-characters li {
+  padding-left: var(--space-2);
+  border-left: 2px solid var(--border-subtle);
+}
+
+.login-notes-characters li.login-notes-typed {
+  border-left-color: var(--accent-border);
+}
+
+.login-notes-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+}
