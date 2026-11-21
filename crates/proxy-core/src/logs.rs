@@ -33,7 +33,26 @@ pub struct LogEvent {
     pub class_name: Option<String>,
 }
 
+/// Direction of a faction-standing log line. `Max` / `Min` are the "could not
+/// possibly get any better / worse" lines: the hit landed on a capped faction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FactionDirection {
+    Better,
+    Worse,
+    Max,
+    Min,
+}
+
+/// One faction-standing line. The faction name is kept verbatim.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FactionHit {
+    pub faction: String,
+    pub direction: FactionDirection,
+}
+
 pub struct LogPatterns {
+    faction_hit: Regex,
     zone_enter: Regex,
     who_zone: Regex,
     who_self: Regex,
@@ -184,6 +203,10 @@ impl Default for LogPatterns {
     fn default() -> Self {
         let ts = r"\[(?P<time>\w{3} \w{3} \d{2} \d\d:\d\d:\d\d \d{4})\] +";
         Self {
+            faction_hit: Regex::new(&format!(
+                r"^{ts}Your faction standing with (?P<faction>.+?) (?:got (?P<dir>better|worse)|could not possibly get any (?P<cap>better|worse))\.$"
+            ))
+            .unwrap(),
             zone_enter: Regex::new(&format!(r"^{ts}You have entered (?P<zone>.*?)\.$")).unwrap(),
             who_zone: Regex::new(&format!(
                 r"^{ts}There (?:are|is) (?P<num>\d+) players? in (?P<zone>.+?)\.$"
@@ -216,6 +239,28 @@ impl Default for LogPatterns {
 }
 
 impl LogPatterns {
+    /// Parse a faction-standing line into its EQ log time and hit.
+    pub fn faction_hit(&self, line: &str) -> Option<(String, FactionHit)> {
+        let caps = self.faction_hit.captures(line)?;
+        let direction = match (
+            caps.name("dir").map(|m| m.as_str()),
+            caps.name("cap").map(|m| m.as_str()),
+        ) {
+            (Some("better"), _) => FactionDirection::Better,
+            (Some("worse"), _) => FactionDirection::Worse,
+            (_, Some("better")) => FactionDirection::Max,
+            (_, Some("worse")) => FactionDirection::Min,
+            _ => return None,
+        };
+        Some((
+            caps["time"].to_string(),
+            FactionHit {
+                faction: caps["faction"].to_string(),
+                direction,
+            },
+        ))
+    }
+
     pub fn classify(&self, line: &str) -> LogEvent {
         if let Some(caps) = self.zone_enter.captures(line) {
             return LogEvent {
@@ -478,6 +523,67 @@ mod tests {
         let patterns = LogPatterns::default();
         let event = patterns.classify(&format!("{TS}Your Vial of Velium Vapors begins to glow."));
         assert_eq!(event.kind, LogEventKind::VeliumVapors);
+    }
+
+    #[test]
+    fn faction_hit_lines() {
+        let patterns = LogPatterns::default();
+        for (text, faction, direction) in [
+            (
+                "Your faction standing with Coldain got better.",
+                "Coldain",
+                FactionDirection::Better,
+            ),
+            (
+                "Your faction standing with Kromrif got worse.",
+                "Kromrif",
+                FactionDirection::Worse,
+            ),
+            (
+                "Your faction standing with Claws of Veeshan could not possibly get any better.",
+                "Claws of Veeshan",
+                FactionDirection::Max,
+            ),
+            (
+                "Your faction standing with Dain Frostreaver IV could not possibly get any worse.",
+                "Dain Frostreaver IV",
+                FactionDirection::Min,
+            ),
+        ] {
+            let (time, hit) = patterns
+                .faction_hit(&format!("{TS}{text}"))
+                .unwrap_or_else(|| panic!("no match: {text}"));
+            assert_eq!(time, "Wed Jul 30 12:00:00 2026");
+            assert_eq!(hit.faction, faction);
+            assert_eq!(hit.direction, direction);
+        }
+    }
+
+    #[test]
+    fn faction_hit_rejects_lookalikes() {
+        let patterns = LogPatterns::default();
+        for text in [
+            "Your faction standing with Coldain got better",
+            "Your faction standing with Coldain got much better.",
+            "Hero tells the guild, 'Your faction standing with Coldain got better.'",
+            "a Coldain guard regards you as an ally -- looks like quite a gamble.",
+        ] {
+            assert!(
+                patterns.faction_hit(&format!("{TS}{text}")).is_none(),
+                "unexpected match: {text}"
+            );
+        }
+        assert!(patterns
+            .faction_hit("Your faction standing with Coldain got better.")
+            .is_none());
+    }
+
+    #[test]
+    fn faction_direction_wire_names() {
+        assert_eq!(
+            serde_json::to_value(FactionDirection::Max).unwrap(),
+            serde_json::json!("max")
+        );
     }
 
     #[test]

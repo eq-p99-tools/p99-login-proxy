@@ -1,0 +1,11 @@
+{
+  "type": "faction_hits",
+  "character_name": "Zzzz",
+  "eq_log_time": "Sat Nov 21 09:55:01 2026",
+  "hits": [
+    { "faction": "Coldain", "direction": "better" },
+    { "faction": "Kromrif", "direction": "worse" },
+    { "faction": "Claws of Veeshan", "direction": "max" },
+    { "faction": "Kael Drakkel", "direction": "min" }
+  ]
+}
