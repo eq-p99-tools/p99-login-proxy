@@ -240,6 +240,14 @@ fn outbound_values_match_fixtures() {
     );
 
     assert_outbound_matches(
+        &WsOutbound::UpdateInventory {
+            character_name: "Zzzz",
+            inventory: "Location\tName\tID\tCount\tSlots\nPrimary\tTrakanon Idol\t1\t1\t5\n",
+        },
+        "outbound/update_inventory.json",
+    );
+
+    assert_outbound_matches(
         &WsOutbound::Fte {
             mob: "Lord Nagafen",
             player: "Zzzz",
@@ -322,12 +330,9 @@ fn serialized_outbound_validates_against_schema() {
             items: items.as_object(),
         })
         .unwrap(),
-        serde_json::to_value(WsOutbound::UpdateLocation {
+        serde_json::to_value(WsOutbound::UpdateInventory {
             character_name: "Zzzz",
-            park_location: None,
-            bind_location: None,
-            level: None,
-            items: None,
+            inventory: "Location\tName\tID\tCount\tSlots\nPrimary\tPearl\t1\t4\t5\n",
         })
         .unwrap(),
         serde_json::to_value(WsOutbound::Fte {

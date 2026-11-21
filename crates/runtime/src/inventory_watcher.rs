@@ -3,13 +3,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use proxy_core::{
-    character_name_from_inventory_path, inventory_items_json, is_inventory_file,
-    parse_inventory_file,
+    character_name_from_inventory_path, inventory_export_to_send, inventory_items_json,
+    is_inventory_file, parse_inventory_file,
 };
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::events::AppEvent;
 use crate::watchers::WatcherHandle;
@@ -119,20 +119,32 @@ async fn handle_inventory_event(
         return;
     }
 
-    let flags = parse_inventory_file(path);
-    let items = inventory_items_json(&flags);
     info!(%character, "inventory update");
 
     if in_sso {
         if let Some(client) = sso {
-            client
-                .send_update_location(&character, None, None, None, Some(items.clone()))
-                .await;
+            match std::fs::read_to_string(path) {
+                Ok(text) => {
+                    if let Some(export) = inventory_export_to_send(&text) {
+                        client.send_inventory_export(&character, export).await;
+                    } else {
+                        warn!(%character, path = %path.display(), "inventory export skipped");
+                    }
+                }
+                Err(err) => {
+                    warn!(
+                        %character,
+                        path = %path.display(),
+                        "failed to read inventory export: {err}"
+                    );
+                }
+            }
         }
     }
     if in_local {
-        let items_map: HashMap<String, Value> =
-            items.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let flags = parse_inventory_file(path);
+        let items = inventory_items_json(&flags);
+        let items_map: HashMap<String, Value> = items.into_iter().collect();
         let _ = event_tx
             .send(AppEvent::LocalCharacterUpdate {
                 name: character,
