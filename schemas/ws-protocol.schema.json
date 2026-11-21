@@ -14,6 +14,7 @@
     { "$ref": "#/$defs/login_auth" },
     { "$ref": "#/$defs/heartbeat" },
     { "$ref": "#/$defs/update_location" },
+    { "$ref": "#/$defs/update_inventory" },
     { "$ref": "#/$defs/fte" },
     { "$ref": "#/$defs/mob_death" }
   ],
@@ -107,7 +108,7 @@
     },
     "update_location": {
       "type": "object",
-      "description": "Client -> server. Character park/bind/level/item updates. All fields besides character_name are optional. A non-empty `inventory` string is the raw EQ *-Inventory.txt export; the server parses tracked items from it and ignores `items` and `keys` on that message. Text longer than 524288 bytes is ignored. When `inventory` is absent, legacy clients may send `keys`; the server merges those with `items` (`items` wins on conflict).",
+      "description": "Client -> server. Character park/bind/level/item updates. All fields besides character_name are optional. Legacy clients may send `keys`; server merges with `items` (`items` wins on conflict).",
       "required": ["type", "character_name"],
       "properties": {
         "type": { "const": "update_location" },
@@ -116,7 +117,16 @@
         "bind_location": { "type": "string" },
         "level": { "type": "integer" },
         "items": { "type": "object" },
-        "keys": { "type": "object" },
+        "keys": { "type": "object" }
+      }
+    },
+    "update_inventory": {
+      "type": "object",
+      "description": "Client -> server. Raw EQ `<Char>-Inventory.txt` export (`/outputfile inventory`). The server parses tracked items from it and treats the result as a full snapshot of the tracked item columns. Blank text, text longer than 524288 bytes, or text with no `Name` column is ignored.",
+      "required": ["type", "character_name", "inventory"],
+      "properties": {
+        "type": { "const": "update_inventory" },
+        "character_name": { "type": "string" },
         "inventory": { "type": "string" }
       }
     },

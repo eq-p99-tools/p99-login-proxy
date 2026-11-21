@@ -1,5 +1,5 @@
 {
-  "type": "update_location",
+  "type": "update_inventory",
   "character_name": "Zzzz",
   "inventory": "Location\tName\tID\tCount\tSlots\nPrimary\tTrakanon Idol\t1\t1\t5\n"
 }

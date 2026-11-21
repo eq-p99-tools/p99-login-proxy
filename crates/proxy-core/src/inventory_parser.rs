@@ -49,7 +49,7 @@ pub fn is_inventory_file(path: &Path) -> bool {
 /// `MAX_INVENTORY_TEXT_BYTES` in roboToald.
 pub const MAX_INVENTORY_TEXT_BYTES: usize = 512 * 1024;
 
-/// Raw export text to put on `update_location`, or `None` when there is nothing
+/// Raw export text to put on `update_inventory`, or `None` when there is nothing
 /// to send. Blank and oversized files are skipped so stored server items stay
 /// as they were.
 pub fn inventory_export_to_send(text: &str) -> Option<&str> {

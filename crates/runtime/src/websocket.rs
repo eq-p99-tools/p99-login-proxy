@@ -53,6 +53,8 @@ struct SsoClientInner {
     /// Last `update_location` payload sent per lowercased character name, used to
     /// suppress redundant sends (Python `ws_client._last_sent_location`).
     last_location: Mutex<HashMap<String, serde_json::Map<String, Value>>>,
+    /// Last inventory export text sent per lowercased character name.
+    last_inventory: Mutex<HashMap<String, String>>,
 }
 
 /// Shared SSO WebSocket client used by the UDP proxy for ``login_auth``.
@@ -72,6 +74,7 @@ impl SsoClient {
                 cache: Arc::new(RwLock::new(AccountCache::default())),
                 write: Mutex::new(None),
                 last_location: Mutex::new(HashMap::new()),
+                last_inventory: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -220,44 +223,42 @@ impl SsoClient {
             bind_location,
             level,
             items: items.as_ref(),
-            inventory: None,
         };
         if self.send_json(&msg).await.is_ok() {
             self.inner.last_location.lock().await.insert(key, merged);
         }
     }
 
-    /// Send a raw inventory export. The server parses whatever it cares about,
-    /// so the client sends the whole file and only skips an identical resend.
-    /// The wire message carries `inventory` and not `items`.
+    /// Send a raw inventory export on `update_inventory`. The server parses
+    /// whatever it cares about, so the client sends the whole file and only
+    /// skips an identical resend.
     pub async fn send_inventory_export(&self, character_name: &str, inventory: &str) {
         if !self.is_connected() || inventory.is_empty() {
             return;
         }
 
-        let mut fields = serde_json::Map::new();
-        fields.insert("inventory".into(), Value::from(inventory));
-
         let key = character_name.to_lowercase();
-        let merged = {
-            let last = self.inner.last_location.lock().await;
-            let prev = last.get(&key).cloned().unwrap_or_default();
-            match next_location_state(&prev, &fields) {
-                Some(merged) => merged,
-                None => return,
-            }
-        };
+        if self
+            .inner
+            .last_inventory
+            .lock()
+            .await
+            .get(&key)
+            .is_some_and(|prev| prev == inventory)
+        {
+            return;
+        }
 
-        let msg = WsOutbound::UpdateLocation {
+        let msg = WsOutbound::UpdateInventory {
             character_name,
-            park_location: None,
-            bind_location: None,
-            level: None,
-            items: None,
-            inventory: Some(inventory),
+            inventory,
         };
         if self.send_json(&msg).await.is_ok() {
-            self.inner.last_location.lock().await.insert(key, merged);
+            self.inner
+                .last_inventory
+                .lock()
+                .await
+                .insert(key, inventory.to_owned());
         }
     }
 
@@ -362,10 +363,11 @@ pub enum WsOutbound<'a> {
         level: Option<u32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         items: Option<&'a serde_json::Map<String, Value>>,
-        /// Raw `*-Inventory.txt` contents. The server parses tracked items from
-        /// this and ignores `items` on the same message.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        inventory: Option<&'a str>,
+    },
+    /// Raw `<Char>-Inventory.txt` contents; the server parses tracked items.
+    UpdateInventory {
+        character_name: &'a str,
+        inventory: &'a str,
     },
     Fte {
         mob: &'a str,
@@ -693,6 +695,7 @@ async fn teardown(
     client.inner.connected.store(false, Ordering::Relaxed);
     cancel_pending(client).await;
     client.inner.last_location.lock().await.clear();
+    client.inner.last_inventory.lock().await.clear();
     if clear_cache {
         *client.cache().write().await = AccountCache::default();
     }
@@ -939,29 +942,6 @@ mod tests {
         assert_eq!(
             next,
             Some(fields(json!({ "items": { "seb": true, "vp": true } })))
-        );
-    }
-
-    #[test]
-    fn repeated_inventory_text_is_suppressed() {
-        let text = "Name\tCount\nPearl\t1\n";
-        let prev = fields(json!({ "inventory": text }));
-        assert_eq!(
-            next_location_state(&prev, &fields(json!({ "inventory": text }))),
-            None
-        );
-    }
-
-    #[test]
-    fn changed_inventory_text_is_sent() {
-        let prev = fields(json!({ "inventory": "Name\tCount\nPearl\t1\n" }));
-        let next = next_location_state(
-            &prev,
-            &fields(json!({ "inventory": "Name\tCount\nPearl\t2\n" })),
-        );
-        assert_eq!(
-            next,
-            Some(fields(json!({ "inventory": "Name\tCount\nPearl\t2\n" })))
         );
     }
 
