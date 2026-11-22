@@ -7,8 +7,8 @@
       "characters": {
         "Zzzz": {
           "class": "Cleric",
-          "bind": "Toxxulia Forest",
-          "park": "Plane of Knowledge",
+          "bind": "tox",
+          "park": "veeshan",
           "level": 60,
           "items": {
             "seb": true,

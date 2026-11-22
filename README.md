@@ -74,3 +74,16 @@ key and IV default to eight zero bytes, matching the game protocol.
 ## Migration
 
 See [docs/parity.md](docs/parity.md) for intentional deviations from the Python app.
+
+## SSO backend protocol
+
+This repo owns the wire contract between the proxy and an SSO backend:
+
+- [`schemas/ws-protocol.schema.json`](schemas/ws-protocol.schema.json) and
+  [`schemas/fixtures/`](schemas/fixtures/): the normative WebSocket message schema
+  (see [`schemas/README.md`](schemas/README.md)).
+- [`docs/backend-protocol.md`](docs/backend-protocol.md): the guide for implementing a
+  compatible backend (flows, credential crypto, access control, size caps, checklists).
+
+[roboToald](https://github.com/eq-p99-tools/roboToald) is the reference backend. It keeps no
+copy of the schema; its tests load it from a checkout of this repo.

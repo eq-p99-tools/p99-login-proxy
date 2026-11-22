@@ -373,8 +373,8 @@ fn merge_location_state(
 ///
 /// `#[serde(tag = "type", rename_all = "snake_case")]` produces the exact
 /// `{"type": "...", ...}` envelope the server dispatches on. Borrowed fields keep
-/// sends allocation-free. This is the client-owned half of the contract; the
-/// canonical schema lives in `roboToald/schemas/ws-protocol.schema.json`.
+/// sends allocation-free. The normative schema is `schemas/ws-protocol.schema.json`
+/// in this repo; `tests/ws_contract.rs` pins these variants to its fixtures.
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WsOutbound<'a> {
@@ -438,8 +438,8 @@ pub enum WsOutbound<'a> {
 /// (e.g. server-only additions), every optional field has `#[serde(default)]`,
 /// and unknown extra fields are ignored. The bulk `account_tree` / `changes`
 /// payloads stay as `Value` and flow into `AccountCache`; only the control-plane
-/// fields the client acts on are strongly typed. Canonical schema:
-/// `roboToald/schemas/ws-protocol.schema.json`.
+/// fields the client acts on are strongly typed. Normative schema:
+/// `schemas/ws-protocol.schema.json` in this repo.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WsInbound {
