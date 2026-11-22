@@ -1,10 +1,14 @@
+//! Watches EQ install roots for `/outputfile` exports: `<Char>-Inventory.txt`
+//! and `<Char>-Spellbook.txt`. One `notify` watcher serves both.
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use proxy_core::{
-    character_name_from_inventory_path, inventory_export_to_send, inventory_items_json,
-    is_inventory_file, parse_inventory_file,
+    character_name_from_inventory_path, character_name_from_spellbook_path,
+    inventory_export_to_send, inventory_items_json, is_inventory_file, parse_inventory_file,
+    spellbook_export_to_send,
 };
 use serde_json::Value;
 use tokio::sync::mpsc;
@@ -65,14 +69,15 @@ async fn run_inventory_loop(
             _ = cancel.cancelled() => break,
             ev = events.recv() => {
                 let Some(path) = ev else { break };
-                handle_inventory_event(
-                    &path,
-                    &eq_roots,
-                    sso.as_ref(),
-                    &local_character_names,
-                    &event_tx,
-                )
-                .await;
+                if !path_starts_under_roots(&path, &eq_roots) {
+                    continue;
+                }
+                if is_inventory_file(&path) {
+                    handle_inventory_event(&path, sso.as_ref(), &local_character_names, &event_tx)
+                        .await;
+                } else if let Some(character) = character_name_from_spellbook_path(&path) {
+                    handle_spellbook_event(&path, character, sso.as_ref()).await;
+                }
             }
         }
     }
@@ -99,17 +104,10 @@ fn character_is_tracked(
 
 async fn handle_inventory_event(
     path: &Path,
-    eq_roots: &[PathBuf],
     sso: Option<&SsoClient>,
     local_character_names: &Arc<RwLock<HashSet<String>>>,
     event_tx: &mpsc::Sender<AppEvent>,
 ) {
-    if !is_inventory_file(path) {
-        return;
-    }
-    if !path_starts_under_roots(path, eq_roots) {
-        return;
-    }
     let Some(character) = character_name_from_inventory_path(path) else {
         return;
     };
@@ -155,6 +153,40 @@ async fn handle_inventory_event(
                 items: Some(items_map),
             })
             .await;
+    }
+}
+
+/// Spellbooks go to the SSO server only; local-only characters keep nothing.
+async fn handle_spellbook_event(path: &Path, character: String, sso: Option<&SsoClient>) {
+    let Some(client) = sso else {
+        return;
+    };
+    let in_sso = client
+        .cache()
+        .try_read()
+        .ok()
+        .is_some_and(|g| g.characters_cached.contains(&character.to_lowercase()));
+    if !in_sso {
+        return;
+    }
+
+    info!(%character, "spellbook update");
+
+    match std::fs::read_to_string(path) {
+        Ok(text) => {
+            if let Some(export) = spellbook_export_to_send(&text) {
+                client.send_spellbook_export(&character, export).await;
+            } else {
+                warn!(%character, path = %path.display(), "spellbook export skipped");
+            }
+        }
+        Err(err) => {
+            warn!(
+                %character,
+                path = %path.display(),
+                "failed to read spellbook export: {err}"
+            );
+        }
     }
 }
 

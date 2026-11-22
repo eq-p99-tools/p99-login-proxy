@@ -322,6 +322,14 @@ fn outbound_values_match_fixtures() {
     );
 
     assert_outbound_matches(
+        &WsOutbound::UpdateSpellbook {
+            character_name: "Zzzz",
+            spellbook: "44\tShock of Swords\n4\tGate\n12\tBind Affinity\n",
+        },
+        "outbound/update_spellbook.json",
+    );
+
+    assert_outbound_matches(
         &WsOutbound::Fte {
             mob: "Lord Nagafen",
             player: "Zzzz",
@@ -416,6 +424,11 @@ fn serialized_outbound_validates_against_schema() {
         serde_json::to_value(WsOutbound::UpdateInventory {
             character_name: "Zzzz",
             inventory: "Location\tName\tID\tCount\tSlots\nPrimary\tPearl\t1\t4\t5\n",
+        })
+        .unwrap(),
+        serde_json::to_value(WsOutbound::UpdateSpellbook {
+            character_name: "Zzzz",
+            spellbook: include_str!("../../proxy-core/tests/data/p99-spellbook-sample.txt"),
         })
         .unwrap(),
         serde_json::to_value(WsOutbound::Fte {

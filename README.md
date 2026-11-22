@@ -55,6 +55,15 @@ The topmost window cannot appear over EverQuest running in **exclusive fullscree
 windowed mode (`WindowedMode=TRUE` in `eqclient.ini`) to see it, or alt-tab after
 logging in. On Linux the always-on-top behavior depends on the window manager.
 
+## Inventory and spellbook uploads
+
+When you run `/outputfile inventory` or `/outputfile spellbook` in game, EQ writes
+`<Char>-Inventory.txt` or `<Char>-Spellbook.txt` to the EQ folder. For SSO characters
+the proxy sends the whole file to the SSO server each time it changes (always on). The
+server tracks keys and items from the inventory and stores the spell list from the
+spellbook. Files saved under a custom name are ignored. Inventory files for local-only
+characters update `local_characters.csv` instead; their spellbooks are not used.
+
 ## Portable configuration
 
 `proxyconfig.ini`, `local_accounts.csv`, `local_characters.csv`, and `proxy.log` live

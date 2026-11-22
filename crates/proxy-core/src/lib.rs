@@ -17,6 +17,7 @@ pub mod net_util;
 pub mod proxy_mode;
 pub mod proxyconfig_ini;
 pub mod release;
+pub mod spellbook_export;
 pub mod zone_translate;
 
 pub use accounts_cache::AccountCache;
@@ -55,5 +56,8 @@ pub use release::{
     expected_linux_appimage_asset_name, expected_portable_exe_name,
     expected_windows_zip_asset_name, parse_v2_release_tag, release_tag_is_prerelease,
     validate_update_zip, ReleaseTagError,
+};
+pub use spellbook_export::{
+    character_name_from_spellbook_path, is_spellbook_file, spellbook_export_to_send,
 };
 pub use zone_translate::zone_to_zonekey;
