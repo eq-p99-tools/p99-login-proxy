@@ -37,6 +37,24 @@ Regenerate protocol oracle fixtures:
 
 Linux can launch `wine eqgame.exe patchme` when Wine is on `PATH`.
 
+## Login notes and popups
+
+SSO accounts and characters can carry notes (for example "kael factioned"). When an
+SSO login resolves to an account with notes, the proxy logs you in as usual (the login
+is never held) and shows them in a popup window that stays on top of other windows
+until you click **Acknowledge** or close it. It appears on every login to that account,
+lists the account note and that account's character notes, and marks the character
+whose name you typed. Notes are plain text and visible to everyone with access to the
+account; edit them in Discord (`/sso_owner ... notes_set`) or the SSO dashboard.
+
+The SSO server can also send its own popups (info, warning or error) with a
+`show_modal` message, either in that topmost window or as a dialog in the proxy window.
+Built-in popups such as a rejected login or a connection error use the same dialogs.
+
+The topmost window cannot appear over EverQuest running in **exclusive fullscreen**. Run EQ in
+windowed mode (`WindowedMode=TRUE` in `eqclient.ini`) to see it, or alt-tab after
+logging in. On Linux the always-on-top behavior depends on the window manager.
+
 ## Portable configuration
 
 `proxyconfig.ini`, `local_accounts.csv`, `local_characters.csv`, and `proxy.log` live

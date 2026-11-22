@@ -199,7 +199,7 @@ pub fn apply_changes_to_tree(tree: &mut Value, changes: &Value) {
                             entry_obj.insert("characters".to_string(), Value::Object(chars));
                         }
 
-                        for scalar in ["last_login", "last_login_by", "active_character"] {
+                        for scalar in ["last_login", "last_login_by", "active_character", "notes"] {
                             if let Some(v) = fields.get(scalar) {
                                 entry_obj.insert(scalar.to_string(), v.clone());
                             }
@@ -297,6 +297,52 @@ mod tests {
             }),
         );
         assert_eq!(tree["main"]["group_roles"], json!(["Officer"]));
+    }
+
+    #[test]
+    fn delta_applies_account_notes_and_character_notes() {
+        let mut tree = json!({
+            "main": {
+                "aliases": [],
+                "tags": [],
+                "characters": { "Zzzz": { "class": "Cleric", "notes": null } },
+                "notes": null
+            }
+        });
+        apply_delta_to_tree(
+            &mut tree,
+            &json!({
+                "changes": [{
+                    "action": "update",
+                    "entity": "account",
+                    "account": "main",
+                    "fields": {
+                        "notes": "Kael factioned",
+                        "characters": {
+                            "update": { "Zzzz": { "class": "Cleric", "notes": "Bound in Kael" } }
+                        }
+                    }
+                }]
+            }),
+        );
+        assert_eq!(tree["main"]["notes"], json!("Kael factioned"));
+        assert_eq!(
+            tree["main"]["characters"]["Zzzz"]["notes"],
+            json!("Bound in Kael")
+        );
+
+        apply_delta_to_tree(
+            &mut tree,
+            &json!({
+                "changes": [{
+                    "action": "update",
+                    "entity": "account",
+                    "account": "main",
+                    "fields": { "notes": null }
+                }]
+            }),
+        );
+        assert_eq!(tree["main"]["notes"], Value::Null);
     }
 
     #[test]

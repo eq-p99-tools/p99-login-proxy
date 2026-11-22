@@ -126,11 +126,34 @@ fn login_auth_response_ok_fixture_deserializes() {
             real_user,
             encrypted_credentials,
             error,
+            notes,
         } => {
             assert!(!request_id.is_empty());
             assert_eq!(real_user.as_deref(), Some("realbot01"));
             assert!(encrypted_credentials.is_some());
             assert!(error.is_none());
+            assert!(notes.is_none());
+        }
+        other => panic!("expected LoginAuthResponse, got {other:?}"),
+    }
+}
+
+#[test]
+fn login_auth_response_notes_fixture_deserializes() {
+    match parse_inbound("inbound/login_auth_response_ok_notes.json") {
+        WsInbound::LoginAuthResponse {
+            real_user, notes, ..
+        } => {
+            assert_eq!(real_user.as_deref(), Some("realbot01"));
+            let notes = notes.expect("notes");
+            assert_eq!(
+                notes.account.as_deref(),
+                Some("Shared with the raid team; log out after use.")
+            );
+            assert_eq!(
+                notes.characters.get("Zzzz").map(String::as_str),
+                Some("Kael factioned")
+            );
         }
         other => panic!("expected LoginAuthResponse, got {other:?}"),
     }
@@ -149,6 +172,41 @@ fn login_auth_response_err_fixture_deserializes() {
         }
         other => panic!("expected LoginAuthResponse, got {other:?}"),
     }
+}
+
+#[test]
+fn show_modal_fixture_deserializes() {
+    match parse_inbound("inbound/show_modal.json") {
+        WsInbound::ShowModal {
+            id,
+            title,
+            message,
+            level,
+            always_on_top,
+        } => {
+            assert_eq!(id.as_deref(), Some("maintenance-2026-11-22"));
+            assert_eq!(title.as_deref(), Some("Server maintenance"));
+            assert!(message.is_some_and(|m| m.contains("9pm")));
+            assert_eq!(level.as_deref(), Some("warning"));
+            assert_eq!(always_on_top, Some(true));
+        }
+        other => panic!("expected ShowModal, got {other:?}"),
+    }
+}
+
+#[test]
+fn show_modal_tolerates_missing_and_unknown_fields() {
+    let minimal: WsInbound =
+        serde_json::from_str(r#"{"type":"show_modal","message":"hi","level":"shout","x":1}"#)
+            .unwrap();
+    assert!(matches!(
+        minimal,
+        WsInbound::ShowModal {
+            title: None,
+            always_on_top: None,
+            ..
+        }
+    ));
 }
 
 #[test]

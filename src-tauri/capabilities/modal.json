@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "modal",
+  "description": "Topmost popup window capability",
+  "windows": ["modal"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-theme",
+    "allow-modal-commands"
+  ]
+}

@@ -1,55 +1,69 @@
 import { listen } from "@tauri-apps/api/event";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button, ModalDialog } from "../components";
+import { ModalContent, ModalLevelIcon, SHOW_MODAL_EVENT } from "../features/modals";
+import { ModalEntrySchema, type ModalEntry, type ModalLevel } from "../ipc/schemas";
 import { useDesktopClient } from "./AppProviders";
 import { useRuntimeStore } from "../features/runtime/store";
 
-interface AlertState {
-  title: string;
-  message: string;
-  exitOnClose?: boolean;
+type QueuedModal = ModalEntry & { exitOnClose?: boolean };
+
+/** In-app popups raised by the UI itself; ids count down so they never collide with backend ids. */
+let nextLocalId = -1;
+
+function localModal(title: string, message: string, level: ModalLevel, exitOnClose = false): QueuedModal {
+  return {
+    id: nextLocalId--,
+    title,
+    level,
+    always_on_top: false,
+    dedupe_id: null,
+    body: { kind: "text", message },
+    received_at_ms: Date.now(),
+    exitOnClose,
+  };
 }
 
 /**
- * App-level message boxes matching the Python QMessageBox popups:
- * "SSO Login Rejected", "SSO Connection Error", "Rustle UI Detected", and
- * startup UDP bind failure ("Error").
+ * The main window's in-app popup queue. Every non-topmost popup lands here
+ * through `showModal`: backend popups (server `show_modal`, "SSO Login
+ * Rejected", "Rustle UI Detected") arrive on the `show-modal` event, and the
+ * UI adds "SSO Connection Error" and startup failures from runtime state.
  */
 export function SystemDialogs() {
   const client = useDesktopClient();
-  const [alert, setAlert] = useState<AlertState | null>(null);
+  const [queue, setQueue] = useState<QueuedModal[]>([]);
   const wsState = useRuntimeStore((s) => s.runtime?.bootstrap.ws_state);
   const wsError = useRuntimeStore((s) => s.runtime?.bootstrap.ws_error);
   const startupError = useRuntimeStore((s) => s.runtime?.bootstrap.startup_error);
   const connectionErrorShownRef = useRef(false);
   const startupErrorShownRef = useRef(false);
 
+  const showModal = useCallback((modal: QueuedModal) => {
+    setQueue((current) =>
+      modal.dedupe_id != null && current.some((m) => m.dedupe_id === modal.dedupe_id)
+        ? current
+        : [...current, modal],
+    );
+  }, []);
+
   useEffect(() => {
     if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
       return;
     }
     let cancelled = false;
-    const unlisteners: (() => void)[] = [];
-
-    void listen<{ username: string; reason: string }>("login-rejected", (event) => {
+    let unlisten: (() => void) | null = null;
+    void listen<unknown>(SHOW_MODAL_EVENT, (event) => {
       if (cancelled) return;
-      setAlert({
-        title: "SSO Login Rejected",
-        message: event.payload.reason || "Authentication rejected by server",
-      });
-    }).then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
-
-    void listen<{ message: string }>("rustle-warning", (event) => {
-      if (cancelled) return;
-      setAlert({ title: "Rustle UI Detected", message: event.payload.message });
-    }).then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
-
+      const parsed = ModalEntrySchema.safeParse(event.payload);
+      if (parsed.success) showModal(parsed.data);
+    }).then((fn) => (cancelled ? fn() : (unlisten = fn)));
     return () => {
       cancelled = true;
-      unlisteners.forEach((fn) => fn());
+      unlisten?.();
     };
-  }, []);
+  }, [showModal]);
 
   useEffect(() => {
     if (wsState !== "auth_failed") {
@@ -58,12 +72,9 @@ export function SystemDialogs() {
     }
     if (!connectionErrorShownRef.current) {
       connectionErrorShownRef.current = true;
-      setAlert({
-        title: "SSO Connection Error",
-        message: wsError || "Authentication failed",
-      });
+      showModal(localModal("SSO Connection Error", wsError || "Authentication failed", "error"));
     }
-  }, [wsState, wsError]);
+  }, [wsState, wsError, showModal]);
 
   useEffect(() => {
     if (!startupError) {
@@ -72,13 +83,15 @@ export function SystemDialogs() {
     }
     if (!startupErrorShownRef.current) {
       startupErrorShownRef.current = true;
-      setAlert({ title: "Error", message: startupError, exitOnClose: true });
+      showModal(localModal("Error", startupError, "error", true));
     }
-  }, [startupError]);
+  }, [startupError, showModal]);
+
+  const current = queue[0] ?? null;
 
   const handleClose = () => {
-    const shouldExit = alert?.exitOnClose ?? false;
-    setAlert(null);
+    const shouldExit = current?.exitOnClose ?? false;
+    setQueue((q) => q.slice(1));
     if (shouldExit) {
       void client.requestShutdown();
     }
@@ -86,8 +99,8 @@ export function SystemDialogs() {
 
   return (
     <ModalDialog
-      title={alert?.title ?? ""}
-      open={alert != null}
+      title={current?.title ?? ""}
+      open={current != null}
       onClose={handleClose}
       footer={
         <Button variant="secondary" onClick={handleClose}>
@@ -95,7 +108,12 @@ export function SystemDialogs() {
         </Button>
       }
     >
-      <p className="modal-message-pre">{alert?.message}</p>
+      {current ? (
+        <div className={`modal-with-level modal-level-${current.level}`}>
+          <ModalLevelIcon level={current.level} />
+          <ModalContent body={current.body} />
+        </div>
+      ) : null}
     </ModalDialog>
   );
 }

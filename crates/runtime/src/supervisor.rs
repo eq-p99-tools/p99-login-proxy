@@ -612,6 +612,7 @@ impl AppSupervisor {
         let (tx, mut rx) = mpsc::channel(32);
 
         let snapshot_tx = self.snapshot_tx.clone();
+        let modal_tx = self.event_tx.clone();
 
         self.join_set.spawn(async move {
             while let Some(ev) = rx.recv().await {
@@ -637,6 +638,10 @@ impl AppSupervisor {
                     }
 
                     WsStateEvent::Parked => set_ws_state(&mut snap, WsConnectionState::Parked),
+                    WsStateEvent::ShowModal(modal) => {
+                        let _ = modal_tx.send(AppEvent::ShowModal { modal }).await;
+                        continue;
+                    }
                 }
 
                 let _ = snapshot_tx.send(snap);

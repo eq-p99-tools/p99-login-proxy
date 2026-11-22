@@ -954,3 +954,17 @@ pub async fn request_shutdown(app: AppHandle, _state: State<'_, AppState>) -> Re
     crate::tray::shutdown_and_exit(app).await;
     Ok(())
 }
+
+#[tauri::command]
+pub fn get_modals(state: State<'_, AppState>) -> Vec<crate::modals::ModalEntry> {
+    state.modals.lock().expect("modal queue lock").entries()
+}
+
+#[tauri::command]
+pub fn acknowledge_modals(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    state.modals.lock().expect("modal queue lock").clear();
+    if let Some(window) = app.get_webview_window(crate::modals::MODAL_WINDOW) {
+        window.destroy().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}

@@ -11,6 +11,7 @@ import {
   AppConfigSchema,
   EqSettingsSchema,
   LocalDataSchema,
+  ModalEntrySchema,
   LogSnapshotSchema,
   ProxySettingsSchema,
   RuntimeStateSchema,
@@ -20,6 +21,7 @@ import {
   type AppConfig,
   type EqSettingsView,
   type LocalDataView,
+  type ModalEntry,
   type LogSnapshot,
   type ProxyMode,
   type ProxySettings,
@@ -182,6 +184,14 @@ export class TauriClient implements DesktopClient {
       await disable();
     }
     return isEnabled();
+  }
+
+  async getModals(): Promise<ModalEntry[]> {
+    return zodArray(ModalEntrySchema, await invoke("get_modals"));
+  }
+
+  async acknowledgeModals(): Promise<void> {
+    await invoke("acknowledge_modals");
   }
 }
 

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use proxy_core::model::ProxyLifecycle;
 use serde::{Deserialize, Serialize};
@@ -21,6 +21,58 @@ impl Default for ProxyStatus {
             packets_forwarded: 0,
         }
     }
+}
+
+/// Login notes the server returned for the account a `login_auth` resolved to
+/// (`login_auth_response.notes`). Plain text; never render as markup.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LoginNotes {
+    #[serde(default)]
+    pub account: Option<String>,
+    #[serde(default)]
+    pub characters: BTreeMap<String, String>,
+}
+
+impl LoginNotes {
+    pub fn is_empty(&self) -> bool {
+        self.account.as_deref().is_none_or(|s| s.trim().is_empty())
+            && self.characters.values().all(|s| s.trim().is_empty())
+    }
+}
+
+/// Severity of a popup; picks its icon and styling.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModalLevel {
+    #[default]
+    Info,
+    Warning,
+    Error,
+}
+
+impl ModalLevel {
+    /// Unknown or missing levels fall back to `Info` so a newer server never
+    /// breaks an older client.
+    pub fn from_wire(raw: Option<&str>) -> Self {
+        match raw {
+            Some("warning") => Self::Warning,
+            Some("error") => Self::Error,
+            _ => Self::Info,
+        }
+    }
+}
+
+/// A popup the server asked for with a `show_modal` message. Plain text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServerModal {
+    /// Lets the client drop a repeat of a popup that is still pending.
+    pub id: Option<String>,
+    pub title: String,
+    pub message: String,
+    pub level: ModalLevel,
+    /// Show in a separate window that stays above other windows (including EQ
+    /// in windowed mode) instead of a dialog inside the proxy window.
+    pub always_on_top: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +101,17 @@ pub enum AppEvent {
         alias: String,
         account: String,
         method: String,
+    },
+    /// An SSO login whose resolved account has notes. Emitted after the login
+    /// packet is forwarded; the login is never held for it.
+    LoginNotes {
+        username: String,
+        account: String,
+        notes: LoginNotes,
+    },
+    /// The server sent a `show_modal` message.
+    ShowModal {
+        modal: ServerModal,
     },
     LocalCharacterUpdate {
         name: String,

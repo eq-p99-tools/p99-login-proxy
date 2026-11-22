@@ -143,6 +143,20 @@ pub fn format_app_event(event: &crate::events::AppEvent) -> (tracing::Level, Str
             Level::INFO,
             format!("login proxied alias={alias} account={account} method={method}"),
         ),
+        AppEvent::LoginNotes {
+            username, account, ..
+        } => (
+            Level::INFO,
+            format!("login notes for account={account} (logged in as {username})"),
+        ),
+        AppEvent::ShowModal { modal } => (
+            match modal.level {
+                crate::events::ModalLevel::Error => Level::ERROR,
+                crate::events::ModalLevel::Warning => Level::WARN,
+                crate::events::ModalLevel::Info => Level::INFO,
+            },
+            format!("server popup: {}: {}", modal.title, modal.message),
+        ),
         AppEvent::LocalCharacterUpdate { name, .. } => {
             (Level::DEBUG, format!("local character update for {name}"))
         }

@@ -10,6 +10,7 @@ import type {
   LocalAccountInput,
   LocalCharacterInput,
   LocalDataView,
+  ModalEntry,
   LogSnapshot,
   ProxySettings,
   SsoAccountsView,
@@ -54,6 +55,42 @@ const MOCK_CONFIG: AppConfig = {
   warn_rustle: false,
   auto_add_local_characters: false,
 };
+
+/** Browser preview of the popup window (`?view=modal`) starts with sample popups. */
+function initialMockModals(): ModalEntry[] {
+  if (typeof window === "undefined" || !window.location.search.includes("view=modal")) {
+    return [];
+  }
+  return [
+    {
+      id: 2,
+      title: "Server maintenance",
+      level: "warning",
+      always_on_top: true,
+      dedupe_id: null,
+      body: { kind: "text", message: "The SSO server restarts at 9pm Eastern for about 5 minutes." },
+      received_at_ms: Date.now(),
+    },
+    {
+      id: 1,
+      title: "Login notes: guildcleric7",
+      level: "info",
+      always_on_top: true,
+      dedupe_id: null,
+      body: {
+        kind: "login_notes",
+        username: "kaelclr",
+        account: "guildcleric7",
+        account_notes: "Shared with the raid team. Log out at the bind point when done.",
+        characters: [
+          { name: "Zzzz", notes: "Kael factioned. Do not zone into Kael Drakkel.", typed: false },
+          { name: "Yyyy", notes: "Bound in Skyshrine", typed: false },
+        ],
+      },
+      received_at_ms: Date.now(),
+    },
+  ];
+}
 
 const MOCK_SSO: SsoStatus = {
   backend: "Good Guys",
@@ -112,6 +149,7 @@ export class MockClient implements DesktopClient {
   private localCharacters: LocalDataView["characters"] = [];
   private eqDir: string | null = null;
   private passwordStore = new Map<string, string>();
+  private modals: ModalEntry[] = initialMockModals();
   private launchAtLogin = false;
 
   async getRuntimeState(): Promise<RuntimeState> {
@@ -340,6 +378,19 @@ export class MockClient implements DesktopClient {
   async setLaunchAtLogin(enabled: boolean): Promise<boolean> {
     this.launchAtLogin = enabled;
     return enabled;
+  }
+
+  async getModals(): Promise<ModalEntry[]> {
+    return structuredClone(this.modals);
+  }
+
+  async acknowledgeModals(): Promise<void> {
+    this.modals = [];
+  }
+
+  /** Test helper: queue topmost popups (newest first). */
+  setMockModals(entries: ModalEntry[]) {
+    this.modals = entries;
   }
 
   /** Test helper: inject malformed SSO data */

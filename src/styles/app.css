@@ -1451,3 +1451,113 @@ code {
 .app-tooltip[data-ready="false"] {
   visibility: hidden;
 }
+
+/* Popup levels, shared by the in-app dialog and the topmost window. */
+.modal-with-level {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.modal-level-icon {
+  flex: none;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent-border);
+}
+
+.modal-level-icon.modal-level-warning {
+  background: var(--warning);
+}
+
+.modal-level-icon.modal-level-error {
+  background: var(--error);
+}
+
+/* Topmost popup window (separate always-on-top webview, label "modal"). */
+.modal-window {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+}
+
+.modal-window-body {
+  flex: 1;
+  overflow: auto;
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.modal-window-entry {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+}
+
+.modal-window-entry.modal-level-warning {
+  border-left-color: var(--warning);
+}
+
+.modal-window-entry.modal-level-error {
+  border-left-color: var(--error);
+}
+
+.modal-window-entry-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-1);
+}
+
+.modal-window-time {
+  margin-left: auto;
+}
+
+.modal-window-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* Login notes body. */
+.login-notes-muted {
+  color: var(--text-muted);
+}
+
+.login-notes-text {
+  margin: var(--space-1) 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.95rem;
+}
+
+.login-notes-characters {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.login-notes-characters li {
+  padding-left: var(--space-2);
+  border-left: 2px solid var(--border-subtle);
+}
+
+.login-notes-characters li.login-notes-typed {
+  border-left-color: var(--accent-border);
+}

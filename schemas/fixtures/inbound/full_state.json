@@ -26,7 +26,8 @@
             "mb4": null,
             "mb5": null
           },
-          "keys": { "seb": true, "vp": false, "st": null }
+          "keys": { "seb": true, "vp": false, "st": null },
+          "notes": "Kael factioned"
         }
       },
       "last_login": null,
@@ -34,7 +35,8 @@
       "active_character": null,
       "owned": true,
       "shared": false,
-      "group_roles": ["Member", "Officer"]
+      "group_roles": ["Member", "Officer"],
+      "notes": "Shared with the raid team; log out after use."
     }
   },
   "count": 1,

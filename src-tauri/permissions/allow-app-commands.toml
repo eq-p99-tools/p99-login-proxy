@@ -37,4 +37,15 @@ commands.allow = [
   "show_window",
   "hide_window",
   "request_shutdown",
+  "get_modals",
+  "acknowledge_modals",
+]
+
+[[permission]]
+identifier = "allow-modal-commands"
+description = "Commands the topmost popup window needs"
+commands.allow = [
+  "get_modals",
+  "acknowledge_modals",
+  "get_app_config",
 ]

@@ -3,6 +3,7 @@ import type {
   EqSettingsView,
   LocalCharacterInput,
   LocalDataView,
+  ModalEntry,
   LogSnapshot,
   ProxyMode,
   ProxySettings,
@@ -20,6 +21,7 @@ export type {
   LocalCharacter,
   LocalCharacterInput,
   LocalDataView,
+  ModalEntry,
   LogLine,
   LogSnapshot,
   ProxyMode,
@@ -84,4 +86,8 @@ export interface DesktopClient {
   requestShutdown(): Promise<void>;
   getLaunchAtLogin(): Promise<boolean>;
   setLaunchAtLogin(enabled: boolean): Promise<boolean>;
+  /** Unacknowledged topmost popups, newest first. */
+  getModals(): Promise<ModalEntry[]>;
+  /** Clear all pending topmost popups and close their window. */
+  acknowledgeModals(): Promise<void>;
 }

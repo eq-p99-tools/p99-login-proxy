@@ -194,6 +194,36 @@ export const LogSnapshotSchema = z.object({
   file_path: z.string().nullable().optional().transform((v) => v ?? null),
 });
 
+export const CharacterNoteSchema = z.object({
+  name: z.string(),
+  notes: z.string(),
+  typed: z.boolean().default(false),
+});
+
+export const ModalLevelSchema = z.enum(["info", "warning", "error"]).catch("info");
+
+export const ModalBodySchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("text"), message: z.string() }),
+  z.object({
+    kind: z.literal("login_notes"),
+    username: z.string(),
+    account: z.string(),
+    account_notes: z.string().nullable().optional().transform((v) => v ?? null),
+    characters: z.array(CharacterNoteSchema).default([]),
+  }),
+]);
+
+/** One popup, from the server (`show_modal`), login notes, or a local error. */
+export const ModalEntrySchema = z.object({
+  id: z.number(),
+  title: z.string(),
+  level: ModalLevelSchema,
+  always_on_top: z.boolean().default(false),
+  dedupe_id: z.string().nullable().optional().transform((v) => v ?? null),
+  body: ModalBodySchema,
+  received_at_ms: z.number(),
+});
+
 export type BootstrapState = z.infer<typeof BootstrapStateSchema>;
 export type ProxyLifecycle = z.infer<typeof ProxyLifecycleSchema>;
 export type WsConnectionState = z.infer<typeof WsConnectionStateSchema>;
@@ -222,6 +252,10 @@ export type LocalDataView = z.infer<typeof LocalDataSchema>;
 export type EqSettingsView = z.infer<typeof EqSettingsSchema>;
 export type LogLine = z.infer<typeof LogLineSchema>;
 export type LogSnapshot = z.infer<typeof LogSnapshotSchema>;
+export type CharacterNote = z.infer<typeof CharacterNoteSchema>;
+export type ModalLevel = z.infer<typeof ModalLevelSchema>;
+export type ModalBody = z.infer<typeof ModalBodySchema>;
+export type ModalEntry = z.infer<typeof ModalEntrySchema>;
 
 export function parseRuntimeState(raw: unknown): RuntimeState {
   return RuntimeStateSchema.parse(raw);
