@@ -1,0 +1,21 @@
+44	Shock of Swords
+44	Conjuration: Earth
+29	Burnout II
+24	Everfount
+24	Cornucopia
+12	Cancel Magic
+16	See Invisible
+12	Bind Affinity
+8	Invisibility
+4	Gate
+12	Elemental: Earth
+8	Flame Bolt
+16	Shock of Flame
+16	Minor Summoning: Earth
+20	Lesser Summoning: Earth
+20	Bolt of Flame
+24	Summoning: Earth
+12	Burnout
+34	Blaze
+39	Lesser Conjuration: Earth
+34	Minor Conjuration: Earth

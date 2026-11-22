@@ -70,6 +70,8 @@ struct SsoClientInner {
     last_location: Mutex<HashMap<String, serde_json::Map<String, Value>>>,
     /// Last inventory export text sent per lowercased character name.
     last_inventory: Mutex<HashMap<String, String>>,
+    /// Last spellbook export text sent per lowercased character name.
+    last_spellbook: Mutex<HashMap<String, String>>,
 }
 
 /// Shared SSO WebSocket client used by the UDP proxy for ``login_auth``.
@@ -90,6 +92,7 @@ impl SsoClient {
                 write: Mutex::new(None),
                 last_location: Mutex::new(HashMap::new()),
                 last_inventory: Mutex::new(HashMap::new()),
+                last_spellbook: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -232,32 +235,50 @@ impl SsoClient {
     /// whatever it cares about, so the client sends the whole file and only
     /// skips an identical resend.
     pub async fn send_inventory_export(&self, character_name: &str, inventory: &str) {
-        if !self.is_connected() || inventory.is_empty() {
-            return;
-        }
-
-        let key = character_name.to_lowercase();
-        if self
-            .inner
-            .last_inventory
-            .lock()
-            .await
-            .get(&key)
-            .is_some_and(|prev| prev == inventory)
-        {
-            return;
-        }
-
         let msg = WsOutbound::UpdateInventory {
             character_name,
             inventory,
         };
-        if self.send_json(&msg).await.is_ok() {
-            self.inner
-                .last_inventory
-                .lock()
-                .await
-                .insert(key, inventory.to_owned());
+        self.send_export_once(&self.inner.last_inventory, character_name, inventory, &msg)
+            .await;
+    }
+
+    /// Send a raw spellbook export on `update_spellbook`, skipping an identical
+    /// resend. The server stores the parsed spell list.
+    pub async fn send_spellbook_export(&self, character_name: &str, spellbook: &str) {
+        let msg = WsOutbound::UpdateSpellbook {
+            character_name,
+            spellbook,
+        };
+        self.send_export_once(&self.inner.last_spellbook, character_name, spellbook, &msg)
+            .await;
+    }
+
+    /// Send `msg` unless `text` is empty or matches the last export of this kind
+    /// sent for the character on this connection.
+    async fn send_export_once(
+        &self,
+        last_sent: &Mutex<HashMap<String, String>>,
+        character_name: &str,
+        text: &str,
+        msg: &WsOutbound<'_>,
+    ) {
+        if !self.is_connected() || text.is_empty() {
+            return;
+        }
+
+        let key = character_name.to_lowercase();
+        if last_sent
+            .lock()
+            .await
+            .get(&key)
+            .is_some_and(|prev| prev == text)
+        {
+            return;
+        }
+
+        if self.send_json(msg).await.is_ok() {
+            last_sent.lock().await.insert(key, text.to_owned());
         }
     }
 
@@ -384,6 +405,11 @@ pub enum WsOutbound<'a> {
     UpdateInventory {
         character_name: &'a str,
         inventory: &'a str,
+    },
+    /// Raw `<Char>-Spellbook.txt` contents; the server stores the spell list.
+    UpdateSpellbook {
+        character_name: &'a str,
+        spellbook: &'a str,
     },
     Fte {
         mob: &'a str,
@@ -736,6 +762,7 @@ async fn teardown(
     cancel_pending(client).await;
     client.inner.last_location.lock().await.clear();
     client.inner.last_inventory.lock().await.clear();
+    client.inner.last_spellbook.lock().await.clear();
     if clear_cache {
         *client.cache().write().await = AccountCache::default();
     }

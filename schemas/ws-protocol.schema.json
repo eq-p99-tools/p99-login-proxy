@@ -16,6 +16,7 @@
     { "$ref": "#/$defs/heartbeat" },
     { "$ref": "#/$defs/update_location" },
     { "$ref": "#/$defs/update_inventory" },
+    { "$ref": "#/$defs/update_spellbook" },
     { "$ref": "#/$defs/fte" },
     { "$ref": "#/$defs/mob_death" },
     { "$ref": "#/$defs/faction_hits" }
@@ -157,6 +158,16 @@
         "type": { "const": "update_inventory" },
         "character_name": { "type": "string" },
         "inventory": { "type": "string" }
+      }
+    },
+    "update_spellbook": {
+      "type": "object",
+      "description": "Client -> server. Raw EQ `<Char>-Spellbook.txt` export (`/outputfile spellbook`): one `<level><TAB><spell name>` line per scribed spell, unsorted, no header (spaces are accepted in place of the tab). The server replaces the character's stored spellbook with it. Blank text, text longer than 131072 bytes, or text with any non-blank line that is not a level and a name is ignored.",
+      "required": ["type", "character_name", "spellbook"],
+      "properties": {
+        "type": { "const": "update_spellbook" },
+        "character_name": { "type": "string" },
+        "spellbook": { "type": "string" }
       }
     },
     "fte": {

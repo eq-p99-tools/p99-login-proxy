@@ -24,14 +24,16 @@ const COUNTED_ITEMS: &[(&str, &str)] = &[
     ("Mana Battery - Class Five", "mb5"),
 ];
 
-pub fn character_name_from_inventory_path(path: &Path) -> Option<String> {
+const INVENTORY_SUFFIX: &str = "-inventory.txt";
+
+/// Character name from an EQ `/outputfile` export named `<Char><suffix>`.
+/// `suffix` must be lowercase ASCII; the file name is matched case-insensitively.
+pub(crate) fn character_name_from_export_path(path: &Path, suffix: &str) -> Option<String> {
     let name = path.file_name()?.to_str()?;
-    let lower = name.to_ascii_lowercase();
-    const SUFFIX: &str = "-inventory.txt";
-    if !lower.ends_with(SUFFIX) {
+    if !name.to_ascii_lowercase().ends_with(suffix) {
         return None;
     }
-    let stem = &name[..name.len() - SUFFIX.len()];
+    let stem = &name[..name.len() - suffix.len()];
     if stem.is_empty() {
         None
     } else {
@@ -39,10 +41,14 @@ pub fn character_name_from_inventory_path(path: &Path) -> Option<String> {
     }
 }
 
+pub fn character_name_from_inventory_path(path: &Path) -> Option<String> {
+    character_name_from_export_path(path, INVENTORY_SUFFIX)
+}
+
 pub fn is_inventory_file(path: &Path) -> bool {
     path.file_name()
         .and_then(|n| n.to_str())
-        .is_some_and(|n| n.to_ascii_lowercase().ends_with("-inventory.txt"))
+        .is_some_and(|n| n.to_ascii_lowercase().ends_with(INVENTORY_SUFFIX))
 }
 
 /// Server drops inventory text larger than this. Matches
