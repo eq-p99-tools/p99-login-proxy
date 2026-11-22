@@ -51,7 +51,7 @@ Implement an HTTP + WebSocket API such that an unmodified P99 Login Proxy can au
 6. Username resolution and access control, so only authorized names appear in `account_tree` and succeed `login_auth`.
 7. Optionally `POST /auth` (HTTP plaintext fallback; **not** used by the proxy).
 8. Optionally `update_inventory` and `update_spellbook` (proxy sends; silent drop is OK for login compatibility).
-9. Optionally `fte`, `mob_death` and `faction_hits` (proxy sends; silent drop is OK for login compatibility).
+9. Optionally `fte`, `mob_death` and `faction_hits` (proxy sends; silent drop is OK for login compatibility). roboToald ignores `faction_hits`.
 9a. Optionally send `show_modal` popups (§5.7).
 10. Verify with §12.
 
@@ -167,7 +167,68 @@ Every message is a JSON object with discriminator `type`. Unknown properties MAY
 
 ### 4.2 Store-only messages
 
-Only these change what clients see: `login_auth` (on success), `heartbeat`, `update_location`, `update_inventory`, and admin changes on the server. Everything else is **store-only**: `update_spellbook` and `faction_hits` are persisted but appear in neither `full_state` nor `delta`. `fte` and `mob_death` are relayed elsewhere (roboToald posts to a Discord channel) and never affect the account tree. None of the C→S telemetry messages gets a reply.
+Only these change what other clients see through `full_state` and `delta`: a successful `login_auth`, `heartbeat`, `update_location`, `update_inventory`, and admin changes on the server. `update_spellbook` is store-only when a backend keeps it (spells are not in the account tree). `faction_hits` is optional telemetry: a backend MAY store it or ignore it, and it is not part of `full_state` or `delta`. roboToald ignores `faction_hits`. `fte` and `mob_death` are relayed elsewhere (roboToald posts to a Discord channel) and never affect the account tree. None of the C→S telemetry messages gets a reply.
+
+### 4.3 Required vs optional (what the Rust proxy tolerates)
+
+The schema's `required` arrays are the wire contract for producers and for schema checks. The Rust proxy (`crates/runtime/src/websocket.rs`, `crates/proxy-core/src/accounts_cache.rs`) is looser: unknown `type` values are ignored, unknown extra keys are ignored, and every inbound field except `login_auth_response.request_id` has `#[serde(default)]` or is `Option`. A **missing** key is filled in. A **present** key of the wrong JSON type fails decoding of that whole message, and the proxy skips it (debug log, connection stays up). This section is what a backend can rely on for an unmodified current proxy. Where it disagrees with the schema, the schema is left unchanged on purpose; see the divergence list below.
+
+#### Messages a backend MAY ignore
+
+The proxy sends these and never waits for a reply. Dropping them (no error, no close) leaves login working:
+
+| Message | If ignored |
+|---|---|
+| `update_inventory` | Tracked items stay as they were. Login and the name cache are unaffected. |
+| `update_spellbook` | No spell list is stored. Spells are never in `full_state` or `delta`. |
+| `faction_hits` | Nothing is stored. roboToald does this: the type is not handled, same as any unknown type. Another backend MAY store the hits. |
+| `fte`, `mob_death` | No raid relay. roboToald posts them to Discord; that is optional. |
+| `heartbeat`, `update_location` | MUST be tolerated (do not close). Persisting them is what keeps `last_login`, sessions, `active_character` and locations live. A backend MAY ignore the contents. |
+| `pong` | The proxy does not send application-level `ping` (it answers a server `ping` with `pong`). A server `pong` is ignored. |
+
+Any other `type` after auth MUST be ignored the same way.
+
+#### Messages a backend MAY never send
+
+| Message | If omitted |
+|---|---|
+| `show_modal` | No server popup. Login notes, rejected logins and connection errors still use their existing messages. roboToald does not send `show_modal`. |
+| `ping` | The proxy does not disconnect for a missing application ping. A ping loop is recommended, not required. |
+| `delta` | The cache stays at the last `full_state` until the next one. Live UI and newly added names wait for a `full_state`. |
+| `login_auth_response.notes` | Login proceeds with no notes popup. |
+| `POST /auth` | The proxy never calls it. |
+
+`full_state` is what marks the proxy connected. `login_auth_response` is what completes a gated login. An `error` message (or a close code 4000–4099) is what parks the proxy instead of reconnecting.
+
+#### Optional keys inside messages
+
+**`login_auth_response`.** `request_id` is required to decode the message: missing, null or non-string drops the whole response, and the pending login times out (`sso_timeout`, default 10s) and the original packet is forwarded. `real_user`, `encrypted_credentials`, `error` and `notes` may be omitted. The proxy splices only when `error` is absent and both `real_user` and a decodable, non-empty `encrypted_credentials` are present. `status` is ignored. When `notes` is present, `account` and `characters` may be omitted (they default to null and `{}`); a malformed `notes` value is ignored and the login still succeeds.
+
+**`full_state`.** `account_tree`, `dynamic_tag_zones` and `dynamic_tag_classes` may be omitted (empty tree, no dynamic tags). `count` is not read; the UI count is the number of keys in `account_tree`. Inside an account entry, every field is optional for decoding and for the SSO name cache: the cache uses the account key, string entries of `aliases` and `tags`, character names, and the `dynamic_tag_zones` × `dynamic_tag_classes` concatenations. Missing lists contribute no names. `group_roles`, account and character `notes`, `owned`, `shared`, `last_login`, `last_login_by`, `active_character`, and character `class` / `bind` / `park` / `level` / `items` / `keys` are display data; omitting them does not affect gating.
+
+**`delta.changes`.** May be omitted (no-op). A change is applied only when `action` and `account` are strings. `add` without `data` is skipped. `update` applies `aliases`, `tags` and `group_roles` (`add` / `remove` of strings), `characters` (`add` / `remove` / `update` of whole character objects), and the scalars `last_login`, `last_login_by`, `active_character`, `notes`. Other keys inside `fields`, including `owned` and `shared`, are ignored. `entity` is ignored.
+
+**`show_modal`.** Every field is optional. Both `title` and `message` empty or missing → the popup is dropped. A missing title gets a default for the level (`info` when `level` is missing or unknown). `always_on_top` defaults to false. `id` is only a dedupe key.
+
+**`error`.** `detail` may be omitted (the proxy shows "authentication failed") and may be sent as `message`, `reason` or `error`. The type may be `error`, `auth_failed` or `close`. The schema still requires `detail` on `error`.
+
+**`auth` (proxy → server).** The proxy always sends `client_version` and a `client_settings` object. `client_settings` may be `{}`. Keys the proxy sends are `log_enabled` and, after it has checked the EQ UI files, `rustle_present`. A backend MAY ignore the object or either key. Extra keys are fine.
+
+**`update_location` (proxy → server).** `park_location`, `bind_location`, `level` and `items` are each omitted when the proxy has nothing to send. A backend MAY ignore the message or any of those keys. The current proxy does not send legacy `keys`.
+
+#### Where the schema is stricter than the proxy
+
+These are known divergences. The schema is **not** changed to match the proxy until that is decided; a backend whose output is schema-checked (roboToald's CI is) should keep satisfying the schema.
+
+| Schema `required` | Rust proxy |
+|---|---|
+| `full_state`: `account_tree`, `count`, `dynamic_tag_zones`, `dynamic_tag_classes` | `account_tree` and the two tag lists default when absent (`count` is not a field the proxy deserializes). A wrong type on a tag list fails the whole `full_state`. |
+| `delta`: `changes` | Defaults when absent; a non-array is a no-op. |
+| `show_modal`: `title`, `message` | Both optional. Empty or missing title and message → dropped. |
+| `error`: `detail` | Optional, with the aliases above. |
+| `login_notes`: `account`, `characters` (when `notes` is present) | Both default. A value that does not decode as notes is ignored. |
+
+The other direction (schema optional, proxy will not decode the message without it) does not occur. The only inbound field without a default is `login_auth_response.request_id`, which the schema already requires.
 
 ---
 
@@ -238,7 +299,7 @@ The schema requires `type`, `account_tree`, `count`, `dynamic_tag_zones`, `dynam
 }
 ```
 
-`account_tree` MUST contain only accounts the access key may use (§7). `count` is the number of accounts in it.
+`account_tree` MUST contain only accounts the access key may use (§7). `count` is the number of accounts in it. The proxy does not read `count`; it counts account-tree keys. §4.3 lists every place the schema's `required` list is stricter than what this proxy decodes.
 
 #### Account tree entry fields
 
@@ -407,6 +468,7 @@ The proxy **splices** the decoded bytes into the SOE Login packet; it does not r
 
 General rules for every telemetry message:
 - No reply, ever. Bad input MUST NOT close the connection.
+- **[reference]** refuses a WebSocket frame larger than **1114112** bytes (about 1.06 MiB) before parsing. That fits an `update_inventory` whose 512 KiB export can double when tabs and newlines are JSON-escaped, plus the envelope. The proxy itself never sends an inventory file over 524288 bytes or a spellbook file over 131072 bytes.
 - A missing, unknown or inaccessible `character_name` MUST be ignored silently (no error, no close). The proxy sends `heartbeat`, `update_location`, `update_inventory`, `update_spellbook` and `faction_hits` only for characters in its SSO cache, but the cache can be stale.
 - **[reference]** access: the connected user must be able to use the character's account (same check as `login_auth`).
 
@@ -440,7 +502,7 @@ General rules for every telemetry message:
 | `keys` | object, optional | Legacy `seb` / `vp` / `st`. **[reference]** merges with `items`; `items` wins on conflict. |
 
 - Proxy: sends only fields it has, never blank strings or empty `items`, and skips a message that would not change what it last sent for that character on this connection.
-- **[reference]** counts as a heartbeat (same side effects), then updates only the fields present: `null` or a missing field leaves the stored value unchanged; booleans sent for count keys become 1 / 0. Parking in a key zone can also mark the matching key. A `delta` is scheduled whenever the character was found and accessible.
+- **[reference]** counts as a heartbeat (same side effects), then updates only valid fields that are present. A missing field, `null`, or an invalid value leaves the stored value unchanged: a location must be a non-blank string of at most 64 characters, `level` an integer 1–255 (a boolean is not a level), key and flag items booleans, and count items integers 0–100000. A boolean sent for a count key becomes 1 or 0. Parking in a key zone can also mark the matching key. A `delta` is scheduled whenever the character was found and accessible.
 
 #### `update_inventory`
 
@@ -484,6 +546,7 @@ General rules for every telemetry message:
 - `eq_log_time`: EQ log bracket form `Wed Jul 15 22:14:05 2026`.
 - `fte` comes from `<mob> engages <player>!` lines; `mob_death` from `You have slain <mob>!` / `<mob> has been slain by ...` lines for mobs on the proxy's raid target list. The proxy may send these for local-only characters.
 - **[reference]** all string fields are trimmed and must be non-empty. `character_name` is logged but **not** access-checked, so local-only characters can report; instead the connected user must have access to at least one SSO character in the guild.
+- **[reference]** `mob`, `player` and `character_name` are cleaned before the Discord post: control and invisible characters are dropped, whitespace (including newlines) collapses to single spaces, and a name longer than 64 characters, or a value that is not a string, drops the message. The post is sent with mentions disabled, so a name cannot ping `@everyone`, a role or a user.
 - **[reference]** clock skew: reject when the parsed log time is more than 24h from the server clock; otherwise ignore date and hour (client timezone is unknown) and require minute+second within 60s of the server's, measured around the hour.
 - **[reference]** duplicates per mob are dropped, then the report goes to the guild's Discord TOD channel. Never in `full_state` or `delta`.
 
@@ -501,9 +564,8 @@ General rules for every telemetry message:
 | `hits` | array, 1–50 items | `{faction, direction}`. `faction` is the log text verbatim. `direction`: `better` / `worse` (`Your faction standing with <faction> got better|worse.`) or `max` / `min` (`... could not possibly get any better|worse.`, the faction is capped). P99 logs no amount. |
 
 - Proxy: one message per character per EQ log second (a kill or turn-in logs all its lines in one second), sent 1s after the last line or as soon as a line from another second or character arrives; at most 50 hits, larger bursts split. Newest log only, SSO characters on the backend's own servers only, nothing queued while disconnected.
-- **[reference]** validation, in order: `character_name` and `eq_log_time` must be non-empty strings after trimming; only the first 50 `hits` are read; entries that are not objects, have an unknown `direction`, or a faction that is empty or over **255** characters after trimming are skipped; a message with no valid hits is dropped. Then a per-connection rate limit drops messages beyond **60 per 60s**, then the same skew check as `fte`, then the character access check.
-- **[reference]** stores per character and faction: `hits_better`, `hits_worse`, `cap` (`max` / `min`, cleared by the next better/worse hit), and first/last/cap timestamps; plus a raw event log (character, account, connected user and display name, `eq_log_time`) purged after `faction_event_retention_days` (default 90).
-- **Store-only**: no reply, no `delta`.
+- **Optional.** A backend MAY store the hits or ignore the message. Ignoring it does not affect login, the account tree or `delta`, and the proxy does not retry or expect a reply. roboToald ignores `faction_hits` (same as any unknown `type`) and stores no faction data.
+- The schema still describes a server that reads at most 50 hits and skips an empty or over-255-character `faction`. That text describes an earlier roboToald handler. It is not current roboToald behavior, and this guide does not require it of a backend that chooses to store hits.
 
 ### 5.7 `show_modal` (S→C)
 
@@ -528,7 +590,7 @@ A generic popup the server can send at any time after `full_state`, independent 
 | `always_on_top` | bool, optional | `true`: a separate window that stays above other windows (including EQ in windowed mode) until acknowledged, queued with other topmost popups. `false` (default): a dialog inside the proxy window. |
 | `id` | string, optional | A popup whose `id` matches one the client still has pending is dropped, so a repeated send does not stack. |
 
-- Proxy behavior: every popup goes through one handler (`present_modal` in `src-tauri/src/modals.rs`): `show_modal`, login notes, and the proxy's own popups (rejected login, connection error, Rustle UI warning). A message with neither title nor message is ignored; a missing title gets a default for its level. Older proxies ignore the message type.
+- Proxy behavior: every popup goes through one handler (`present_modal` in `src-tauri/src/modals.rs`): `show_modal`, login notes, and the proxy's own popups (rejected login, connection error, Rustle UI warning). A message with neither title nor message is ignored; a missing title gets a default for its level. The schema lists `title` and `message` as required; the proxy accepts either or both missing (§4.3). Older proxies ignore the message type.
 - Existing responses are unchanged: login notes still come in `login_auth_response.notes`, and rejections still use `login_auth_response.error` and the `error` message. A backend does not need to send `show_modal` for those; the proxy already shows them.
 - **[reference]** roboToald does not send `show_modal` yet.
 
@@ -541,7 +603,7 @@ A generic popup the server can send at any time after `full_state`, independent 
 ```
 
 - Server `ping` every ~30s; the proxy replies `pong`. A client `ping` gets a server `pong`.
-- `error` is sent immediately before an auth-phase close. The proxy reads `detail` (also accepting `message`, `reason` or `error`, and the `auth_failed` / `close` type names); the schema requires `detail`, so **MUST** set it. If the close frame wins the race, the proxy shows the close reason instead.
+- `error` is sent immediately before an auth-phase close. The proxy reads `detail` (also accepting `message`, `reason` or `error`, and the `auth_failed` / `close` type names). A missing `detail` still parks the proxy, with the text "authentication failed". The schema requires `detail` on `error` (§4.3), so a schema-checked backend MUST set it. If the close frame wins the race, the proxy shows the close reason instead.
 
 ### 5.9 HTTP `POST /auth` **[reference]** / older clients
 
@@ -742,7 +804,7 @@ The SSO name cache is built from `full_state` and kept current by `delta`:
 | `login_auth_response.notes` | ignore OK | notes window |
 | `update_inventory` | ignore OK | parse + persist + delta |
 | `update_spellbook` | ignore OK | parse + replace stored spells (no delta) |
-| `faction_hits` | ignore OK | faction state + event log (no delta) |
+| `faction_hits` | ignore OK | optional to store (no delta); roboToald ignores it |
 | `fte` / `mob_death` | ignore OK | Discord TOD channel |
 | `show_modal` | optional to send | not sent yet |
 | `POST /auth` | | ✓ |
