@@ -184,16 +184,18 @@ The proxy sends these and never waits for a reply. Dropping them (no error, no c
 | `faction_hits` | Nothing is stored. roboToald does this: the type is not handled, same as any unknown type. Another backend MAY store the hits. |
 | `fte`, `mob_death` | No raid relay. roboToald posts them to Discord; that is optional. |
 | `heartbeat`, `update_location` | MUST be tolerated (do not close). Persisting them is what keeps `last_login`, sessions, `active_character` and locations live. A backend MAY ignore the contents. |
-| `pong` | The proxy does not send application-level `ping` (it answers a server `ping` with `pong`). A server `pong` is ignored. |
 
 Any other `type` after auth MUST be ignored the same way.
 
-#### Messages a backend MAY never send
+#### Keepalive
+
+A backend MUST send `{"type":"ping"}` about every 30 seconds (checklist step 2, with jitter so connections opened together do not ping on the same tick) and MUST accept `{"type":"pong"}`. The proxy answers each JSON `ping` with a JSON `pong`, and it answers a WebSocket protocol ping frame with a pong frame. Accepting `pong` means reading it and leaving the connection up. No further reply is required. The current proxy has no read timeout, so a missing ping does not by itself drop the socket. Send the ping anyway.
+
+#### Messages a backend can omit
 
 | Message | If omitted |
 |---|---|
 | `show_modal` | No server popup. Login notes, rejected logins and connection errors still use their existing messages. roboToald does not send `show_modal`. |
-| `ping` | The proxy does not disconnect for a missing application ping. A ping loop is recommended, not required. |
 | `delta` | The cache stays at the last `full_state` until the next one. Live UI and newly added names wait for a `full_state`. |
 | `login_auth_response.notes` | Login proceeds with no notes popup. |
 | `POST /auth` | The proxy never calls it. |
@@ -799,7 +801,7 @@ The SSO name cache is built from `full_state` and kept current by `delta`:
 | `WS /ws/accounts` + `auth` + `full_state` | ✓ | |
 | DES `login_auth_response` | ✓ | |
 | `delta` add/remove/update | ✓ for live UI and names | |
-| App `ping`/`pong` | ✓ (proxy replies; server ping recommended) | 30s loop |
+| App `ping`/`pong` | ✓ send `ping` ~30s; accept `pong` (proxy replies) | 30s loop |
 | `heartbeat` / `update_location` | ✓ tolerate | persist + delta |
 | `login_auth_response.notes` | ignore OK | notes window |
 | `update_inventory` | ignore OK | parse + persist + delta |
