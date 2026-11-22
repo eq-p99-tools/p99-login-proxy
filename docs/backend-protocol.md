@@ -52,6 +52,7 @@ Implement an HTTP + WebSocket API such that an unmodified P99 Login Proxy can au
 7. Optionally `POST /auth` (HTTP plaintext fallback; **not** used by the proxy).
 8. Optionally `update_inventory` and `update_spellbook` (proxy sends; silent drop is OK for login compatibility).
 9. Optionally `fte`, `mob_death` and `faction_hits` (proxy sends; silent drop is OK for login compatibility).
+9a. Optionally send `show_modal` popups (§5.7).
 10. Verify with §12.
 
 ---
@@ -128,7 +129,7 @@ Client                         Server
 |<-- ping ---------------------|
 |-- pong --------------------->|
 |-- login_auth / heartbeat / update_location / update_inventory / update_spellbook / fte / mob_death / faction_hits / ping -->|
-|<-- login_auth_response / delta / ping / pong -------|
+|<-- login_auth_response / delta / ping / pong / show_modal -------|
 ```
 
 Invariants:
@@ -162,6 +163,7 @@ Every message is a JSON object with discriminator `type`. Unknown properties MAY
 | `ping` | either | `type` |
 | `pong` | either | `type` |
 | `error` | S→C | `type`, `detail` |
+| `show_modal` | S→C | `type`, `title`, `message` (optional: `level`, `always_on_top`, `id`) |
 
 ### 4.2 Store-only messages
 
@@ -355,7 +357,7 @@ Success:
 `notes` (optional, success only): login notes for the account the server **resolved** the username to. Tags and dynamic tags resolve only on the server, so this is the authoritative source; the proxy cannot reliably map a tag to an account from its cache.
 - **[reference]** present only when the account or at least one of its characters has notes; omitted otherwise.
 - `account`: string \| null. `characters`: map of character name → notes, only for that account's characters that have notes.
-- Proxy behavior: the notes window never holds or delays the login. The proxy forwards the rewritten packet first, then shows the notes in a non-modal, always-on-top window until the user acknowledges it, on every login with notes. EQ login is per account and the character is picked later on the world server, so the proxy shows the account note plus all character notes, highlighting the typed name when it is a character. A malformed `notes` value is ignored and the login proceeds.
+- Proxy behavior: the notes never hold or delay the login. The proxy forwards the rewritten packet first, then shows the notes in its always-on-top popup window (the same one `show_modal` uses with `always_on_top`) until the user acknowledges it, on every login with notes. EQ login is per account and the character is picked later on the world server, so the proxy shows the account note plus all character notes, highlighting the typed name when it is a character. A malformed `notes` value is ignored and the login proceeds.
 - Older proxies ignore the field.
 
 Failure:
@@ -503,7 +505,34 @@ General rules for every telemetry message:
 - **[reference]** stores per character and faction: `hits_better`, `hits_worse`, `cap` (`max` / `min`, cleared by the next better/worse hit), and first/last/cap timestamps; plus a raw event log (character, account, connected user and display name, `eq_log_time`) purged after `faction_event_retention_days` (default 90).
 - **Store-only**: no reply, no `delta`.
 
-### 5.7 Keepalive and error
+### 5.7 `show_modal` (S→C)
+
+A generic popup the server can send at any time after `full_state`, independent of any request. Use it for anything the user should see: maintenance notices, warnings, policy messages.
+
+```json
+{
+  "type": "show_modal",
+  "id": "maintenance-2026-11-22",
+  "title": "Server maintenance",
+  "message": "The SSO server restarts at 9pm Eastern for about 5 minutes.",
+  "level": "warning",
+  "always_on_top": true
+}
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `title` | string | Popup title |
+| `message` | string | Plain text; line breaks are kept. Clients MUST NOT render markup. |
+| `level` | `info` \| `warning` \| `error`, optional | Icon and styling. Default `info`; unknown values are treated as `info`. |
+| `always_on_top` | bool, optional | `true`: a separate window that stays above other windows (including EQ in windowed mode) until acknowledged, queued with other topmost popups. `false` (default): a dialog inside the proxy window. |
+| `id` | string, optional | A popup whose `id` matches one the client still has pending is dropped, so a repeated send does not stack. |
+
+- Proxy behavior: every popup goes through one handler (`present_modal` in `src-tauri/src/modals.rs`): `show_modal`, login notes, and the proxy's own popups (rejected login, connection error, Rustle UI warning). A message with neither title nor message is ignored; a missing title gets a default for its level. Older proxies ignore the message type.
+- Existing responses are unchanged: login notes still come in `login_auth_response.notes`, and rejections still use `login_auth_response.error` and the `error` message. A backend does not need to send `show_modal` for those; the proxy already shows them.
+- **[reference]** roboToald does not send `show_modal` yet.
+
+### 5.8 Keepalive and error
 
 ```json
 {"type": "ping"}
@@ -514,7 +543,7 @@ General rules for every telemetry message:
 - Server `ping` every ~30s; the proxy replies `pong`. A client `ping` gets a server `pong`.
 - `error` is sent immediately before an auth-phase close. The proxy reads `detail` (also accepting `message`, `reason` or `error`, and the `auth_failed` / `close` type names); the schema requires `detail`, so **MUST** set it. If the close frame wins the race, the proxy shows the close reason instead.
 
-### 5.8 HTTP `POST /auth` **[reference]** / older clients
+### 5.9 HTTP `POST /auth` **[reference]** / older clients
 
 ```
 POST /auth
@@ -540,7 +569,7 @@ Processing order **[reference]**: IP rate limit → access key lookup → SSO en
 
 Side effects on success match `login_auth`.
 
-### 5.9 `GET /`
+### 5.10 `GET /`
 
 ```json
 {"status": "ok", "service": "RoboToald API", "message": "API server is running"}
@@ -715,6 +744,7 @@ The SSO name cache is built from `full_state` and kept current by `delta`:
 | `update_spellbook` | ignore OK | parse + replace stored spells (no delta) |
 | `faction_hits` | ignore OK | faction state + event log (no delta) |
 | `fte` / `mob_death` | ignore OK | Discord TOD channel |
+| `show_modal` | optional to send | not sent yet |
 | `POST /auth` | | ✓ |
 | Discord RBAC / revocation / audit | | ✓ (wire outcomes still required) |
 | Legacy character `keys` | ignore OK | emitted for old clients |
@@ -763,6 +793,7 @@ The SSO name cache is built from `full_state` and kept current by `delta`:
 | This guide | `docs/backend-protocol.md` (this repo) |
 | Contract tests | `crates/runtime/tests/ws_contract.rs` |
 | Proxy WS client, message types | `crates/runtime/src/websocket.rs` |
+| Popup handling (`show_modal`, login notes, local errors) | `src-tauri/src/modals.rs`, `src/app/SystemDialogs.tsx`, `src/features/modals/` |
 | Name cache, delta apply | `crates/proxy-core/src/accounts_cache.rs` |
 | SSO gate | `crates/proxy-core/src/decision.rs` |
 | Splice, retry | `crates/runtime/src/proxy.rs`, `crates/protocol/src/retry.rs` |
