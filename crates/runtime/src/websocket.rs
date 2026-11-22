@@ -53,6 +53,8 @@ struct SsoClientInner {
     /// Last `update_location` payload sent per lowercased character name, used to
     /// suppress redundant sends (Python `ws_client._last_sent_location`).
     last_location: Mutex<HashMap<String, serde_json::Map<String, Value>>>,
+    /// Last inventory export text sent per lowercased character name.
+    last_inventory: Mutex<HashMap<String, String>>,
 }
 
 /// Shared SSO WebSocket client used by the UDP proxy for ``login_auth``.
@@ -72,6 +74,7 @@ impl SsoClient {
                 cache: Arc::new(RwLock::new(AccountCache::default())),
                 write: Mutex::new(None),
                 last_location: Mutex::new(HashMap::new()),
+                last_inventory: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -226,6 +229,39 @@ impl SsoClient {
         }
     }
 
+    /// Send a raw inventory export on `update_inventory`. The server parses
+    /// whatever it cares about, so the client sends the whole file and only
+    /// skips an identical resend.
+    pub async fn send_inventory_export(&self, character_name: &str, inventory: &str) {
+        if !self.is_connected() || inventory.is_empty() {
+            return;
+        }
+
+        let key = character_name.to_lowercase();
+        if self
+            .inner
+            .last_inventory
+            .lock()
+            .await
+            .get(&key)
+            .is_some_and(|prev| prev == inventory)
+        {
+            return;
+        }
+
+        let msg = WsOutbound::UpdateInventory {
+            character_name,
+            inventory,
+        };
+        if self.send_json(&msg).await.is_ok() {
+            self.inner
+                .last_inventory
+                .lock()
+                .await
+                .insert(key, inventory.to_owned());
+        }
+    }
+
     pub async fn send_fte(&self, mob: &str, player: &str, character_name: &str, eq_log_time: &str) {
         if !self.is_connected() {
             return;
@@ -327,6 +363,11 @@ pub enum WsOutbound<'a> {
         level: Option<u32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         items: Option<&'a serde_json::Map<String, Value>>,
+    },
+    /// Raw `<Char>-Inventory.txt` contents; the server parses tracked items.
+    UpdateInventory {
+        character_name: &'a str,
+        inventory: &'a str,
     },
     Fte {
         mob: &'a str,
@@ -654,6 +695,7 @@ async fn teardown(
     client.inner.connected.store(false, Ordering::Relaxed);
     cancel_pending(client).await;
     client.inner.last_location.lock().await.clear();
+    client.inner.last_inventory.lock().await.clear();
     if clear_cache {
         *client.cache().write().await = AccountCache::default();
     }
