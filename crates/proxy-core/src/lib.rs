@@ -44,8 +44,8 @@ pub use local_data::{
     save_local_characters, try_load_local_data, LocalDataBundle, LocalDataError,
 };
 pub use logs::{
-    character_from_log_path, is_raid_target, log_reports_to_sso, server_from_log_path, LogEvent,
-    LogEventKind, LogPatterns, DEFAULT_SSO_REPORT_SERVERS,
+    character_from_log_path, is_raid_target, log_reports_to_sso, server_from_log_path,
+    FactionDirection, FactionHit, LogEvent, LogEventKind, LogPatterns, DEFAULT_SSO_REPORT_SERVERS,
 };
 pub use model::*;
 pub use net_util::split_host_port;

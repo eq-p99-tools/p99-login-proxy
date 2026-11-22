@@ -6,7 +6,7 @@ use std::time::Duration;
 use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
 use proxy_core::SsoCaBundleMode;
-use proxy_core::{log_reports_to_sso, sso_report_servers, AccountCache};
+use proxy_core::{log_reports_to_sso, sso_report_servers, AccountCache, FactionHit};
 
 use crate::events::{LoginNotes, ModalLevel, ServerModal};
 use secrecy::{ExposeSecret, SecretString};
@@ -285,6 +285,23 @@ impl SsoClient {
         };
         let _ = self.send_json(&msg).await;
     }
+
+    pub async fn send_faction_hits(
+        &self,
+        character_name: &str,
+        eq_log_time: &str,
+        hits: &[FactionHit],
+    ) {
+        if !self.is_connected() || hits.is_empty() {
+            return;
+        }
+        let msg = WsOutbound::FactionHits {
+            character_name,
+            eq_log_time,
+            hits,
+        };
+        let _ = self.send_json(&msg).await;
+    }
 }
 
 /// Merge outgoing `update_location` fields into the last-sent snapshot, returning
@@ -378,6 +395,12 @@ pub enum WsOutbound<'a> {
         mob: &'a str,
         eq_log_time: &'a str,
         character_name: &'a str,
+    },
+    /// Faction-standing lines one character logged within one log second.
+    FactionHits {
+        character_name: &'a str,
+        eq_log_time: &'a str,
+        hits: &'a [FactionHit],
     },
     Pong,
 }

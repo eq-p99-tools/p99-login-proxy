@@ -5,10 +5,11 @@ use std::time::{Duration, SystemTime};
 
 use proxy_core::{
     character_from_log_path, class_translate, is_raid_target, server_from_log_path,
-    zone_to_zonekey, LogEventKind, LogPatterns,
+    zone_to_zonekey, FactionHit, LogEventKind, LogPatterns,
 };
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
@@ -19,6 +20,59 @@ use crate::websocket::SsoClient;
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(20);
 const LOG_IDLE_SECS: u64 = 30;
+/// A kill or turn-in logs all of its faction lines in the same second, but they
+/// can arrive across several file reads; wait this long for more before sending.
+const FACTION_FLUSH_DELAY: Duration = Duration::from_secs(1);
+const FACTION_BATCH_MAX_HITS: usize = 50;
+
+/// Faction hits one character logged within one log second, sent as a single
+/// `faction_hits` message.
+#[derive(Debug)]
+struct FactionBatch {
+    character: String,
+    eq_log_time: String,
+    hits: Vec<FactionHit>,
+    flush_at: Instant,
+}
+
+/// Add a hit to the pending batch. Returns the previous batch when it is
+/// complete (different character or log second, or full) and must be sent first.
+fn push_faction_hit(
+    batch: &mut Option<FactionBatch>,
+    character: &str,
+    eq_log_time: String,
+    hit: FactionHit,
+    now: Instant,
+) -> Option<FactionBatch> {
+    let done = batch.take_if(|b| {
+        b.character != character
+            || b.eq_log_time != eq_log_time
+            || b.hits.len() >= FACTION_BATCH_MAX_HITS
+    });
+    let pending = batch.get_or_insert_with(|| FactionBatch {
+        character: character.to_string(),
+        eq_log_time,
+        hits: Vec::new(),
+        flush_at: now,
+    });
+    pending.hits.push(hit);
+    pending.flush_at = now + FACTION_FLUSH_DELAY;
+    done
+}
+
+async fn send_faction_batch(batch: Option<FactionBatch>, sso: Option<&SsoClient>) {
+    let (Some(batch), Some(client)) = (batch, sso) else {
+        return;
+    };
+    info!(
+        character = %batch.character,
+        hits = batch.hits.len(),
+        "faction hits detected"
+    );
+    client
+        .send_faction_hits(&batch.character, &batch.eq_log_time, &batch.hits)
+        .await;
+}
 
 struct WatcherContext {
     sso: Option<SsoClient>,
@@ -31,6 +85,7 @@ struct LineContext<'a> {
     watcher: &'a WatcherContext,
     current_zones: &'a mut HashMap<String, String>,
     patterns: &'a LogPatterns,
+    faction_batch: &'a mut Option<FactionBatch>,
 }
 
 pub struct EqLogWatcherHandle {
@@ -79,6 +134,7 @@ async fn run_watcher_loop(
     let mut latest_log: Option<PathBuf> = None;
     let mut position: u64 = 0;
     let mut current_zones: HashMap<String, String> = HashMap::new();
+    let mut faction_batch: Option<FactionBatch> = None;
     let mut heartbeat = tokio::time::interval(HEARTBEAT_INTERVAL);
 
     if let Some(path) = find_latest_log(&logs_dir) {
@@ -96,8 +152,17 @@ async fn run_watcher_loop(
     }
 
     loop {
+        let faction_flush_at = faction_batch.as_ref().map(|b| b.flush_at);
         tokio::select! {
             _ = cancel.cancelled() => break,
+            _ = async {
+                match faction_flush_at {
+                    Some(at) => tokio::time::sleep_until(at).await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                send_faction_batch(faction_batch.take(), ctx.sso.as_ref()).await;
+            }
             _ = heartbeat.tick() => {
                 if let Some(ref path) = latest_log {
                     maybe_send_heartbeat(path, ctx.sso.as_ref(), ctx.stats.as_ref(), &ctx.event_tx).await;
@@ -108,6 +173,7 @@ async fn run_watcher_loop(
                     if path.extension().and_then(|e| e.to_str()) == Some("txt") {
                         let new_latest = find_latest_log(&logs_dir);
                         if new_latest.as_ref() != latest_log.as_ref() {
+                            send_faction_batch(faction_batch.take(), ctx.sso.as_ref()).await;
                             if let Some(ref p) = new_latest {
                                 info!(
                                     path = %p.display(),
@@ -136,6 +202,7 @@ async fn run_watcher_loop(
                                 watcher: &ctx,
                                 current_zones: &mut current_zones,
                                 patterns: &patterns,
+                                faction_batch: &mut faction_batch,
                             };
                             position = read_new_lines(&path, position, line_ctx).await;
                         }
@@ -144,6 +211,7 @@ async fn run_watcher_loop(
             }
         }
     }
+    send_faction_batch(faction_batch.take(), ctx.sso.as_ref()).await;
     debug!("EQ log watcher stopped");
 }
 
@@ -281,6 +349,22 @@ async fn handle_line(
     let sso = ctx.watcher.sso.as_ref().filter(|_| reports_to_sso);
     let (in_sso, in_local) = character_is_tracked(char_lc, sso, &ctx.watcher.local_character_names);
     if !in_sso && !in_local {
+        return;
+    }
+
+    if let Some((eq_log_time, hit)) = ctx.patterns.faction_hit(line) {
+        // Faction standing is tracked for SSO characters only.
+        if in_sso && sso.is_some() {
+            debug!(%character, faction = %hit.faction, direction = ?hit.direction, "faction hit");
+            let done = push_faction_hit(
+                ctx.faction_batch,
+                character,
+                eq_log_time,
+                hit,
+                Instant::now(),
+            );
+            send_faction_batch(done, sso).await;
+        }
         return;
     }
 
@@ -577,6 +661,63 @@ mod tests {
             in_sso || in_local,
             "local-only characters should reach FTE handling when SSO is connected"
         );
+    }
+
+    fn hit(faction: &str, direction: proxy_core::FactionDirection) -> FactionHit {
+        FactionHit {
+            faction: faction.into(),
+            direction,
+        }
+    }
+
+    #[test]
+    fn faction_hits_batch_per_character_and_log_second() {
+        use proxy_core::FactionDirection::*;
+        let t0 = Instant::now();
+        let mut batch = None;
+        let s1 = "Sat Nov 21 09:55:01 2026".to_string();
+        let s2 = "Sat Nov 21 09:55:02 2026".to_string();
+
+        assert!(
+            push_faction_hit(&mut batch, "Hero", s1.clone(), hit("Coldain", Better), t0).is_none()
+        );
+        assert!(
+            push_faction_hit(&mut batch, "Hero", s1.clone(), hit("Kromrif", Worse), t0).is_none()
+        );
+        let pending = batch.as_ref().unwrap();
+        assert_eq!(pending.hits.len(), 2);
+        assert_eq!(pending.flush_at, t0 + FACTION_FLUSH_DELAY);
+
+        let done = push_faction_hit(&mut batch, "Hero", s2.clone(), hit("Coldain", Max), t0)
+            .expect("new log second completes the batch");
+        assert_eq!(done.eq_log_time, s1);
+        assert_eq!(
+            done.hits,
+            vec![hit("Coldain", Better), hit("Kromrif", Worse)]
+        );
+
+        let done = push_faction_hit(&mut batch, "Other", s2.clone(), hit("Coldain", Min), t0)
+            .expect("new character completes the batch");
+        assert_eq!(done.character, "Hero");
+        assert_eq!(batch.as_ref().unwrap().character, "Other");
+    }
+
+    #[test]
+    fn faction_batch_splits_when_full() {
+        use proxy_core::FactionDirection::Better;
+        let t0 = Instant::now();
+        let mut batch = None;
+        let s = "Sat Nov 21 09:55:01 2026";
+        for _ in 0..FACTION_BATCH_MAX_HITS {
+            assert!(
+                push_faction_hit(&mut batch, "Hero", s.into(), hit("Coldain", Better), t0)
+                    .is_none()
+            );
+        }
+        let done =
+            push_faction_hit(&mut batch, "Hero", s.into(), hit("Coldain", Better), t0).unwrap();
+        assert_eq!(done.hits.len(), FACTION_BATCH_MAX_HITS);
+        assert_eq!(batch.unwrap().hits.len(), 1);
     }
 
     #[test]
