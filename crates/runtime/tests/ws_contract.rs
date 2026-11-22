@@ -1,10 +1,10 @@
 //! Contract tests pinning the typed WS enums to the shared fixtures.
 //!
-//! The fixtures under `schemas/fixtures/` are vendored from the canonical
-//! copies in `roboToald/schemas/` (the server owns the contract). These tests
-//! assert that every inbound fixture deserializes into the expected
-//! `WsInbound` variant and every `WsOutbound` value serializes to the matching
-//! outbound fixture, so a server-side shape change trips CI here.
+//! `schemas/ws-protocol.schema.json` and `schemas/fixtures/` in this repo are
+//! the normative wire contract, kept only here (backends such as roboToald load
+//! them from a checkout of this repo in their own tests). These tests assert that every inbound fixture deserializes into the
+//! expected `WsInbound` variant and every `WsOutbound` value serializes to the
+//! matching outbound fixture, so a shape change on either side trips CI here.
 
 use std::path::{Path, PathBuf};
 
@@ -60,7 +60,7 @@ fn fixture_paths() -> Vec<PathBuf> {
     paths
 }
 
-fn vendored_schema() -> Value {
+fn contract_schema() -> Value {
     read_value(&schemas_dir().join("ws-protocol.schema.json"))
 }
 
@@ -169,7 +169,7 @@ fn login_auth_response_err_fixture_deserializes() {
             real_user, error, ..
         } => {
             assert!(real_user.is_none());
-            assert_eq!(error.as_deref(), Some("No access to that account"));
+            assert_eq!(error.as_deref(), Some("Authentication failed"));
         }
         other => panic!("expected LoginAuthResponse, got {other:?}"),
     }
@@ -276,7 +276,7 @@ fn assert_outbound_matches(msg: &WsOutbound, rel: &str) {
 
 #[test]
 fn outbound_values_match_fixtures() {
-    let settings = json!({ "auto_add_local_characters": true });
+    let settings = json!({ "log_enabled": true, "rustle_present": false });
     assert_outbound_matches(
         &WsOutbound::Auth {
             access_key: "AccessKeyExample1234",
@@ -305,8 +305,8 @@ fn outbound_values_match_fixtures() {
     assert_outbound_matches(
         &WsOutbound::UpdateLocation {
             character_name: "Zzzz",
-            park_location: Some("Plane of Knowledge"),
-            bind_location: Some("Toxxulia Forest"),
+            park_location: Some("veeshan"),
+            bind_location: Some("tox"),
             level: Some(60),
             items: items.as_object(),
         },
@@ -379,9 +379,9 @@ fn update_location_omits_absent_optionals() {
 }
 
 #[test]
-fn all_fixtures_validate_against_vendored_schema() {
-    let schema = vendored_schema();
-    let validator = jsonschema::validator_for(&schema).expect("compile vendored schema");
+fn all_fixtures_validate_against_schema() {
+    let schema = contract_schema();
+    let validator = jsonschema::validator_for(&schema).expect("compile contract schema");
     for path in fixture_paths() {
         let value = read_value(&path);
         if let Err(err) = validator.validate(&value) {
@@ -392,10 +392,10 @@ fn all_fixtures_validate_against_vendored_schema() {
 
 #[test]
 fn serialized_outbound_validates_against_schema() {
-    let schema = vendored_schema();
-    let validator = jsonschema::validator_for(&schema).expect("compile vendored schema");
+    let schema = contract_schema();
+    let validator = jsonschema::validator_for(&schema).expect("compile contract schema");
 
-    let settings = json!({ "auto_add_local_characters": true });
+    let settings = json!({ "log_enabled": true, "rustle_present": false });
     let items = json!({ "seb": true, "vp": false });
     let messages = [
         serde_json::to_value(WsOutbound::Auth {
@@ -415,8 +415,8 @@ fn serialized_outbound_validates_against_schema() {
         .unwrap(),
         serde_json::to_value(WsOutbound::UpdateLocation {
             character_name: "Zzzz",
-            park_location: Some("Plane of Knowledge"),
-            bind_location: Some("Toxxulia Forest"),
+            park_location: Some("veeshan"),
+            bind_location: Some("tox"),
             level: Some(60),
             items: items.as_object(),
         })
@@ -457,50 +457,5 @@ fn serialized_outbound_validates_against_schema() {
         if let Err(err) = validator.validate(msg) {
             panic!("serialized outbound {msg} failed schema validation: {err}");
         }
-    }
-}
-
-/// Cross-repo drift guard: when the sibling `roboToald` repo is checked out
-/// alongside this one, the vendored schema and fixtures must be byte-identical
-/// to the canonical copies the server owns. Skipped (not failed) when the
-/// sibling repo is absent, so CI that clones only this repo stays green.
-#[test]
-fn vendored_copies_match_canonical_when_sibling_present() {
-    let canonical_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
-        .join("..")
-        .join("roboToald")
-        .join("schemas");
-    if !canonical_root.exists() {
-        eprintln!(
-            "roboToald sibling repo not found at {}; skipping drift check",
-            canonical_root.display()
-        );
-        return;
-    }
-
-    let vendored_schema = std::fs::read(schemas_dir().join("ws-protocol.schema.json")).unwrap();
-    let canonical_schema = std::fs::read(canonical_root.join("ws-protocol.schema.json")).unwrap();
-    assert_eq!(
-        vendored_schema, canonical_schema,
-        "vendored ws-protocol.schema.json drifted from canonical roboToald copy; re-vendor it"
-    );
-
-    let base = fixtures_dir();
-    for path in fixture_paths() {
-        let rel = path.strip_prefix(&base).unwrap();
-        let canonical = canonical_root.join("fixtures").join(rel);
-        assert!(
-            canonical.exists(),
-            "canonical fixture missing: {}",
-            canonical.display()
-        );
-        assert_eq!(
-            std::fs::read(&path).unwrap(),
-            std::fs::read(&canonical).unwrap(),
-            "fixture {} drifted from canonical copy; re-vendor it",
-            rel.display()
-        );
     }
 }

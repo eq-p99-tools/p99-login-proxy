@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/toald/roboToald/schemas/ws-protocol.schema.json",
+  "$id": "https://github.com/eq-p99-tools/p99-login-proxy/schemas/ws-protocol.schema.json",
   "title": "P99 SSO WebSocket Protocol",
-  "description": "Normative machine-readable wire contract for the WebSocket channel between the P99 login proxy (client) and the roboToald SSO server. Each message is a JSON object discriminated by its `type`. Bulk payloads (account_tree, changes) are loosely typed so the server can evolve their internals without breaking clients; unknown extra fields are permitted everywhere for the same reason. For flows, crypto, RBAC, and implementer checklists see docs/backend-protocol.md (additive guide; must not diverge from this schema).",
+  "description": "Normative machine-readable wire contract for the WebSocket channel between the P99 login proxy (client) and an SSO backend (reference implementation: roboToald). Owned by and kept only in the p99-login-proxy repo. Each message is a JSON object discriminated by its `type`. Bulk payloads (account_tree, changes) are loosely typed so the server can evolve their internals without breaking clients; unknown extra fields are permitted everywhere for the same reason. For flows, crypto, RBAC, size caps, and implementer checklists see docs/backend-protocol.md in p99-login-proxy (additive guide; must not diverge from this schema).",
   "oneOf": [
     { "$ref": "#/$defs/full_state" },
     { "$ref": "#/$defs/delta" },
@@ -45,7 +45,7 @@
     },
     "login_auth_response": {
       "type": "object",
-      "description": "Server -> client. Result of a login_auth request. On success `real_user` and `encrypted_credentials` are present, plus `notes` when the server-resolved account or any of its characters has login notes; on failure `error` (and `status`) are present.",
+      "description": "Server -> client. Result of a login_auth request, matched by the echoed `request_id`. On success `real_user` and `encrypted_credentials` (Base64 DES-CBC) are present, plus `notes` when the server-resolved account or any of its characters has login notes; on failure `error` (and `status`: 400, 401, 410 or 500) are present.",
       "required": ["type", "request_id"],
       "properties": {
         "type": { "const": "login_auth_response" },
@@ -59,7 +59,7 @@
     },
     "login_notes": {
       "type": "object",
-      "description": "Login notes for the account that login_auth resolved to (tags resolve server-side). Omitted when there are none. Plain text; clients must not interpret it as markup.",
+      "description": "Login notes for the account that login_auth resolved to (tags resolve server-side). Omitted when there are none. Plain text (at most 500 characters each in the reference server); clients must not interpret it as markup.",
       "required": ["account", "characters"],
       "properties": {
         "account": { "type": ["string", "null"] },
@@ -108,7 +108,7 @@
     },
     "auth": {
       "type": "object",
-      "description": "Client -> server. First message after connect; authenticates the session.",
+      "description": "Client -> server. First message after connect; authenticates the session. `client_settings` carries `log_enabled` and, once checked, `rustle_present` (booleans) for guild policy checks.",
       "required": ["type", "access_key", "client_version"],
       "properties": {
         "type": { "const": "auth" },
@@ -138,7 +138,7 @@
     },
     "update_location": {
       "type": "object",
-      "description": "Client -> server. Character park/bind/level/item updates. All fields besides character_name are optional. Legacy clients may send `keys`; server merges with `items` (`items` wins on conflict).",
+      "description": "Client -> server. Character park/bind/level/item updates. Locations are zone keys. All fields besides character_name are optional; `items` is a partial update of the item wire keys. Legacy clients may send `keys`; server merges with `items` (`items` wins on conflict).",
       "required": ["type", "character_name"],
       "properties": {
         "type": { "const": "update_location" },
@@ -162,7 +162,7 @@
     },
     "update_spellbook": {
       "type": "object",
-      "description": "Client -> server. Raw EQ `<Char>-Spellbook.txt` export (`/outputfile spellbook`): one `<level><TAB><spell name>` line per scribed spell, unsorted, no header (spaces are accepted in place of the tab). The server replaces the character's stored spellbook with it. Blank text, text longer than 131072 bytes, or text with any non-blank line that is not a level and a name is ignored.",
+      "description": "Client -> server. Raw EQ `<Char>-Spellbook.txt` export (`/outputfile spellbook`): one `<level><TAB><spell name>` line per scribed spell, unsorted, no header (spaces are accepted in place of the tab). The server replaces the character's stored spellbook with it. Store only: spells never appear in full_state or delta. Blank text, text longer than 131072 bytes, any non-blank line that is not a level (1-255) and a name, a name longer than 255 characters, or more than 1000 distinct spells is ignored.",
       "required": ["type", "character_name", "spellbook"],
       "properties": {
         "type": { "const": "update_spellbook" },
@@ -195,7 +195,7 @@
     },
     "faction_hits": {
       "type": "object",
-      "description": "Client -> server. Faction-standing lines one character logged within one EQ log second: `Your faction standing with <faction> got better|worse.` (`better` / `worse`) and `... could not possibly get any better|worse.` (`max` / `min`, the faction is capped). `faction` is the log text verbatim.",
+      "description": "Client -> server. Faction-standing lines one character logged within one EQ log second: `Your faction standing with <faction> got better|worse.` (`better` / `worse`) and `... could not possibly get any better|worse.` (`max` / `min`, the faction is capped). `faction` is the log text verbatim. Store only: never appears in full_state or delta. The server reads at most the first 50 hits and skips entries whose trimmed `faction` is empty or longer than 255 characters.",
       "required": ["type", "character_name", "eq_log_time", "hits"],
       "properties": {
         "type": { "const": "faction_hits" },
