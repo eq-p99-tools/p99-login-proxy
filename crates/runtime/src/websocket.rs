@@ -8,7 +8,7 @@ use futures_util::{SinkExt, StreamExt};
 use proxy_core::SsoCaBundleMode;
 use proxy_core::{log_reports_to_sso, sso_report_servers, AccountCache};
 
-use crate::events::LoginNotes;
+use crate::events::{LoginNotes, ModalLevel, ServerModal};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -417,6 +417,20 @@ pub enum WsInbound {
         #[serde(default, deserialize_with = "lenient_login_notes")]
         notes: Option<LoginNotes>,
     },
+    /// Generic popup. Every field is optional on the wire so a malformed or
+    /// newer message still shows something instead of being dropped.
+    ShowModal {
+        #[serde(default)]
+        id: Option<String>,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        message: Option<String>,
+        #[serde(default)]
+        level: Option<String>,
+        #[serde(default)]
+        always_on_top: Option<bool>,
+    },
     Ping,
     Pong,
     // Server sends `{"type": "error", "detail": ...}`; older/other builds may use
@@ -479,10 +493,16 @@ impl WsHandle {
 #[derive(Debug, Clone)]
 pub enum WsStateEvent {
     Connecting,
-    Connected { account_count: usize },
+    Connected {
+        account_count: usize,
+    },
     Disconnected,
-    AuthFailed { reason: String },
+    AuthFailed {
+        reason: String,
+    },
     Parked,
+    /// A `show_modal` message to present to the user.
+    ShowModal(ServerModal),
 }
 
 fn build_ws_url(api_url: &str) -> String {
@@ -828,6 +848,21 @@ async fn handle_inbound(
             )
             .await;
         }
+        WsInbound::ShowModal {
+            id,
+            title,
+            message,
+            level,
+            always_on_top,
+        } => {
+            let modal = server_modal(id, title, message, level, always_on_top);
+            if let Some(modal) = modal {
+                info!(title = %modal.title, level = ?modal.level, "server popup");
+                notify_state(on_state, WsStateEvent::ShowModal(modal));
+            } else {
+                debug!(raw = %text, "ignoring empty show_modal");
+            }
+        }
         WsInbound::Ping => {
             if let Ok(text) = serde_json::to_string(&WsOutbound::Pong) {
                 let _ = write.lock().await.send(Message::Text(text.into())).await;
@@ -843,6 +878,40 @@ async fn handle_inbound(
         WsInbound::Unknown => debug!(raw = %text, "WS unhandled message"),
     }
     InboundOutcome::Continue
+}
+
+/// Normalize a `show_modal` message. `None` when it has neither a title nor a
+/// message, since there would be nothing to show.
+fn server_modal(
+    id: Option<String>,
+    title: Option<String>,
+    message: Option<String>,
+    level: Option<String>,
+    always_on_top: Option<bool>,
+) -> Option<ServerModal> {
+    let title = title.map(|t| t.trim().to_string()).unwrap_or_default();
+    let message = message.map(|m| m.trim().to_string()).unwrap_or_default();
+    if title.is_empty() && message.is_empty() {
+        return None;
+    }
+    let level = ModalLevel::from_wire(level.as_deref());
+    let title = if title.is_empty() {
+        match level {
+            ModalLevel::Info => "Message from SSO server",
+            ModalLevel::Warning => "Warning from SSO server",
+            ModalLevel::Error => "Error from SSO server",
+        }
+        .to_string()
+    } else {
+        title
+    };
+    Some(ServerModal {
+        id: id.filter(|i| !i.is_empty()),
+        title,
+        message,
+        level,
+        always_on_top: always_on_top.unwrap_or(false),
+    })
 }
 
 async fn resolve_login_auth_response(
@@ -895,6 +964,39 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn server_modal_normalizes_level_title_and_placement() {
+        let modal = server_modal(
+            Some(String::new()),
+            None,
+            Some(" Restarting soon ".into()),
+            Some("shout".into()),
+            None,
+        )
+        .expect("modal");
+        assert_eq!(modal.level, ModalLevel::Info);
+        assert_eq!(modal.title, "Message from SSO server");
+        assert_eq!(modal.message, "Restarting soon");
+        assert!(!modal.always_on_top);
+        assert_eq!(modal.id, None);
+
+        let modal = server_modal(
+            None,
+            Some("Down".into()),
+            None,
+            Some("error".into()),
+            Some(true),
+        )
+        .expect("modal");
+        assert_eq!(modal.level, ModalLevel::Error);
+        assert!(modal.always_on_top);
+    }
+
+    #[test]
+    fn server_modal_without_title_or_message_is_dropped() {
+        assert!(server_modal(None, Some("  ".into()), None, None, Some(true)).is_none());
+    }
     use secrecy::SecretString;
     use serde_json::json;
     use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;

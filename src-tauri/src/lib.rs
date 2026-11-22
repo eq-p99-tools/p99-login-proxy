@@ -1,7 +1,7 @@
 mod commands;
 mod icons;
 mod logging;
-mod login_notes;
+mod modals;
 mod notifications;
 mod resume;
 mod state;
@@ -138,10 +138,10 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let app = window.app_handle();
-                if window.label() == login_notes::LOGIN_NOTES_WINDOW {
-                    // Closing the notes window counts as acknowledging it.
+                if window.label() == modals::MODAL_WINDOW {
+                    // Closing the popup window counts as acknowledging it.
                     if let Some(state) = app.try_state::<AppState>() {
-                        state.login_notes.lock().expect("login_notes lock").clear();
+                        state.modals.lock().expect("modal queue lock").clear();
                     }
                     return;
                 }
@@ -189,8 +189,8 @@ pub fn run() {
             commands::show_window,
             commands::hide_window,
             commands::request_shutdown,
-            commands::get_login_notes,
-            commands::acknowledge_login_notes,
+            commands::get_modals,
+            commands::acknowledge_modals,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

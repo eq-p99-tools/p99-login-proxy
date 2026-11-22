@@ -3,7 +3,7 @@ import type {
   EqSettingsView,
   LocalCharacterInput,
   LocalDataView,
-  LoginNotesEntry,
+  ModalEntry,
   LogSnapshot,
   ProxyMode,
   ProxySettings,
@@ -21,7 +21,7 @@ export type {
   LocalCharacter,
   LocalCharacterInput,
   LocalDataView,
-  LoginNotesEntry,
+  ModalEntry,
   LogLine,
   LogSnapshot,
   ProxyMode,
@@ -86,8 +86,8 @@ export interface DesktopClient {
   requestShutdown(): Promise<void>;
   getLaunchAtLogin(): Promise<boolean>;
   setLaunchAtLogin(enabled: boolean): Promise<boolean>;
-  /** Unacknowledged login notes, newest first. */
-  getLoginNotes(): Promise<LoginNotesEntry[]>;
-  /** Clear all pending login notes and close the notes window. */
-  acknowledgeLoginNotes(): Promise<void>;
+  /** Unacknowledged topmost popups, newest first. */
+  getModals(): Promise<ModalEntry[]>;
+  /** Clear all pending topmost popups and close their window. */
+  acknowledgeModals(): Promise<void>;
 }

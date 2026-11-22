@@ -10,7 +10,7 @@ import type {
   LocalAccountInput,
   LocalCharacterInput,
   LocalDataView,
-  LoginNotesEntry,
+  ModalEntry,
   LogSnapshot,
   ProxySettings,
   SsoAccountsView,
@@ -56,21 +56,37 @@ const MOCK_CONFIG: AppConfig = {
   auto_add_local_characters: false,
 };
 
-/** Browser preview of the notes window (`?view=login-notes`) starts with a sample login. */
-function initialMockLoginNotes(): LoginNotesEntry[] {
-  if (typeof window === "undefined" || !window.location.search.includes("view=login-notes")) {
+/** Browser preview of the popup window (`?view=modal`) starts with sample popups. */
+function initialMockModals(): ModalEntry[] {
+  if (typeof window === "undefined" || !window.location.search.includes("view=modal")) {
     return [];
   }
   return [
     {
+      id: 2,
+      title: "Server maintenance",
+      level: "warning",
+      always_on_top: true,
+      dedupe_id: null,
+      body: { kind: "text", message: "The SSO server restarts at 9pm Eastern for about 5 minutes." },
+      received_at_ms: Date.now(),
+    },
+    {
       id: 1,
-      username: "kaelclr",
-      account: "guildcleric7",
-      account_notes: "Shared with the raid team. Log out at the bind point when done.",
-      characters: [
-        { name: "Zzzz", notes: "Kael factioned. Do not zone into Kael Drakkel.", typed: false },
-        { name: "Yyyy", notes: "Bound in Skyshrine", typed: false },
-      ],
+      title: "Login notes: guildcleric7",
+      level: "info",
+      always_on_top: true,
+      dedupe_id: null,
+      body: {
+        kind: "login_notes",
+        username: "kaelclr",
+        account: "guildcleric7",
+        account_notes: "Shared with the raid team. Log out at the bind point when done.",
+        characters: [
+          { name: "Zzzz", notes: "Kael factioned. Do not zone into Kael Drakkel.", typed: false },
+          { name: "Yyyy", notes: "Bound in Skyshrine", typed: false },
+        ],
+      },
       received_at_ms: Date.now(),
     },
   ];
@@ -133,7 +149,7 @@ export class MockClient implements DesktopClient {
   private localCharacters: LocalDataView["characters"] = [];
   private eqDir: string | null = null;
   private passwordStore = new Map<string, string>();
-  private loginNotes: LoginNotesEntry[] = initialMockLoginNotes();
+  private modals: ModalEntry[] = initialMockModals();
   private launchAtLogin = false;
 
   async getRuntimeState(): Promise<RuntimeState> {
@@ -364,20 +380,17 @@ export class MockClient implements DesktopClient {
     return enabled;
   }
 
-  async getLoginNotes(): Promise<LoginNotesEntry[]> {
-    return this.loginNotes.map((entry) => ({
-      ...entry,
-      characters: entry.characters.map((c) => ({ ...c })),
-    }));
+  async getModals(): Promise<ModalEntry[]> {
+    return structuredClone(this.modals);
   }
 
-  async acknowledgeLoginNotes(): Promise<void> {
-    this.loginNotes = [];
+  async acknowledgeModals(): Promise<void> {
+    this.modals = [];
   }
 
-  /** Test helper: queue login notes as if SSO logins had returned them (newest first). */
-  setMockLoginNotes(entries: LoginNotesEntry[]) {
-    this.loginNotes = entries;
+  /** Test helper: queue topmost popups (newest first). */
+  setMockModals(entries: ModalEntry[]) {
+    this.modals = entries;
   }
 
   /** Test helper: inject malformed SSO data */

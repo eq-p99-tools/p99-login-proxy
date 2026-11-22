@@ -1,0 +1,8 @@
+{
+  "type": "show_modal",
+  "id": "maintenance-2026-11-22",
+  "title": "Server maintenance",
+  "message": "The SSO server restarts at 9pm Eastern for about 5 minutes.",
+  "level": "warning",
+  "always_on_top": true
+}

@@ -37,15 +37,15 @@ commands.allow = [
   "show_window",
   "hide_window",
   "request_shutdown",
-  "get_login_notes",
-  "acknowledge_login_notes",
+  "get_modals",
+  "acknowledge_modals",
 ]
 
 [[permission]]
-identifier = "allow-login-notes-commands"
-description = "Commands the login notes window needs"
+identifier = "allow-modal-commands"
+description = "Commands the topmost popup window needs"
 commands.allow = [
-  "get_login_notes",
-  "acknowledge_login_notes",
+  "get_modals",
+  "acknowledge_modals",
   "get_app_config",
 ]

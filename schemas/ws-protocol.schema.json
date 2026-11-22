@@ -10,6 +10,7 @@
     { "$ref": "#/$defs/ping" },
     { "$ref": "#/$defs/pong" },
     { "$ref": "#/$defs/error" },
+    { "$ref": "#/$defs/show_modal" },
     { "$ref": "#/$defs/auth" },
     { "$ref": "#/$defs/login_auth" },
     { "$ref": "#/$defs/heartbeat" },
@@ -88,6 +89,19 @@
         "detail": { "type": "string" },
         "message": { "type": "string" },
         "reason": { "type": "string" }
+      }
+    },
+    "show_modal": {
+      "type": "object",
+      "description": "Server -> client. Generic popup, independent of any request. Plain text; clients must not interpret it as markup. Clients route it through the same popup handling as their built-in popups (login notes, rejected logins, connection errors). Older clients ignore it.",
+      "required": ["type", "title", "message"],
+      "properties": {
+        "type": { "const": "show_modal" },
+        "id": { "type": "string", "description": "Optional. A popup whose id matches one the client still has pending is dropped." },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "level": { "enum": ["info", "warning", "error"], "description": "Icon and styling. Default info; clients treat unknown values as info." },
+        "always_on_top": { "type": "boolean", "description": "Show in a separate window that stays above other windows until acknowledged, instead of a dialog in the proxy window. Default false." }
       }
     },
     "auth": {

@@ -175,6 +175,41 @@ fn login_auth_response_err_fixture_deserializes() {
 }
 
 #[test]
+fn show_modal_fixture_deserializes() {
+    match parse_inbound("inbound/show_modal.json") {
+        WsInbound::ShowModal {
+            id,
+            title,
+            message,
+            level,
+            always_on_top,
+        } => {
+            assert_eq!(id.as_deref(), Some("maintenance-2026-11-22"));
+            assert_eq!(title.as_deref(), Some("Server maintenance"));
+            assert!(message.is_some_and(|m| m.contains("9pm")));
+            assert_eq!(level.as_deref(), Some("warning"));
+            assert_eq!(always_on_top, Some(true));
+        }
+        other => panic!("expected ShowModal, got {other:?}"),
+    }
+}
+
+#[test]
+fn show_modal_tolerates_missing_and_unknown_fields() {
+    let minimal: WsInbound =
+        serde_json::from_str(r#"{"type":"show_modal","message":"hi","level":"shout","x":1}"#)
+            .unwrap();
+    assert!(matches!(
+        minimal,
+        WsInbound::ShowModal {
+            title: None,
+            always_on_top: None,
+            ..
+        }
+    ));
+}
+
+#[test]
 fn error_ping_pong_fixtures_deserialize() {
     assert!(matches!(
         parse_inbound("inbound/error.json"),

@@ -40,6 +40,41 @@ impl LoginNotes {
     }
 }
 
+/// Severity of a popup; picks its icon and styling.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModalLevel {
+    #[default]
+    Info,
+    Warning,
+    Error,
+}
+
+impl ModalLevel {
+    /// Unknown or missing levels fall back to `Info` so a newer server never
+    /// breaks an older client.
+    pub fn from_wire(raw: Option<&str>) -> Self {
+        match raw {
+            Some("warning") => Self::Warning,
+            Some("error") => Self::Error,
+            _ => Self::Info,
+        }
+    }
+}
+
+/// A popup the server asked for with a `show_modal` message. Plain text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServerModal {
+    /// Lets the client drop a repeat of a popup that is still pending.
+    pub id: Option<String>,
+    pub title: String,
+    pub message: String,
+    pub level: ModalLevel,
+    /// Show in a separate window that stays above other windows (including EQ
+    /// in windowed mode) instead of a dialog inside the proxy window.
+    pub always_on_top: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AppEvent {
@@ -73,6 +108,10 @@ pub enum AppEvent {
         username: String,
         account: String,
         notes: LoginNotes,
+    },
+    /// The server sent a `show_modal` message.
+    ShowModal {
+        modal: ServerModal,
     },
     LocalCharacterUpdate {
         name: String,

@@ -4,12 +4,12 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use crate::icons::update_tray_and_window_icons;
-use crate::login_notes::{now_ms, show_login_notes_window, LoginNotesQueue};
+use crate::modals::{present_modal, ModalQueue, ModalRequest};
 use crate::notifications::notify_login_proxied;
 use crate::tray::{refresh_tray_tooltip, update_toggle_menu_label};
 use proxy_core::model::ProxyLifecycle;
 use runtime::events::AppEvent;
-use runtime::{format_app_event, AppSupervisor, LogStore, RuntimeStateView};
+use runtime::{format_app_event, AppSupervisor, LogStore, ModalLevel, RuntimeStateView};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::{mpsc, watch, Mutex};
 use tracing::Level;
@@ -20,7 +20,7 @@ pub struct AppState {
     pub log_store: LogStore,
     pub log_file: Option<PathBuf>,
     pub tray_available: Arc<AtomicBool>,
-    pub login_notes: Arc<StdMutex<LoginNotesQueue>>,
+    pub modals: Arc<StdMutex<ModalQueue>>,
     event_rx: StdMutex<Option<mpsc::Receiver<AppEvent>>>,
 }
 
@@ -33,7 +33,7 @@ impl AppState {
             log_store,
             log_file,
             tray_available: Arc::new(AtomicBool::new(false)),
-            login_notes: Arc::new(StdMutex::new(LoginNotesQueue::default())),
+            modals: Arc::new(StdMutex::new(ModalQueue::default())),
             event_rx: StdMutex::new(Some(event_rx)),
         }
     }
@@ -43,7 +43,7 @@ impl AppState {
         spawn_snapshot_emitter(app.clone(), self.snapshot_rx.clone(), supervisor.clone());
         spawn_uptime_ticker(supervisor.clone());
         if let Some(event_rx) = self.event_rx.lock().expect("event_rx lock").take() {
-            spawn_event_loop(app.clone(), event_rx, supervisor, self.login_notes.clone());
+            spawn_event_loop(app.clone(), event_rx, supervisor, self.modals.clone());
         }
         tauri::async_runtime::spawn({
             let app = app.clone();
@@ -79,7 +79,7 @@ fn spawn_event_loop(
     app: AppHandle,
     mut event_rx: mpsc::Receiver<AppEvent>,
     supervisor: Arc<Mutex<AppSupervisor>>,
-    login_notes: Arc<StdMutex<LoginNotesQueue>>,
+    modals: Arc<StdMutex<ModalQueue>>,
 ) {
     tauri::async_runtime::spawn(async move {
         while let Some(event) = event_rx.recv().await {
@@ -135,10 +135,16 @@ fn spawn_event_loop(
                     sup.stats_tracker().connection_completed();
                     sup.touch_snapshot();
                 }
-                AppEvent::AuthRejected { username, reason } => {
-                    let _ = app.emit(
-                        "login-rejected",
-                        serde_json::json!({ "username": username, "reason": reason }),
+                AppEvent::AuthRejected { reason, .. } => {
+                    let reason = if reason.is_empty() {
+                        "Authentication rejected by server"
+                    } else {
+                        reason.as_str()
+                    };
+                    present_modal(
+                        &app,
+                        &modals,
+                        ModalRequest::text("SSO Login Rejected", reason, ModalLevel::Error),
                     );
                 }
                 AppEvent::LoginNotes {
@@ -146,15 +152,21 @@ fn spawn_event_loop(
                     account,
                     notes,
                 } => {
-                    let entry = login_notes
-                        .lock()
-                        .expect("login_notes lock")
-                        .push(username, account, notes, now_ms())
-                        .clone();
-                    show_login_notes_window(&app, &entry);
+                    present_modal(
+                        &app,
+                        &modals,
+                        ModalRequest::login_notes(username, account, notes),
+                    );
+                }
+                AppEvent::ShowModal { modal } => {
+                    present_modal(&app, &modals, ModalRequest::from_server(modal));
                 }
                 AppEvent::RustleWarning { message } => {
-                    let _ = app.emit("rustle-warning", serde_json::json!({ "message": message }));
+                    present_modal(
+                        &app,
+                        &modals,
+                        ModalRequest::text("Rustle UI Detected", message, ModalLevel::Warning),
+                    );
                 }
                 _ => {}
             }

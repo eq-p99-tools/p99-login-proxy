@@ -4,10 +4,10 @@ import { ErrorBoundary } from "../../app/ErrorBoundary";
 import type { DesktopClient } from "../../ipc/Client";
 import { MockClient } from "../../ipc/MockClient";
 import { TauriClient } from "../../ipc/TauriClient";
-import { LoginNotesWindow } from "./LoginNotesWindow";
+import { ModalWindow } from "./ModalWindow";
 
-/** Root for the login notes window; skips the main window's runtime sync. */
-export function LoginNotesApp({ client: clientOverride }: { client?: DesktopClient }) {
+/** Root for the topmost popup window; skips the main window's runtime sync. */
+export function ModalApp({ client: clientOverride }: { client?: DesktopClient }) {
   const client = useMemo<DesktopClient>(
     () =>
       clientOverride ??
@@ -18,7 +18,7 @@ export function LoginNotesApp({ client: clientOverride }: { client?: DesktopClie
   );
   return (
     <ErrorBoundary>
-      <LoginNotesWindow client={client} />
+      <ModalWindow client={client} />
     </ErrorBoundary>
   );
 }
