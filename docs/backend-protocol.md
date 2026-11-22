@@ -368,12 +368,14 @@ Failure:
 }
 ```
 
+A request without a non-empty string `request_id` gets **no reply**: a response must carry one (schema) and could not be matched without it. **[reference]** logs a warning and drops the request. The proxy always sends a UUID, so it never hits this.
+
 Proxy resolution: the response is matched to the pending request by `request_id` (an unknown `request_id` is dropped). If `error` is present, the login fails with that string; otherwise the proxy Base64-decodes `encrypted_credentials` (empty or invalid → no credentials) and takes `real_user`. **`status` is ignored by the proxy** but SHOULD be set for other clients.
 
 | `status` **[reference]** | `error` string | When |
 |---|---|---|
 | 400 | `Character not found` | Username does not resolve to any account |
-| 400 | `Missing request_id or username` | Either field missing or empty. **[reference]** echoes `request_id` as sent, so it is `null` when absent, which the schema does not allow; the proxy always sends both. |
+| 400 | `Missing request_id or username` | `username` missing or empty |
 | 401 | `Authentication failed` | Resolved account not accessible to the key, or SSO disabled for the guild since connect. Deliberately generic. |
 | 410 | `Tag is empty (possibly temporarily, due to inactivity requirements)` | Tag or dynamic tag matched only active accounts (or none, for dynamic tags) |
 | 500 | `Internal server error` | Unexpected server error |
@@ -743,12 +745,11 @@ The SSO name cache is built from `full_state` and kept current by `delta`:
 |---|---|
 | Q1 | No protocol version field. Compatibility is additive JSON plus `client_version` / guild minimum version only. |
 | Q2 | `owned`/`shared` are not field-diffed; ownership flips may not reach clients until another field changes or they reconnect. |
-| Q3 | **[reference]** answers a `login_auth` missing `request_id` with `request_id: null`, which violates the schema. The proxy never sends such a request. |
-| Q4 | The proxy does not validate messages against the schema at runtime; CI in this repo checks its typed messages against the fixtures and schema, and roboToald checks its live output against them from a checkout of this repo (`rust` branch in its CI). |
-| Q5 | Rate-limit defaults (10 per 30 min) are deployment config and may be overridden. |
-| Q6 | HTTP `X-Forwarded-For` trust depends on the deployment's reverse proxy configuration. |
-| Q7 | Guild multi-tenancy, Discord readiness (4004) and audit retention are reference architecture; a single-tenant backend MAY stub them (for example, never send 4004) if it still speaks the wire. |
-| Q8 | Non-ASCII usernames and passwords in the DES plaintext are encoded as UTF-8; stick to ASCII for EQ accounts. |
+| Q3 | The proxy does not validate messages against the schema at runtime; CI in this repo checks its typed messages against the fixtures and schema, and roboToald checks its live output against them from a checkout of this repo (`rust` branch in its CI). |
+| Q4 | Rate-limit defaults (10 per 30 min) are deployment config and may be overridden. |
+| Q5 | HTTP `X-Forwarded-For` trust depends on the deployment's reverse proxy configuration. |
+| Q6 | Guild multi-tenancy, Discord readiness (4004) and audit retention are reference architecture; a single-tenant backend MAY stub them (for example, never send 4004) if it still speaks the wire. |
+| Q7 | Non-ASCII usernames and passwords in the DES plaintext are encoded as UTF-8; stick to ASCII for EQ accounts. |
 
 ---
 
